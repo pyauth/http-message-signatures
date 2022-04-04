@@ -3,16 +3,16 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='http-signature',
+    name='http-message-signatures',
     version='0.0.1',
-    url='https://github.com/pyauth/http-signature',
+    url='https://github.com/pyauth/http-message-signatures',
     license='Apache Software License',
     author='Andrey Kislyuk',
     author_email='kislyuk@gmail.com',
     description="An implementation of the IETF HTTP Message Signatures draft standard",
     long_description=open('README.md').read(),
     use_scm_version={
-        "write_to": "http_signature/version.py",
+        "write_to": "http_message_signatures/version.py",
     },
     setup_requires=['setuptools_scm >= 3.4.3'],
     install_requires=[
