@@ -17,6 +17,6 @@ install:
 	python -m build
 	pip install --upgrade dist/*.whl
 
-.PHONY: test release docs
+.PHONY: test lint release docs
 
 include common.mk

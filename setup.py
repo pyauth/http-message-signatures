@@ -19,7 +19,16 @@ setup(
         "http-sfv >= 0.9.3",
         "cryptography >= 36.0.2"
     ],
-    tests_require=["coverage", "flake8", "wheel", "requests"],
+    extras_require={
+        "tests": [
+            "flake8 >= 4.0.1, < 5",
+            "coverage",
+            "build",
+            "wheel",
+            "mypy",
+            "requests",
+        ]
+    },
     packages=find_packages(exclude=['test']),
     include_package_data=True,
     platforms=['MacOS X', 'Posix'],

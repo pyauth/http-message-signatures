@@ -58,12 +58,12 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 
     def sign(self, request, *,
              key_id: str,
-             created=None,
-             expires=None,
-             nonce=None,
-             label=None,
-             include_alg=True,
-             covered_component_ids=("@method", "@authority", "@target-uri")):
+             created: datetime.datetime = None,
+             expires: datetime.datetime = None,
+             nonce: str = None,
+             label: str = None,
+             include_alg: bool = True,
+             covered_component_ids: List[str] = ("@method", "@authority", "@target-uri")):
         # TODO: Accept-Signature autonegotiation
         # TODO: if sign_body=True and body exists: inject content-digest if not set, add to covered components
         key = self.key_resolver.resolve_private_key(key_id)

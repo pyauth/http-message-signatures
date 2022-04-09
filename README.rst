@@ -37,7 +37,9 @@ Synopsis
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request)
 
-Note that verifying the body content-digest is not yet implemented, so it remains the caller's responsibility.
+Note that verifying the body content-digest is outside the scope of this package's functionality, so it remains the
+caller's responsibility. The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
+builds upon this package to provide integrated signing and validation of the request body.
 
 .. admonition:: See what is signed
 
