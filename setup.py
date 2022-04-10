@@ -21,7 +21,7 @@ setup(
     ],
     extras_require={
         "tests": [
-            "flake8 >= 4.0.1, < 5",
+            "flake8",
             "coverage",
             "build",
             "wheel",

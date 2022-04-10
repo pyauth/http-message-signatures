@@ -3,6 +3,8 @@ from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa, ed25519
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature, decode_dss_signature
 
+from .exceptions import HTTPMessageSignaturesException
+
 
 class HTTPSignatureAlgorithm:
     def sign(self, message: bytes):
@@ -27,9 +29,9 @@ class RSA_PSS_SHA512(HTTPSignatureAlgorithm, PEMKeyLoader):
     def __init__(self, public_key=None, private_key=None, password=None):
         self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
         if self.public_key and not isinstance(self.public_key, rsa.RSAPublicKey):
-            raise Exception("Unexpected public key type")
+            raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, rsa.RSAPrivateKey):
-            raise Exception("Unexpected private key type")
+            raise HTTPMessageSignaturesException("Unexpected private key type")
         self.padding = padding.PSS(mgf=padding.MGF1(hashes.SHA512()), salt_length=64)
         self.hash_algorithm = hashes.SHA512()
 
@@ -59,7 +61,7 @@ class HMAC_SHA256(HTTPSignatureAlgorithm):
 
     def __init__(self, public_key=None, private_key=None, shared_secret=None):
         if public_key and private_key and public_key != private_key:
-            raise Exception("HMAC public and private key must be the same")
+            raise HTTPMessageSignaturesException("HMAC public and private key must be the same")
         self.shared_secret = public_key if public_key is not None else private_key
         self.hash_algorithm = hashes.SHA256()
 
@@ -80,13 +82,13 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
     def __init__(self, public_key=None, private_key=None, password=None):
         self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
         if self.public_key and not isinstance(self.public_key, ec.EllipticCurvePublicKey):
-            raise Exception("Unexpected public key type")
+            raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, ec.EllipticCurvePrivateKey):
-            raise Exception("Unexpected private key type")
+            raise HTTPMessageSignaturesException("Unexpected private key type")
         if self.public_key and type(self.public_key.curve) != ec.SECP256R1:
-            raise Exception("Unexpected elliptic curve type in public key")
+            raise HTTPMessageSignaturesException("Unexpected elliptic curve type in public key")
         if self.private_key and type(self.private_key.curve) != ec.SECP256R1:
-            raise Exception("Unexpected elliptic curve type in private key")
+            raise HTTPMessageSignaturesException("Unexpected elliptic curve type in private key")
         self.signature_algorithm = ec.ECDSA(hashes.SHA256())
 
     def sign(self, message: bytes):
@@ -97,7 +99,7 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
 
     def verify(self, signature: bytes, message: bytes):
         if len(signature) != 64:
-            raise Exception("Unexpected signature length")
+            raise HTTPMessageSignaturesException("Unexpected signature length")
         r = int.from_bytes(signature[:32], byteorder='big')
         s = int.from_bytes(signature[32:], byteorder='big')
         der_sig = encode_dss_signature(r, s)
@@ -112,9 +114,9 @@ class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
     def __init__(self, public_key=None, private_key=None, password=None):
         self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
         if self.public_key and not isinstance(self.public_key, ed25519.Ed25519PublicKey):
-            raise Exception("Unexpected public key type")
+            raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, ed25519.Ed25519PrivateKey):
-            raise Exception("Unexpected private key type")
+            raise HTTPMessageSignaturesException("Unexpected private key type")
 
     def sign(self, message: bytes):
         return self.private_key.sign(message)

@@ -6,6 +6,7 @@ import http_sfv
 
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
+from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 
 
 class HTTPSignatureHandler:
@@ -22,7 +23,7 @@ class HTTPSignatureHandler:
                  key_resolver: HTTPSignatureKeyResolver,
                  component_resolver_class: type = HTTPSignatureComponentResolver):
         if signature_algorithm not in signature_algorithms.values():
-            raise Exception(f"Unknown signature algorithm {signature_algorithm}")
+            raise HTTPMessageSignaturesException(f"Unknown signature algorithm {signature_algorithm}")
         self.signature_algorithm = signature_algorithm
         self.key_resolver = key_resolver
         self.component_resolver_class = component_resolver_class
@@ -40,11 +41,12 @@ class HTTPSignatureHandler:
             # TODO: 2.1.2 parameterized keys
             component_value = component_resolver.resolve(component_id)
             if component_key.lower() != component_key:
-                raise Exception(f'Component ID "{component_key}" is not all lowercase')
+                raise HTTPMessageSignaturesException(f'Component ID "{component_key}" is not all lowercase')
             if "\n" in component_key:
-                raise Exception(f'Component ID "{component_key}" contains newline character')
+                raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if component_key in sig_elements:
-                raise Exception(f'Component ID "{component_key}" appeared multiple times in signature input')
+                raise HTTPMessageSignaturesException(f'Component ID "{component_key}" appeared multiple times in '
+                                                     'signature input')
             sig_elements[component_key] = component_value
         sig_params_node = http_sfv.InnerList(covered_component_ids)
         sig_params_node.params.update(signature_params)
@@ -99,12 +101,12 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
     def verify(self, response):
         # TODO: verify content-digest automatically
         if "Signature-Input" not in response.headers:
-            raise Exception("Expected Signature-Input header to be present")
+            raise InvalidSignature("Expected Signature-Input header to be present")
         sig_inputs = http_sfv.Dictionary()
         sig_inputs.parse(response.headers["Signature-Input"].encode())
         if len(sig_inputs) != 1:
             # FIXME
-            raise Exception("Multiple signatures are not supported")
+            raise InvalidSignature("Multiple signatures are not supported")
         signature = http_sfv.Dictionary()
         signature.parse(response.headers["Signature"].encode())
         for label, sig_input in sig_inputs.items():
@@ -112,19 +114,23 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             # (minimal required fields, max age, detect expired, prohibit alg param, expect alg, nonce)
             # resolve key by key_id; if alg is present, assert match
             if label not in signature:
-                raise Exception("Signature-Input contains a label not listed in Signature")
+                raise InvalidSignature("Signature-Input contains a label not listed in Signature")
             if "alg" in sig_input.params:
                 if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
-                    raise Exception("Unexpected algorithm specified in the signature")
+                    raise InvalidSignature("Unexpected algorithm specified in the signature")
             key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
             covered_component_ids = [i.value for i in sig_input]
             for param in sig_input.params:
                 if param not in self.signature_metadata_parameters:
-                    raise Exception(f'Unexpected signature metadata parameter "{param}"')
+                    raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
             sig_base, sig_params_node = self.build_signature_base(response,
                                                                   covered_component_ids=covered_component_ids,
                                                                   signature_params=sig_input.params)
             verifier = self.signature_algorithm(public_key=key)
-            verifier.verify(signature=signature[label].value, message=sig_base.encode())
+            raw_signature = signature[label].value
+            try:
+                verifier.verify(signature=raw_signature, message=sig_base.encode())
+            except Exception as e:
+                raise InvalidSignature(e) from e
             # FIXME: recover trusted subset using sig_params_node and return it,
             # prominently noting created/expired and nonce
