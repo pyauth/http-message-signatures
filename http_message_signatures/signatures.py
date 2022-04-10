@@ -52,7 +52,7 @@ class HTTPSignatureHandler:
         sig_params_node.params.update(signature_params)
         sig_elements['"@signature-params"'] = str(sig_params_node)
         sig_base = "\n".join(f"{k}: {v}" for k, v in sig_elements.items())
-        return sig_base, sig_params_node
+        return sig_base, sig_params_node, sig_elements
 
 
 class HTTPMessageSigner(HTTPSignatureHandler):
@@ -83,9 +83,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["alg"] = self.signature_algorithm.algorithm_id
         # TODO: content-digest autoconfiguration
         # - if request has a body and no content-digest header, compute content-digest as a structured header and set it
-        sig_base, sig_params_node = self.build_signature_base(request,
-                                                              covered_component_ids=covered_component_ids,
-                                                              signature_params=signature_params)
+        sig_base, sig_params_node, _ = self.build_signature_base(request,
+                                                                 covered_component_ids=covered_component_ids,
+                                                                 signature_params=signature_params)
         signer = self.signature_algorithm(private_key=key)
         signature = signer.sign(sig_base.encode())
         sig_label = self.DEFAULT_SIGNATURE_LABEL
@@ -97,6 +97,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         request.headers["Signature"] = str(sig_node)
 
 
+VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_components parameters")
+
+
 class HTTPMessageVerifier(HTTPSignatureHandler):
     def verify(self, response):
         # TODO: verify content-digest automatically
@@ -105,10 +108,11 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         sig_inputs = http_sfv.Dictionary()
         sig_inputs.parse(response.headers["Signature-Input"].encode())
         if len(sig_inputs) != 1:
-            # FIXME
+            # TODO: validate all behaviors with multiple signatures
             raise InvalidSignature("Multiple signatures are not supported")
         signature = http_sfv.Dictionary()
         signature.parse(response.headers["Signature"].encode())
+        verify_results = []
         for label, sig_input in sig_inputs.items():
             # see 3.2.1, app requirements
             # (minimal required fields, max age, detect expired, prohibit alg param, expect alg, nonce)
@@ -123,14 +127,20 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             for param in sig_input.params:
                 if param not in self.signature_metadata_parameters:
                     raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
-            sig_base, sig_params_node = self.build_signature_base(response,
-                                                                  covered_component_ids=covered_component_ids,
-                                                                  signature_params=sig_input.params)
+            sig_base, sig_params_node, sig_elements = self.build_signature_base(
+                response,
+                covered_component_ids=covered_component_ids,
+                signature_params=sig_input.params
+            )
             verifier = self.signature_algorithm(public_key=key)
             raw_signature = signature[label].value
             try:
                 verifier.verify(signature=raw_signature, message=sig_base.encode())
             except Exception as e:
                 raise InvalidSignature(e) from e
-            # FIXME: recover trusted subset using sig_params_node and return it,
-            # prominently noting created/expired and nonce
+            verify_result = VerifyResult(label=label,
+                                         algorithm=self.signature_algorithm,
+                                         covered_components=sig_elements,
+                                         parameters=dict(sig_params_node.params))
+            verify_results.append(verify_result)
+            return verify_results

@@ -139,7 +139,11 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signature = 'sig-b26=:wqcAqbmYJ2ji2glfAMaRy4gruYYnx2nEFN2HN6jrnDnQCK1u02Gb04v9EDgwUPiu4A0w6vuQv5lIp5WPpBKRCw==:'
         self.assertEqual(self.test_request.headers["Signature"], signature)
         verifier = HTTPMessageVerifier(signature_algorithm=ED25519, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        result = verifier.verify(self.test_request)[0]
+
+        self.assertEqual(result.parameters["keyid"], "test-key-ed25519")
+        self.assertIn("created", result.parameters)
+        self.assertEqual(result.label, "sig-b26")
 
         self.test_request.headers["Signature"] = 'sig-b26=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:'
         with self.assertRaises(Exception):
