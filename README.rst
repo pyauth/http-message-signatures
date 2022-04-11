@@ -1,7 +1,8 @@
 http-message-signatures: An implementation of the IETF HTTP Message Signatures draft standard
 =============================================================================================
 
-*http-message-signatures* is an implementation of the IETF `HTTP Message Signatures <https://datatracker.ietf.org/doc/draft-ietf-httpbis-message-signatures>`_ draft standard in
+*http-message-signatures* is an implementation of the IETF
+`HTTP Message Signatures <https://datatracker.ietf.org/doc/draft-ietf-httpbis-message-signatures>`_ draft standard in
 Python.
 
 Installation
@@ -52,7 +53,16 @@ builds upon this package to provide integrated signing and validation of the req
  In http-message-signatures, you can ensure that the information signed is what you expect to be signed by only trusting the
  data returned by the ``verify()`` method::
 
-   FIXME: example
+   verify_result = verifier.verify(request)
+
+ This returns VerifyResult, a namedtuple with the following attributes:
+
+ * label (str): The label for the signature
+ * algorithm: (same as signature_algorithm above)
+ * covered_components: A mapping of component names to their values, as covered by the signature
+ * parameters: A mapping of signature parameters to their values, as covered by the signature
+ * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
+   implements returning the body upon successful digest validation).
 
 Authors
 -------

@@ -67,7 +67,6 @@ class HTTPMessageSigner(HTTPSignatureHandler):
              include_alg: bool = True,
              covered_component_ids: List[str] = ("@method", "@authority", "@target-uri")):
         # TODO: Accept-Signature autonegotiation
-        # TODO: if sign_body=True and body exists: inject content-digest if not set, add to covered components
         key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
             created = datetime.datetime.utcnow()
@@ -81,8 +80,6 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["nonce"] = nonce
         if include_alg:
             signature_params["alg"] = self.signature_algorithm.algorithm_id
-        # TODO: content-digest autoconfiguration
-        # - if request has a body and no content-digest header, compute content-digest as a structured header and set it
         sig_base, sig_params_node, _ = self.build_signature_base(request,
                                                                  covered_component_ids=covered_component_ids,
                                                                  signature_params=signature_params)
@@ -97,12 +94,11 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         request.headers["Signature"] = str(sig_node)
 
 
-VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_components parameters")
+VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_components parameters body")
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
     def verify(self, response):
-        # TODO: verify content-digest automatically
         if "Signature-Input" not in response.headers:
             raise InvalidSignature("Expected Signature-Input header to be present")
         sig_inputs = http_sfv.Dictionary()
@@ -141,6 +137,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             verify_result = VerifyResult(label=label,
                                          algorithm=self.signature_algorithm,
                                          covered_components=sig_elements,
-                                         parameters=dict(sig_params_node.params))
+                                         parameters=dict(sig_params_node.params),
+                                         body=None)
             verify_results.append(verify_result)
             return verify_results
