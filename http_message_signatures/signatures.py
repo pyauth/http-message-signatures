@@ -98,16 +98,22 @@ VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_c
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
+    def parse_dict_header(self, header_name, headers):
+        if header_name not in headers:
+            raise InvalidSignature(f'Expected "{header_name}" header field to be present')
+        try:
+            dict_header_node = http_sfv.Dictionary()
+            dict_header_node.parse(headers[header_name].encode())
+        except Exception as e:
+            raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
+        return dict_header_node
+
     def verify(self, message):
-        if "Signature-Input" not in message.headers:
-            raise InvalidSignature("Expected Signature-Input header to be present")
-        sig_inputs = http_sfv.Dictionary()
-        sig_inputs.parse(message.headers["Signature-Input"].encode())
+        sig_inputs = self.parse_dict_header("Signature-Input", message.headers)
         if len(sig_inputs) != 1:
             # TODO: validate all behaviors with multiple signatures
             raise InvalidSignature("Multiple signatures are not supported")
-        signature = http_sfv.Dictionary()
-        signature.parse(message.headers["Signature"].encode())
+        signature = self.parse_dict_header("Signature", message.headers)
         verify_results = []
         for label, sig_input in sig_inputs.items():
             # see 3.2.1, app requirements
@@ -123,11 +129,14 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             for param in sig_input.params:
                 if param not in self.signature_metadata_parameters:
                     raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
-            sig_base, sig_params_node, sig_elements = self.build_signature_base(
-                message,
-                covered_component_ids=covered_component_ids,
-                signature_params=sig_input.params
-            )
+            try:
+                sig_base, sig_params_node, sig_elements = self.build_signature_base(
+                    message,
+                    covered_component_ids=covered_component_ids,
+                    signature_params=sig_input.params
+                )
+            except Exception as e:
+                raise InvalidSignature(e) from e
             verifier = self.signature_algorithm(public_key=key)
             raw_signature = signature[label].value
             try:

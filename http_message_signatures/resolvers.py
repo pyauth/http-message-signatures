@@ -31,9 +31,11 @@ class HTTPSignatureComponentResolver:
     def resolve(self, component_id):
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_names:
-                raise HTTPMessageSignaturesException(f'Unknown derived component name "{component_id}"')
+                raise HTTPMessageSignaturesException(f'Unknown covered derived component name "{component_id}"')
             resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
             return resolver()
+        if component_id not in self.headers:
+            raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
         return self.headers[component_id]
 
     def get_method(self):
