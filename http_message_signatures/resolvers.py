@@ -1,5 +1,7 @@
 import urllib
 
+import http_sfv
+
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict
 
@@ -25,18 +27,17 @@ class HTTPSignatureComponentResolver:
         if hasattr(message, "status_code"):
             self.message_type = "response"
         self.url = message.url
-        # TODO: check header key and value transforms are applied per 2.1
         self.headers = CaseInsensitiveDict(message.headers)
 
-    def resolve(self, component_id):
-        if component_id.startswith("@"):  # derived component
-            if component_id not in self.derived_component_names:
-                raise HTTPMessageSignaturesException(f'Unknown covered derived component name "{component_id}"')
-            resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
-            return resolver()
-        if component_id not in self.headers:
+    def resolve(self, component_id: http_sfv.Item):
+        if component_id.value.startswith("@"):  # derived component
+            if component_id.value not in self.derived_component_names:
+                raise HTTPMessageSignaturesException(f'Unknown covered derived component name {component_id.value}')
+            resolver = getattr(self, "get_" + component_id.value[1:].replace("-", "_"))
+            return resolver(**component_id.params)
+        if component_id.value not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
-        return self.headers[component_id]
+        return self.headers[component_id.value]
 
     def get_method(self):
         if self.message_type == "response":
@@ -61,17 +62,22 @@ class HTTPSignatureComponentResolver:
     def get_query(self):
         return "?" + urllib.parse.urlsplit(self.url).query
 
-    def get_query_params(self):
-        # need to parse component id as a structured field
-        # urllib.parse.parse_qs(urllib.parse.urlsplit(request.url).query, keep_blank_values=True)
-        raise NotImplementedError()
+    def get_query_params(self, *, name: str):
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.url).query, keep_blank_values=True)
+        if name not in query:
+            raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')
+        if len(query[name]) != 1:
+            raise HTTPMessageSignaturesException('Query parameters with multiple values are not supported.')
+        return query[name][0]
 
     def get_status(self):
         if self.message_type != "response":
             raise HTTPMessageSignaturesException('Unexpected "@status" component in a request signature')
         return str(self.message.status_code)
 
-    def get_request_response(self):
+    def get_request_response(self, *, key: str):
+        # See 2.2.11 Request-Response Signature Binding
+        # self.message.request.headers["Signature"][key]
         raise NotImplementedError()
 
 

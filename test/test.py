@@ -152,6 +152,20 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request)
 
+    def test_query_parameters(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request,
+                    key_id="test-shared-secret",
+                    covered_component_ids=("date", "@authority", "content-type", '"@query-params";name="Pet"'),
+                    created=datetime.fromtimestamp(1618884473))
+        self.assertEqual(self.test_request.headers["Signature-Input"],
+                         ('pyhms=("date" "@authority" "content-type" "@query-params";name="Pet");'
+                          'created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'))
+        self.assertEqual(self.test_request.headers["Signature"],
+                         'pyhms=:LOYhEJpBn34v3KohQBFl5qSy93haFd3+Ka9wwOmKeN0=:')
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier.verify(self.test_request)
+
 
 if __name__ == '__main__':
     unittest.main()

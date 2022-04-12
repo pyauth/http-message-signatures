@@ -1,5 +1,6 @@
 import collections
 import datetime
+import logging
 from typing import List, Dict
 
 import http_sfv
@@ -7,6 +8,8 @@ import http_sfv
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
+
+logger = logging.getLogger(__name__)
 
 
 class HTTPSignatureHandler:
@@ -29,19 +32,17 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def build_signature_base(self, message, *,
-                             covered_component_ids: List[str],
+                             covered_component_ids: List[http_sfv.Item],
                              signature_params: Dict[str, str]):
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
-            component_name_node = http_sfv.Item(component_id)
-            component_key = str(http_sfv.List([component_name_node]))
+            component_key = str(http_sfv.List([component_id]))
             # TODO: model situations when header occurs multiple times
-            # TODO: 2.1.2 parameterized keys
             component_value = component_resolver.resolve(component_id)
-            if component_key.lower() != component_key:
-                raise HTTPMessageSignaturesException(f'Component ID "{component_key}" is not all lowercase')
+            if component_id.value.lower() != component_id.value:
+                raise HTTPMessageSignaturesException(f'Component ID "{component_id.value}" is not all lowercase')
             if "\n" in component_key:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if component_key in sig_elements:
@@ -57,6 +58,17 @@ class HTTPSignatureHandler:
 
 class HTTPMessageSigner(HTTPSignatureHandler):
     DEFAULT_SIGNATURE_LABEL = "pyhms"
+
+    def parse_covered_component_ids(self, covered_component_ids):
+        covered_component_nodes = []
+        for component_id in covered_component_ids:
+            component_name_node = http_sfv.Item()
+            if component_id.startswith('"'):
+                component_name_node.parse(component_id.encode())
+            else:
+                component_name_node.value = component_id
+            covered_component_nodes.append(component_name_node)
+        return covered_component_nodes
 
     def sign(self, message, *,
              key_id: str,
@@ -80,9 +92,12 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["nonce"] = nonce
         if include_alg:
             signature_params["alg"] = self.signature_algorithm.algorithm_id
-        sig_base, sig_params_node, _ = self.build_signature_base(message,
-                                                                 covered_component_ids=covered_component_ids,
-                                                                 signature_params=signature_params)
+        covered_component_nodes = self.parse_covered_component_ids(covered_component_ids)
+        sig_base, sig_params_node, _ = self.build_signature_base(
+            message,
+            covered_component_ids=covered_component_nodes,
+            signature_params=signature_params
+        )
         signer = self.signature_algorithm(private_key=key)
         signature = signer.sign(sig_base.encode())
         sig_label = self.DEFAULT_SIGNATURE_LABEL
@@ -125,14 +140,13 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
                     raise InvalidSignature("Unexpected algorithm specified in the signature")
             key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
-            covered_component_ids = [i.value for i in sig_input]
             for param in sig_input.params:
                 if param not in self.signature_metadata_parameters:
                     raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
             try:
                 sig_base, sig_params_node, sig_elements = self.build_signature_base(
                     message,
-                    covered_component_ids=covered_component_ids,
+                    covered_component_ids=list(sig_input),
                     signature_params=sig_input.params
                 )
             except Exception as e:
