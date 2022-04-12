@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key, l
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from http_message_signatures import (HTTPSignatureComponentResolver, HTTPSignatureKeyResolver,  # noqa
-                                     HTTPMessageSigner, HTTPMessageVerifier)
+                                     HTTPMessageSigner, HTTPMessageVerifier, InvalidSignature)
 from http_message_signatures.algorithms import HMAC_SHA256, ED25519, ECDSA_P256_SHA256, RSA_PSS_SHA512  # noqa
 
 test_shared_secret = base64.b64decode("uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasj"
@@ -146,10 +146,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(result.label, "sig-b26")
 
         self.test_request.headers["Signature"] = 'sig-b26=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:'
-        with self.assertRaises(Exception):
+        with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request)
         self.test_request.headers["Signature"] = signature[::-1]
-        with self.assertRaises(Exception):
+        with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request)
 
 
