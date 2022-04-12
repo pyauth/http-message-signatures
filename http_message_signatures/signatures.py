@@ -58,7 +58,7 @@ class HTTPSignatureHandler:
 class HTTPMessageSigner(HTTPSignatureHandler):
     DEFAULT_SIGNATURE_LABEL = "pyhms"
 
-    def sign(self, request, *,
+    def sign(self, message, *,
              key_id: str,
              created: datetime.datetime = None,
              expires: datetime.datetime = None,
@@ -80,7 +80,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["nonce"] = nonce
         if include_alg:
             signature_params["alg"] = self.signature_algorithm.algorithm_id
-        sig_base, sig_params_node, _ = self.build_signature_base(request,
+        sig_base, sig_params_node, _ = self.build_signature_base(message,
                                                                  covered_component_ids=covered_component_ids,
                                                                  signature_params=signature_params)
         signer = self.signature_algorithm(private_key=key)
@@ -89,25 +89,25 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if label is not None:
             sig_label = label
         sig_input_node = http_sfv.Dictionary({sig_label: sig_params_node})
-        request.headers["Signature-Input"] = str(sig_input_node)
+        message.headers["Signature-Input"] = str(sig_input_node)
         sig_node = http_sfv.Dictionary({sig_label: signature})
-        request.headers["Signature"] = str(sig_node)
+        message.headers["Signature"] = str(sig_node)
 
 
 VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_components parameters body")
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
-    def verify(self, response):
-        if "Signature-Input" not in response.headers:
+    def verify(self, message):
+        if "Signature-Input" not in message.headers:
             raise InvalidSignature("Expected Signature-Input header to be present")
         sig_inputs = http_sfv.Dictionary()
-        sig_inputs.parse(response.headers["Signature-Input"].encode())
+        sig_inputs.parse(message.headers["Signature-Input"].encode())
         if len(sig_inputs) != 1:
             # TODO: validate all behaviors with multiple signatures
             raise InvalidSignature("Multiple signatures are not supported")
         signature = http_sfv.Dictionary()
-        signature.parse(response.headers["Signature"].encode())
+        signature.parse(message.headers["Signature"].encode())
         verify_results = []
         for label, sig_input in sig_inputs.items():
             # see 3.2.1, app requirements
@@ -124,7 +124,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 if param not in self.signature_metadata_parameters:
                     raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
             sig_base, sig_params_node, sig_elements = self.build_signature_base(
-                response,
+                message,
                 covered_component_ids=covered_component_ids,
                 signature_params=sig_input.params
             )
