@@ -1,3 +1,12 @@
+Changes for v0.2.3 (2022-04-12)
+===============================
+
+-  Raise InvalidSignature in more code paths
+
+-  Return related request method
+
+-  Clarify that sign and verify work on both requests and responses
+
 Changes for v0.2.2 (2022-04-10)
 ===============================
 
