@@ -20,13 +20,11 @@ class HTTPSignatureComponentResolver:
 
     # TODO: describe interface
     def __init__(self, message):
+        self.message = message
         self.message_type = "request"
         if hasattr(message, "status_code"):
             self.message_type = "response"
-        self.method = getattr(message, "method", None)
         self.url = message.url
-        self.status_code = getattr(message, "status_code", None)
-
         # TODO: check header key and value transforms are applied per 2.1
         self.headers = CaseInsensitiveDict(message.headers)
 
@@ -39,7 +37,9 @@ class HTTPSignatureComponentResolver:
         return self.headers[component_id]
 
     def get_method(self):
-        return self.method.upper()
+        if self.message_type == "response":
+            return self.message.request.method.upper()
+        return self.message.method.upper()
 
     def get_target_uri(self):
         return self.url
@@ -67,7 +67,7 @@ class HTTPSignatureComponentResolver:
     def get_status(self):
         if self.message_type != "response":
             raise HTTPMessageSignaturesException('Unexpected "@status" component in a request signature')
-        return str(self.status_code)
+        return str(self.message.status_code)
 
     def get_request_response(self):
         raise NotImplementedError()
