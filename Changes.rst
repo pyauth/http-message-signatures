@@ -1,3 +1,8 @@
+Changes for v0.3.0 (2022-04-12)
+===============================
+
+-  Support query parameter addressing
+
 Changes for v0.2.3 (2022-04-12)
 ===============================
 
