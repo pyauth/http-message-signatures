@@ -2,7 +2,7 @@
 
 import os, sys, unittest, io, base64, json
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
@@ -53,6 +53,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         }
         self.test_response.raw = io.BytesIO(json.dumps({"message": "good dog"}).encode())
         self.key_resolver = MyHTTPSignatureKeyResolver()
+        self.max_age = timedelta(weeks=90000)
 
     def test_http_message_signatures_B21(self):
         self.test_request.headers["Signature-Input"] = ('sig-b21=();created=1618884473;keyid="test-key-rsa-pss";'
@@ -64,7 +65,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                                                   'UnCh8jYzuVG5WSb/QEVPnP5TmcAnLH1g+s++v6d4s8m0gCw1fV5/SITLq9mhho8K3'
                                                   '+7EPYTU8IU1bLhdxO5Nyt8C8ssinQ98Xw9Q==:')
         verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B22(self):
         self.test_request.headers["Signature-Input"] = ('sig-b22=("@authority" "content-digest");'
@@ -76,7 +77,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                                                   'cZWLrLbtg6VlrH1+/07RV+kgTh/l10h8qgpl9zQHu7mWbDKTq0tJ8K4ywcPoC4s2I'
                                                   '4rU88jzDKDGdTTQFZoTVZxZmuTM1FvHfzIw==:')
         verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B23(self):
         self.test_request.headers["Signature-Input"] = ('sig-b23=("date" "@method" "@path" "@query" "@authority" '
@@ -89,7 +90,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                                                   'bpG6A9BmzhuzF8Eim5f8ui9eH8LZH896+QIF61ka39VBrohr9iyMUJpvRX2Zbhl5Z'
                                                   'JzSRxpJyoEZAFL2FUo5fTIztsDZKEgM4cUA==:')
         verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B24(self):
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
@@ -105,10 +106,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         # Non-deterministic signing algorithm
         self.assertTrue(self.test_response.headers["Signature"].startswith('sig-b24='))
         verifier = HTTPMessageVerifier(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
-        verifier.verify(self.test_response)
+        verifier.verify(self.test_response, max_age=self.max_age)
         self.test_response.headers["Signature"] = ("sig-b24=:0Ry6HsvzS5VmA6HlfBYS/fYYeNs7fYuA7s0tAdxfUlPGv0CSVuwrrzBOjc"
                                                    "CFHTxVRJ01wjvSzM2BetJauj8dsw==:")
-        verifier.verify(self.test_response)
+        verifier.verify(self.test_response, max_age=self.max_age)
 
     def test_http_message_signatures_B25(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -123,7 +124,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(self.test_request.headers["Signature"],
                          'sig-b25=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:')
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B26(self):
         signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
@@ -139,7 +140,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signature = 'sig-b26=:wqcAqbmYJ2ji2glfAMaRy4gruYYnx2nEFN2HN6jrnDnQCK1u02Gb04v9EDgwUPiu4A0w6vuQv5lIp5WPpBKRCw==:'
         self.assertEqual(self.test_request.headers["Signature"], signature)
         verifier = HTTPMessageVerifier(signature_algorithm=ED25519, key_resolver=self.key_resolver)
-        result = verifier.verify(self.test_request)[0]
+        result = verifier.verify(self.test_request, max_age=self.max_age)[0]
 
         self.assertEqual(result.parameters["keyid"], "test-key-ed25519")
         self.assertIn("created", result.parameters)
@@ -147,10 +148,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
         self.test_request.headers["Signature"] = 'sig-b26=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:'
         with self.assertRaises(InvalidSignature):
-            verifier.verify(self.test_request)
+            verifier.verify(self.test_request, max_age=self.max_age)
         self.test_request.headers["Signature"] = signature[::-1]
         with self.assertRaises(InvalidSignature):
-            verifier.verify(self.test_request)
+            verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -164,7 +165,21 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(self.test_request.headers["Signature"],
                          'pyhms=:LOYhEJpBn34v3KohQBFl5qSy93haFd3+Ka9wwOmKeN0=:')
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=self.max_age)
+
+    def test_created_expires(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1))
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier.verify(self.test_request, max_age=self.max_age)
+        with self.assertRaisesRegex(InvalidSignature, "Signature age exceeds maximum allowable age"):
+            verifier.verify(self.test_request)
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now() + self.max_age)
+        with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
+            verifier.verify(self.test_request)
+        signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1))
+        with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
+            verifier.verify(self.test_request)
 
 
 if __name__ == '__main__':
