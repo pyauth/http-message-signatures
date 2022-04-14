@@ -1,3 +1,8 @@
+Changes for v0.4.0 (2022-04-14)
+===============================
+
+-  Validate created and expires params
+
 Changes for v0.3.0 (2022-04-12)
 ===============================
 
