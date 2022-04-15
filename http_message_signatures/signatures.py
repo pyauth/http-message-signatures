@@ -147,7 +147,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < now:
                 raise InvalidSignature(f'Signature age exceeds maximum allowable age {max_age}')
 
-    def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(hours=1)):
+    def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(hours=36)):
         sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
         if len(sig_inputs) != 1:
             # TODO: validate all behaviors with multiple signatures
