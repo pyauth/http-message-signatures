@@ -4,7 +4,6 @@ from setuptools import setup, find_packages
 
 setup(
     name='http-message-signatures',
-    version='0.0.1',
     url='https://github.com/pyauth/http-message-signatures',
     license='Apache Software License',
     author='Andrey Kislyuk',
