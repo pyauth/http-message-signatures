@@ -1,7 +1,7 @@
 import collections
 import datetime
 import logging
-from typing import List, Dict, Sequence, Tuple, Type
+from typing import List, Dict, Sequence, Tuple, Type, Any
 
 import http_sfv
 
@@ -32,7 +32,7 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def _build_signature_base(self, message, *,
-                              covered_component_ids: List,
+                              covered_component_ids: List[Any],
                               signature_params: Dict[str, str]) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
@@ -83,11 +83,11 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
             created = datetime.datetime.now()
-        signature_params = collections.OrderedDict()
-        signature_params["created"] = str(int(created.timestamp()))
+        signature_params: Dict[str, Any] = collections.OrderedDict()
+        signature_params["created"] = int(created.timestamp())
         signature_params["keyid"] = key_id
         if expires:
-            signature_params["expires"] = str(int(expires.timestamp()))
+            signature_params["expires"] = int(expires.timestamp())
         if nonce:
             signature_params["nonce"] = nonce
         if include_alg:
