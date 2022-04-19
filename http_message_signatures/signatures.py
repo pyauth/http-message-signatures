@@ -8,6 +8,7 @@ import http_sfv
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
+from .structures import VerifyResult
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +108,6 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         message.headers["Signature-Input"] = str(sig_input_node)
         sig_node = http_sfv.Dictionary({sig_label: signature})
         message.headers["Signature"] = str(sig_node)
-
-
-VerifyResult = collections.namedtuple("VerifyResult", "label algorithm covered_components parameters body")
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
