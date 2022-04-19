@@ -7,6 +7,11 @@ from .exceptions import HTTPMessageSignaturesException
 
 
 class HTTPSignatureAlgorithm:
+    algorithm_id: str
+
+    def __init__(self, public_key=None, private_key=None):
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
     def sign(self, message: bytes):
         raise NotImplementedError("This method must be implemented by a subclass.")
 

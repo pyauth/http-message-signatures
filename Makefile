@@ -2,6 +2,7 @@ SHELL=/bin/bash
 
 lint:
 	flake8
+	mypy .
 
 test: lint
 	python ./test/test.py -v

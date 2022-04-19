@@ -1,4 +1,4 @@
-import guzzle_sphinx_theme
+import guzzle_sphinx_theme  # type: ignore
 
 project = "http-message-signatures"
 copyright = "Andrey Kislyuk"

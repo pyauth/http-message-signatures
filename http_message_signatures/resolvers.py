@@ -1,4 +1,4 @@
-import urllib
+import urllib.parse
 
 import http_sfv
 
@@ -29,15 +29,16 @@ class HTTPSignatureComponentResolver:
         self.url = message.url
         self.headers = CaseInsensitiveDict(message.headers)
 
-    def resolve(self, component_id: http_sfv.Item):
-        if component_id.value.startswith("@"):  # derived component
-            if component_id.value not in self.derived_component_names:
-                raise HTTPMessageSignaturesException(f'Unknown covered derived component name {component_id.value}')
-            resolver = getattr(self, "get_" + component_id.value[1:].replace("-", "_"))
-            return resolver(**component_id.params)
-        if component_id.value not in self.headers:
+    def resolve(self, component_node: http_sfv.Item):
+        component_id = str(component_node.value)
+        if component_id.startswith("@"):  # derived component
+            if component_id not in self.derived_component_names:
+                raise HTTPMessageSignaturesException(f'Unknown covered derived component name {component_id}')
+            resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
+            return resolver(**component_node.params)
+        if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
-        return self.headers[component_id.value]
+        return self.headers[component_id]
 
     def get_method(self):
         if self.message_type == "response":

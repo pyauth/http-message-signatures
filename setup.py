@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages  # type: ignore
 
 setup(
     name='http-message-signatures',
@@ -30,6 +30,9 @@ setup(
     },
     packages=find_packages(exclude=['test']),
     include_package_data=True,
+    package_data={
+        "http_message_signatures": ["py.typed"],
+    },
     platforms=['MacOS X', 'Posix'],
     test_suite='test',
     classifiers=[

@@ -1,7 +1,7 @@
 import collections
 import datetime
 import logging
-from typing import List, Dict
+from typing import List, Dict, Sequence, Tuple, Type
 
 import http_sfv
 
@@ -22,7 +22,7 @@ class HTTPSignatureHandler:
     }
 
     def __init__(self, *,
-                 signature_algorithm: HTTPSignatureAlgorithm,
+                 signature_algorithm: Type[HTTPSignatureAlgorithm],
                  key_resolver: HTTPSignatureKeyResolver,
                  component_resolver_class: type = HTTPSignatureComponentResolver):
         if signature_algorithm not in signature_algorithms.values():
@@ -32,8 +32,8 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def _build_signature_base(self, message, *,
-                              covered_component_ids: List[http_sfv.Item],
-                              signature_params: Dict[str, str]):
+                              covered_component_ids: List,
+                              signature_params: Dict[str, str]) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         component_resolver = self.component_resolver_class(message)
@@ -41,8 +41,9 @@ class HTTPSignatureHandler:
             component_key = str(http_sfv.List([component_id]))
             # TODO: model situations when header occurs multiple times
             component_value = component_resolver.resolve(component_id)
-            if component_id.value.lower() != component_id.value:
-                raise HTTPMessageSignaturesException(f'Component ID "{component_id.value}" is not all lowercase')
+            if str(component_id.value).lower() != str(component_id.value):
+                msg = f'Component ID "{component_id.value}" is not all lowercase'  # type: ignore
+                raise HTTPMessageSignaturesException(msg)
             if "\n" in component_key:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if component_key in sig_elements:
@@ -77,17 +78,16 @@ class HTTPMessageSigner(HTTPSignatureHandler):
              nonce: str = None,
              label: str = None,
              include_alg: bool = True,
-             covered_component_ids: List[str] = ("@method", "@authority", "@target-uri")):
+             covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri")):
         # TODO: Accept-Signature autonegotiation
         key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
             created = datetime.datetime.now()
-        created = int(created.timestamp())
         signature_params = collections.OrderedDict()
-        signature_params["created"] = created
+        signature_params["created"] = str(int(created.timestamp()))
         signature_params["keyid"] = key_id
         if expires:
-            signature_params["expires"] = int(expires.timestamp())
+            signature_params["expires"] = str(int(expires.timestamp()))
         if nonce:
             signature_params["nonce"] = nonce
         if include_alg:
@@ -147,7 +147,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < now:
                 raise InvalidSignature(f'Signature age exceeds maximum allowable age {max_age}')
 
-    def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)):
+    def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)) -> List[VerifyResult]:
         sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
         if len(sig_inputs) != 1:
             # TODO: validate all behaviors with multiple signatures
@@ -185,4 +185,4 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                                          parameters=dict(sig_params_node.params),
                                          body=None)
             verify_results.append(verify_result)
-            return verify_results
+        return verify_results
