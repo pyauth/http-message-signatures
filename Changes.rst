@@ -1,3 +1,12 @@
+Changes for v0.4.1 (2022-04-19)
+===============================
+
+-  Add type information
+
+-  Clean up algorithms namespace
+
+-  Use max-age=24h by default
+
 Changes for v0.4.0 (2022-04-14)
 ===============================
 
