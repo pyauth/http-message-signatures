@@ -37,8 +37,8 @@ class RSA_PSS_SHA512(HTTPSignatureAlgorithm, PEMKeyLoader):
             raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, rsa.RSAPrivateKey):
             raise HTTPMessageSignaturesException("Unexpected private key type")
-        self.padding = padding.PSS(mgf=padding.MGF1(hashes.SHA512()), salt_length=64)
-        self.hash_algorithm = hashes.SHA512()
+        self.padding: padding.AsymmetricPadding = padding.PSS(mgf=padding.MGF1(hashes.SHA512()), salt_length=64)
+        self.hash_algorithm: hashes.HashAlgorithm = hashes.SHA512()
 
     def sign(self, message: bytes):
         return self.private_key.sign(data=message,
@@ -56,7 +56,7 @@ class RSA_V1_5_SHA256(RSA_PSS_SHA512):
     algorithm_id = "rsa-v1_5-sha256"
 
     def __init__(self, public_key=None, private_key=None, password=None):
-        super().__init__(self, public_key=public_key, private_key=private_key, password=password)
+        super().__init__(public_key=public_key, private_key=private_key, password=password)
         self.padding = padding.PKCS1v15()
         self.hash_algorithm = hashes.SHA256()
 

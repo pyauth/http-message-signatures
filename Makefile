@@ -2,7 +2,7 @@ SHELL=/bin/bash
 
 lint:
 	flake8
-	mypy http_message_signatures
+	mypy --check-untyped-defs http_message_signatures
 
 test: lint
 	python ./test/test.py -v
