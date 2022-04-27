@@ -56,40 +56,72 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.max_age = timedelta(weeks=90000)
 
     def test_http_message_signatures_B21(self):
-        self.test_request.headers["Signature-Input"] = ('sig-b21=();created=1618884473;keyid="test-key-rsa-pss";'
-                                                        'nonce="b3k2pp5k7z-50gnwp.yemd"')
+        signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        signer.sign(self.test_request,
+                    key_id="test-key-rsa-pss",
+                    covered_component_ids=(),
+                    created=datetime.fromtimestamp(1618884473),
+                    label="sig-b21",
+                    nonce="b3k2pp5k7z-50gnwp.yemd",
+                    include_alg=False)
+        self.assertEqual(
+            self.test_request.headers["Signature-Input"],
+            'sig-b21=();created=1618884473;keyid="test-key-rsa-pss";nonce="b3k2pp5k7z-50gnwp.yemd"'
+        )
+        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        verifier.verify(self.test_request, max_age=self.max_age)  # Non-deterministic signing algorithm
         self.test_request.headers["Signature"] = ('sig-b21=:d2pmTvmbncD3xQm8E9ZV2828BjQWGgiwAaw5bAkgibUopem'
                                                   'LJcWDy/lkbbHAve4cRAtx31Iq786U7it++wgGxbtRxf8Udx7zFZsckzXaJMkA7ChG'
                                                   '52eSkFxykJeNqsrWH5S+oxNFlD4dzVuwe8DhTSja8xxbR/Z2cOGdCbzR72rgFWhzx'
                                                   '2VjBqJzsPLMIQKhO4DGezXehhWwE56YCE+O6c0mKZsfxVrogUvA4HELjVKWmAvtl6'
                                                   'UnCh8jYzuVG5WSb/QEVPnP5TmcAnLH1g+s++v6d4s8m0gCw1fV5/SITLq9mhho8K3'
                                                   '+7EPYTU8IU1bLhdxO5Nyt8C8ssinQ98Xw9Q==:')
-        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B22(self):
-        self.test_request.headers["Signature-Input"] = ('sig-b22=("@authority" "content-digest");'
-                                                        'created=1618884473;keyid="test-key-rsa-pss"')
+        signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        signer.sign(self.test_request,
+                    key_id="test-key-rsa-pss",
+                    covered_component_ids=("@authority", "content-digest"),
+                    created=datetime.fromtimestamp(1618884473),
+                    label="sig-b22",
+                    include_alg=False)
+        self.assertEqual(
+            self.test_request.headers["Signature-Input"],
+            'sig-b22=("@authority" "content-digest");created=1618884473;keyid="test-key-rsa-pss"'
+        )
+        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        verifier.verify(self.test_request, max_age=self.max_age)  # Non-deterministic signing algorithm
         self.test_request.headers["Signature"] = ('sig-b22=:Fee1uy9YGZq5UUwwYU6vz4dZNvfw3GYrFl1L6YlVIyUMuWs'
                                                   'wWDNSvql4dVtSeidYjYZUm7SBCENIb5KYy2ByoC3bI+7gydd2i4OAT5lyDtmeapnA'
                                                   'a8uP/b9xUpg+VSPElbBs6JWBIQsd+nMdHDe+ls/IwVMwXktC37SqsnbNyhNp6kcvc'
                                                   'WpevjzFcD2VqdZleUz4jN7P+W5A3wHiMGfIjIWn36KXNB+RKyrlGnIS8yaBBrom5r'
                                                   'cZWLrLbtg6VlrH1+/07RV+kgTh/l10h8qgpl9zQHu7mWbDKTq0tJ8K4ywcPoC4s2I'
                                                   '4rU88jzDKDGdTTQFZoTVZxZmuTM1FvHfzIw==:')
-        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B23(self):
-        self.test_request.headers["Signature-Input"] = ('sig-b23=("date" "@method" "@path" "@query" "@authority" '
-                                                        '"content-type" "content-digest" "content-length");'
-                                                        'created=1618884473;keyid="test-key-rsa-pss"')
+        signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        signer.sign(self.test_request,
+                    key_id="test-key-rsa-pss",
+                    covered_component_ids=("date", "@method", "@path", "@query", "@authority", "content-type",
+                                           "content-digest", "content-length"),
+                    created=datetime.fromtimestamp(1618884473),
+                    label="sig-b23",
+                    include_alg=False)
+        self.assertEqual(
+            self.test_request.headers["Signature-Input"],
+            ('sig-b23=("date" "@method" "@path" "@query" "@authority" "content-type" "content-digest" "content-length")'
+             ';created=1618884473;keyid="test-key-rsa-pss"')
+        )
+        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        verifier.verify(self.test_request, max_age=self.max_age)
         self.test_request.headers["Signature"] = ('sig-b23=:bbN8oArOxYoyylQQUU6QYwrTuaxLwjAC9fbY2F6SVWvh0yB'
                                                   'iMIRGOnMYwZ/5MR6fb0Kh1rIRASVxFkeGt683+qRpRRU5p2voTp768ZrCUb38K0fU'
                                                   'xN0O0iC59DzYx8DFll5GmydPxSmme9v6ULbMFkl+V5B1TP/yPViV7KsLNmvKiLJH1'
                                                   'pFkh/aYA2HXXZzNBXmIkoQoLd7YfW91kE9o/CCoC1xMy7JA1ipwvKvfrs65ldmlu9'
                                                   'bpG6A9BmzhuzF8Eim5f8ui9eH8LZH896+QIF61ka39VBrohr9iyMUJpvRX2Zbhl5Z'
                                                   'JzSRxpJyoEZAFL2FUo5fTIztsDZKEgM4cUA==:')
-        verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_http_message_signatures_B24(self):
