@@ -1,16 +1,26 @@
 #!/usr/bin/env python
 
-import os, sys, unittest, io, base64, json, copy
-
+import base64
+import copy
+import io
+import json
+import os
+import sys
+import unittest
 from datetime import datetime, timedelta
 
 import requests
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from http_message_signatures import (HTTPSignatureComponentResolver, HTTPSignatureKeyResolver,  # noqa
-                                     HTTPMessageSigner, HTTPMessageVerifier, InvalidSignature)
-from http_message_signatures.algorithms import HMAC_SHA256, ED25519, ECDSA_P256_SHA256, RSA_PSS_SHA512  # noqa
+from http_message_signatures import (  # noqa
+    HTTPMessageSigner,
+    HTTPMessageVerifier,
+    HTTPSignatureComponentResolver,
+    HTTPSignatureKeyResolver,
+    InvalidSignature,
+)
+from http_message_signatures.algorithms import ECDSA_P256_SHA256, ED25519, HMAC_SHA256, RSA_PSS_SHA512  # noqa
 
 test_shared_secret = base64.b64decode("uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasj"
                                       "lTMtDQ==")

@@ -1,13 +1,13 @@
 import collections
 import datetime
 import logging
-from typing import List, Dict, Sequence, Tuple, Type, Any
+from typing import Any, Dict, List, Sequence, Tuple, Type
 
 import http_sfv
 
-from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
+from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .structures import VerifyResult
 
 logger = logging.getLogger(__name__)
