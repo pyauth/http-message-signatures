@@ -166,7 +166,8 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(
             self.test_request.headers["Signature-Input"],
             (
-                'sig-b23=("date" "@method" "@path" "@query" "@authority" "content-type" "content-digest" "content-length")'
+                "sig-b23="
+                '("date" "@method" "@path" "@query" "@authority" "content-type" "content-digest" "content-length")'
                 ';created=1618884473;keyid="test-key-rsa-pss"'
             ),
         )
