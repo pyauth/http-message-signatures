@@ -1,7 +1,13 @@
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
-from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature, encode_dss_signature
-from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
+from cryptography.hazmat.primitives.asymmetric.utils import (
+    decode_dss_signature,
+    encode_dss_signature,
+)
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_private_key,
+    load_pem_public_key,
+)
 
 from .exceptions import HTTPMessageSignaturesException
 
@@ -41,15 +47,10 @@ class RSA_PSS_SHA512(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.hash_algorithm: hashes.HashAlgorithm = hashes.SHA512()
 
     def sign(self, message: bytes):
-        return self.private_key.sign(data=message,
-                                     padding=self.padding,
-                                     algorithm=self.hash_algorithm)
+        return self.private_key.sign(data=message, padding=self.padding, algorithm=self.hash_algorithm)
 
     def verify(self, signature: bytes, message: bytes):
-        self.public_key.verify(signature=signature,
-                               data=message,
-                               padding=self.padding,
-                               algorithm=self.hash_algorithm)
+        self.public_key.verify(signature=signature, data=message, padding=self.padding, algorithm=self.hash_algorithm)
 
 
 class RSA_V1_5_SHA256(RSA_PSS_SHA512):
@@ -97,20 +98,17 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.signature_algorithm = ec.ECDSA(hashes.SHA256())
 
     def sign(self, message: bytes):
-        der_sig = self.private_key.sign(message,
-                                        signature_algorithm=self.signature_algorithm)
+        der_sig = self.private_key.sign(message, signature_algorithm=self.signature_algorithm)
         r, s = decode_dss_signature(der_sig)
-        return r.to_bytes(32, byteorder='big') + s.to_bytes(32, byteorder='big')
+        return r.to_bytes(32, byteorder="big") + s.to_bytes(32, byteorder="big")
 
     def verify(self, signature: bytes, message: bytes):
         if len(signature) != 64:
             raise HTTPMessageSignaturesException("Unexpected signature length")
-        r = int.from_bytes(signature[:32], byteorder='big')
-        s = int.from_bytes(signature[32:], byteorder='big')
+        r = int.from_bytes(signature[:32], byteorder="big")
+        s = int.from_bytes(signature[32:], byteorder="big")
         der_sig = encode_dss_signature(r, s)
-        self.public_key.verify(signature=der_sig,
-                               data=message,
-                               signature_algorithm=self.signature_algorithm)
+        self.public_key.verify(signature=der_sig, data=message, signature_algorithm=self.signature_algorithm)
 
 
 class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):

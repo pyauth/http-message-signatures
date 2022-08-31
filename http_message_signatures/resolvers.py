@@ -17,7 +17,7 @@ class HTTPSignatureComponentResolver:
         "@query",
         "@query-params",
         "@status",
-        "@request-response"
+        "@request-response",
     }
 
     # TODO: describe interface
@@ -33,7 +33,7 @@ class HTTPSignatureComponentResolver:
         component_id = str(component_node.value)
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_names:
-                raise HTTPMessageSignaturesException(f'Unknown covered derived component name {component_id}')
+                raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
             resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
             return resolver(**component_node.params)
         if component_id not in self.headers:
@@ -68,7 +68,7 @@ class HTTPSignatureComponentResolver:
         if name not in query:
             raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')
         if len(query[name]) != 1:
-            raise HTTPMessageSignaturesException('Query parameters with multiple values are not supported.')
+            raise HTTPMessageSignaturesException("Query parameters with multiple values are not supported.")
         return query[name][0]
 
     def get_status(self):

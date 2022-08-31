@@ -14,27 +14,24 @@ logger = logging.getLogger(__name__)
 
 
 class HTTPSignatureHandler:
-    signature_metadata_parameters = {
-        "alg",
-        "created",
-        "expires",
-        "keyid",
-        "nonce"
-    }
+    signature_metadata_parameters = {"alg", "created", "expires", "keyid", "nonce"}
 
-    def __init__(self, *,
-                 signature_algorithm: Type[HTTPSignatureAlgorithm],
-                 key_resolver: HTTPSignatureKeyResolver,
-                 component_resolver_class: type = HTTPSignatureComponentResolver):
+    def __init__(
+        self,
+        *,
+        signature_algorithm: Type[HTTPSignatureAlgorithm],
+        key_resolver: HTTPSignatureKeyResolver,
+        component_resolver_class: type = HTTPSignatureComponentResolver,
+    ):
         if signature_algorithm not in signature_algorithms.values():
             raise HTTPMessageSignaturesException(f"Unknown signature algorithm {signature_algorithm}")
         self.signature_algorithm = signature_algorithm
         self.key_resolver = key_resolver
         self.component_resolver_class = component_resolver_class
 
-    def _build_signature_base(self, message, *,
-                              covered_component_ids: List[Any],
-                              signature_params: Dict[str, str]) -> Tuple:
+    def _build_signature_base(
+        self, message, *, covered_component_ids: List[Any], signature_params: Dict[str, str]
+    ) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         component_resolver = self.component_resolver_class(message)
@@ -48,8 +45,9 @@ class HTTPSignatureHandler:
             if "\n" in component_key:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if component_key in sig_elements:
-                raise HTTPMessageSignaturesException(f'Component ID "{component_key}" appeared multiple times in '
-                                                     'signature input')
+                raise HTTPMessageSignaturesException(
+                    f'Component ID "{component_key}" appeared multiple times in ' "signature input"
+                )
             sig_elements[component_key] = component_value
         sig_params_node = http_sfv.InnerList(covered_component_ids)
         sig_params_node.params.update(signature_params)
@@ -72,14 +70,18 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             covered_component_nodes.append(component_name_node)
         return covered_component_nodes
 
-    def sign(self, message, *,
-             key_id: str,
-             created: datetime.datetime = None,
-             expires: datetime.datetime = None,
-             nonce: str = None,
-             label: str = None,
-             include_alg: bool = True,
-             covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri")):
+    def sign(
+        self,
+        message,
+        *,
+        key_id: str,
+        created: datetime.datetime = None,
+        expires: datetime.datetime = None,
+        nonce: str = None,
+        label: str = None,
+        include_alg: bool = True,
+        covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
+    ):
         # TODO: Accept-Signature autonegotiation
         key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
@@ -95,9 +97,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["alg"] = self.signature_algorithm.algorithm_id
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
         sig_base, sig_params_node, _ = self._build_signature_base(
-            message,
-            covered_component_ids=covered_component_nodes,
-            signature_params=signature_params
+            message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
         signer = self.signature_algorithm(private_key=key)
         signature = signer.sign(sig_base.encode())
@@ -143,7 +143,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
         if max_age is not None:
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < now:
-                raise InvalidSignature(f'Signature age exceeds maximum allowable age {max_age}')
+                raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
     def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)) -> List[VerifyResult]:
         sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
@@ -165,9 +165,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                     raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
             try:
                 sig_base, sig_params_node, sig_elements = self._build_signature_base(
-                    message,
-                    covered_component_ids=list(sig_input),
-                    signature_params=sig_input.params
+                    message, covered_component_ids=list(sig_input), signature_params=sig_input.params
                 )
             except Exception as e:
                 raise InvalidSignature(e) from e
@@ -177,10 +175,12 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 verifier.verify(signature=raw_signature, message=sig_base.encode())
             except Exception as e:
                 raise InvalidSignature(e) from e
-            verify_result = VerifyResult(label=label,
-                                         algorithm=self.signature_algorithm,
-                                         covered_components=sig_elements,
-                                         parameters=dict(sig_params_node.params),
-                                         body=None)
+            verify_result = VerifyResult(
+                label=label,
+                algorithm=self.signature_algorithm,
+                covered_components=sig_elements,
+                parameters=dict(sig_params_node.params),
+                body=None,
+            )
             verify_results.append(verify_result)
         return verify_results
