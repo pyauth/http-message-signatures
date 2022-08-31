@@ -1,3 +1,10 @@
+Changes for v0.4.4 (2022-08-31)
+===============================
+
+-  Fix call signature in RSA_V1_5_SHA256 algorithm
+
+-  Test improvements
+
 Changes for v0.4.3 (2022-04-19)
 ===============================
 
