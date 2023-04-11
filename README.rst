@@ -53,9 +53,9 @@ builds upon this package to provide integrated signing and validation of the req
  In http-message-signatures, you can ensure that the information signed is what you expect to be signed by only trusting the
  data returned by the ``verify()`` method::
 
-   verify_result = verifier.verify(request)
+   verify_results = verifier.verify(request)
 
- This returns VerifyResult, a namedtuple with the following attributes:
+ This returns a list of ``VerifyResult`` s, which are ``namedtuple`` s with the following attributes:
 
  * label (str): The label for the signature
  * algorithm: (same as signature_algorithm above)
@@ -63,6 +63,14 @@ builds upon this package to provide integrated signing and validation of the req
  * parameters: A mapping of signature parameters to their values, as covered by the signature
  * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
    implements returning the body upon successful digest validation).
+
+Given an HTTP request can potentially have multiple signatures the ``verify()``method returns a list of ``VerifyResult`` s.
+However, the implementation currently supports just one signature, so the returned list currently contains just one element.
+If more signatures are found in the request then ``InvalidSignature`` is raised.
+
+Additionally, the ``verify()`` method raises ``HTTPMessageSignaturesException`` or an exception derived from this class in
+case an error occurs (unable to load PEM key, unsupported algorithm specified in signature input, signature doesn't match
+digest etc.)
 
 Authors
 -------
