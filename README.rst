@@ -64,7 +64,7 @@ builds upon this package to provide integrated signing and validation of the req
  * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
    implements returning the body upon successful digest validation).
 
-Given an HTTP request can potentially have multiple signatures the ``verify()``method returns a list of ``VerifyResult`` s.
+Given an HTTP request can potentially have multiple signatures the ``verify()`` method returns a list of ``VerifyResult`` s.
 However, the implementation currently supports just one signature, so the returned list currently contains just one element.
 If more signatures are found in the request then ``InvalidSignature`` is raised.
 
