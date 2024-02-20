@@ -295,6 +295,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             verifier.verify(self.test_request)
 
+    def test_tolerate_clock_skew(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1))
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now() + timedelta(seconds=9))
+        verifier.max_clock_skew = timedelta(seconds=10)
+        verifier.verify(self.test_request)
+        verifier.max_clock_skew = timedelta(seconds=0)
+        with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
+            verifier.verify(self.test_request)
 
 if __name__ == "__main__":
     unittest.main()
