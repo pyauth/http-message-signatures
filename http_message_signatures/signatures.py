@@ -111,6 +111,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
+    max_clock_skew: datetime.timedelta = datetime.timedelta(seconds=5)
     require_created: bool = True
 
     def _parse_dict_header(self, header_name, headers):
@@ -133,16 +134,18 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
 
     def validate_created_and_expires(self, sig_input, max_age=None):
         now = datetime.datetime.now()
+        min_time = now - self.max_clock_skew
+        max_time = now + self.max_clock_skew
         if "created" in sig_input.params:
-            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") > now:
+            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") > max_time:
                 raise InvalidSignature('Signature "created" parameter is set to a time in the future')
         elif self.require_created:
             raise InvalidSignature('Signature is missing a required "created" parameter')
         if "expires" in sig_input.params:
-            if self._parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < now:
+            if self._parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < min_time:
                 raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
         if max_age is not None:
-            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < now:
+            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
                 raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
     def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)) -> List[VerifyResult]:
