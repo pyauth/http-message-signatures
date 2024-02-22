@@ -306,5 +306,6 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
             verifier.verify(self.test_request)
 
+
 if __name__ == "__main__":
     unittest.main()
