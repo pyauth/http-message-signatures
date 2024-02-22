@@ -1,7 +1,7 @@
 import collections
 import datetime
 import logging
-from typing import Any, Dict, List, Sequence, Tuple, Type
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
 import http_sfv
 
@@ -75,10 +75,10 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         message,
         *,
         key_id: str,
-        created: datetime.datetime = None,
-        expires: datetime.datetime = None,
-        nonce: str = None,
-        label: str = None,
+        created: Optional[datetime.datetime] = None,
+        expires: Optional[datetime.datetime] = None,
+        nonce: Optional[str] = None,
+        label: Optional[str] = None,
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
     ):
