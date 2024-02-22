@@ -1,8 +1,8 @@
-http-message-signatures: An implementation of the IETF HTTP Message Signatures draft standard
-=============================================================================================
+http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Signatures standard
+=================================================================================================
 
 *http-message-signatures* is an implementation of the IETF
-`HTTP Message Signatures <https://datatracker.ietf.org/doc/draft-ietf-httpbis-message-signatures>`_ draft standard in
+`RFC 9421 HTTP Message Signatures <https://datatracker.ietf.org/doc/rfc9421/>`_ draft standard in
 Python.
 
 Installation
@@ -82,7 +82,7 @@ Links
 * `Documentation <https://FIXME>`_
 * `Package distribution (PyPI) <https://pypi.python.org/pypi/http-message-signatures>`_
 * `Change log <https://github.com/pyauth/http-message-signatures/blob/master/Changes.rst>`_
-* `IETF HTTP Message Signatures standard tracker <https://datatracker.ietf.org/doc/draft-ietf-httpbis-message-signatures/>`_
+* `IETF HTTP Message Signatures standard tracker <https://datatracker.ietf.org/doc/rfc9421/>`_
 * `OWASP Top Ten <https://owasp.org/www-project-top-ten/>`_
 
 Bugs
