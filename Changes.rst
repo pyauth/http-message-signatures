@@ -1,3 +1,10 @@
+Changes for v0.5.0 (2024-02-21)
+===============================
+
+-  Add max_clock_skew to HTTPMessageVerifier (#11)
+
+-  Documentation and test infrastructure improvements
+
 Changes for v0.4.4 (2022-08-31)
 ===============================
 
