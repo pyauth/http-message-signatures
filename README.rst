@@ -2,7 +2,7 @@ http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Si
 =================================================================================================
 
 *http-message-signatures* is an implementation of the IETF
-`RFC 9421 HTTP Message Signatures <https://datatracker.ietf.org/doc/rfc9421/>`_ draft standard in
+`RFC 9421 HTTP Message Signatures <https://datatracker.ietf.org/doc/rfc9421/>`_ standard in
 Python.
 
 Installation
@@ -74,7 +74,7 @@ digest etc.)
 
 Authors
 -------
-* Andrey Kislyuk
+* `Andrey Kislyuk <https://kislyuk.com>`
 
 Links
 -----
@@ -91,4 +91,7 @@ Please report bugs, issues, feature requests, etc. on `GitHub <https://github.co
 
 License
 -------
-Licensed under the terms of the `Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0>`_.
+Copyright 2017-2024, Andrey Kislyuk and http-message-signatures contributors. Licensed under the terms of the
+`Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0>`_. Distribution of attribution information,
+LICENSE and NOTICE files with source copies of this package and derivative works is **REQUIRED** as specified by the
+Apache License.
