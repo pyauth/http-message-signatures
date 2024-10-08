@@ -1,7 +1,7 @@
 SHELL=/bin/bash
 
 lint:
-	ruff http_message_signatures
+	ruff check http_message_signatures
 	mypy --check-untyped-defs http_message_signatures
 
 test: lint

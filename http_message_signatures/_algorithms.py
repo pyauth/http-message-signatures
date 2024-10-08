@@ -91,9 +91,9 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
             raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, ec.EllipticCurvePrivateKey):
             raise HTTPMessageSignaturesException("Unexpected private key type")
-        if self.public_key and type(self.public_key.curve) != ec.SECP256R1:
+        if self.public_key and not isinstance(self.public_key.curve, ec.SECP256R1):
             raise HTTPMessageSignaturesException("Unexpected elliptic curve type in public key")
-        if self.private_key and type(self.private_key.curve) != ec.SECP256R1:
+        if self.private_key and not isinstance(self.private_key.curve, ec.SECP256R1):
             raise HTTPMessageSignaturesException("Unexpected elliptic curve type in private key")
         self.signature_algorithm = ec.ECDSA(hashes.SHA256())
 
