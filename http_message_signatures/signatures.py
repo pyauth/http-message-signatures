@@ -3,7 +3,7 @@ import datetime
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
-import http_sfv
+import http_sf
 
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
@@ -36,7 +36,7 @@ class HTTPSignatureHandler:
         sig_elements = collections.OrderedDict()
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
-            component_key = str(http_sfv.List([component_id]))
+            component_key = http_sf.ser([component_id])
             # TODO: model situations when header occurs multiple times
             component_value = component_resolver.resolve(component_id)
             if str(component_id.value).lower() != str(component_id.value):
@@ -49,9 +49,8 @@ class HTTPSignatureHandler:
                     f'Component ID "{component_key}" appeared multiple times in signature input'
                 )
             sig_elements[component_key] = component_value
-        sig_params_node = http_sfv.InnerList(covered_component_ids)
-        sig_params_node.params.update(signature_params)
-        sig_elements['"@signature-params"'] = str(sig_params_node)
+        sig_params_node = [(list(covered_component_ids), signature_params)]
+        sig_elements['"@signature-params"'] = http_sf.ser(sig_params_node)
         sig_base = "\n".join(f"{k}: {v}" for k, v in sig_elements.items())
         return sig_base, sig_params_node, sig_elements
 
@@ -107,10 +106,8 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         sig_label = self.DEFAULT_SIGNATURE_LABEL
         if label is not None:
             sig_label = label
-        sig_input_node = http_sfv.Dictionary({sig_label: sig_params_node})
-        message.headers["Signature-Input"] = str(sig_input_node)
-        sig_node = http_sfv.Dictionary({sig_label: signature})
-        message.headers["Signature"] = str(sig_node)
+        message.headers["Signature-Input"] = http_sf.ser({sig_label: sig_params_node})
+        message.headers["Signature"] = http_sf.ser({sig_label: signature})
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
@@ -121,8 +118,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         if header_name not in headers:
             raise InvalidSignature(f'Expected "{header_name}" header field to be present')
         try:
-            dict_header_node = http_sfv.Dictionary()
-            dict_header_node.parse(headers[header_name].encode())
+            dict_header_node = http_sf.parse(headers[header_name].encode(), tltype="dictionary")
         except Exception as e:
             raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
         return dict_header_node
