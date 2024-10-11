@@ -8,13 +8,13 @@ setup(
     license="Apache Software License",
     author="Andrey Kislyuk",
     author_email="kislyuk@gmail.com",
-    description="An implementation of the IETF HTTP Message Signatures draft standard",
+    description="An implementation of RFC 9421, the IETF HTTP Message Signatures standard",
     long_description=open("README.rst").read(),
     use_scm_version={
         "write_to": "http_message_signatures/version.py",
     },
     setup_requires=["setuptools_scm >= 3.4.3"],
-    install_requires=["http-sfv >= 0.9.3", "cryptography >= 36.0.2"],
+    install_requires=["http-sf >= 1.0.1", "cryptography >= 36.0.2"],
     extras_require={
         "tests": [
             "flake8",
