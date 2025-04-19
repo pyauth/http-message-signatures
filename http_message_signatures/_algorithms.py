@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
 )
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey, Ed25519PrivateKey
 
 from .exceptions import HTTPMessageSignaturesException
 
@@ -111,15 +112,22 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.public_key.verify(signature=der_sig, data=message, signature_algorithm=self.signature_algorithm)
 
 
-class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
+class ED25519KeyLoader:
+    public_key: Ed25519PublicKey = None
+    private_key: Ed25519PrivateKey = None
+
+    def load_keys(self, public_key: bytes=None, private_key: bytes=None, password=None):
+        if public_key is not None:
+            self.public_key = Ed25519PublicKey.from_public_bytes(public_key)
+        if private_key is not None:
+            self.private_key = Ed25519PrivateKey.from_private_bytes(private_key)
+
+
+class ED25519(HTTPSignatureAlgorithm, ED25519KeyLoader):
     algorithm_id = "ed25519"
 
     def __init__(self, public_key=None, private_key=None, password=None):
-        self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
-        if self.public_key and not isinstance(self.public_key, ed25519.Ed25519PublicKey):
-            raise HTTPMessageSignaturesException("Unexpected public key type")
-        if self.private_key and not isinstance(self.private_key, ed25519.Ed25519PrivateKey):
-            raise HTTPMessageSignaturesException("Unexpected private key type")
+        self.load_keys(public_key=public_key, private_key=private_key, password=password)
 
     def sign(self, message: bytes):
         return self.private_key.sign(message)
