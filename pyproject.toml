@@ -20,6 +20,10 @@ description = "An implementation of the IETF HTTP Message Signatures draft stand
 readme = {file = "README.rst", content-type = "text/x-rst"}
 license = "Apache-2.0"
 keywords = ["http", "msg", "message", "sig", "signature", "security"]
+dependencies = [
+    "http-sfv >= 0.9.3",
+    "cryptography >= 36.0.2"
+]
 
 [project.urls]
 Homepage = "https://github.com/tinymahua/http-message-signatures"
