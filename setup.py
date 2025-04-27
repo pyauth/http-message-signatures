@@ -5,7 +5,7 @@ from setuptools import find_packages, setup  # type: ignore
 setup(
     name="http-msg-sig",
     url="https://github.com/tinymahua/http-message-signatures",
-    license="Apache Software License",
+    license="Apache License 2.0",
     author="Andrey Kislyuk, Tiny Twist",
     author_email="kislyuk@gmail.com, tinymahua@gmail.com",
     description="An implementation of the IETF HTTP Message Signatures draft standard, forked from `http-message-signatures`",
