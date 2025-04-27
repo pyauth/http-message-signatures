@@ -1,5 +1,5 @@
 class HTTPMessageSignaturesException(Exception):
-    "Base class for exceptions raised by http_message_signatures"
+    "Base class for exceptions raised by http_msg_sig"
 
 
 class InvalidSignature(HTTPMessageSignaturesException):

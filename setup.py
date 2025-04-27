@@ -11,7 +11,7 @@ setup(
     description="An implementation of the IETF HTTP Message Signatures draft standard, forked from `http-message-signatures`",
     long_description=open("README.rst").read(),
     use_scm_version={
-        "write_to": "http_message_signatures/version.py",
+        "write_to": "http_msg_sig/version.py",
     },
     setup_requires=["setuptools_scm >= 3.4.3"],
     install_requires=["http-sfv >= 0.9.3", "cryptography >= 36.0.2"],
@@ -29,7 +29,7 @@ setup(
     packages=find_packages(exclude=["test"]),
     include_package_data=True,
     package_data={
-        "http_message_signatures": ["py.typed"],
+        "http_msg_sig": ["py.typed"],
     },
     platforms=["MacOS X", "Posix"],
     test_suite="test",

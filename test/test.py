@@ -16,14 +16,14 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from http_message_signatures import (  # noqa
+from http_msg_sig import (  # noqa
     HTTPMessageSigner,
     HTTPMessageVerifier,
     HTTPSignatureComponentResolver,
     HTTPSignatureKeyResolver,
     InvalidSignature,
 )
-from http_message_signatures.algorithms import (  # noqa
+from http_msg_sig.algorithms import (  # noqa
     ECDSA_P256_SHA256,
     ED25519,
     HMAC_SHA256,
