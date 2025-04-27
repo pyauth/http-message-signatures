@@ -35,7 +35,6 @@ setup(
     test_suite="test",
     classifiers=[
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: Apache Software License",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX",
         "Programming Language :: Python",
