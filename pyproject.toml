@@ -17,7 +17,7 @@ name = "http-msg-sig"
 authors = [{name = "Tiny Twist", email = "tinymahua@gmail.com"}]
 dynamic = ["version",]
 description = "An implementation of the IETF HTTP Message Signatures draft standard, forked from `http-message-signatures`, fixed ed25519 key loader."
-readme = {file = "README.txt", content-type = "text/x-rst"}
+readme = {file = "README.rst", content-type = "text/x-rst"}
 license = "Apache Software License"
 keywords = ["http", "msg", "message", "sig", "signature", "security"]
 
