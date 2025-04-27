@@ -5,3 +5,22 @@ exclude = ".*/version.py"
 profile = "black"
 [tool.ruff]
 line-length=120
+
+
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+
+[project]
+name = "http-msg-sig"
+authors = [{name = "Tiny Twist", email = "tinymahua@gmail.com"}]
+dynamic = ["version",]
+description = "An implementation of the IETF HTTP Message Signatures draft standard, forked from `http-message-signatures`, fixed ed25519 key loader."
+readme = {file = "README.txt", content-type = "text/x-rst"}
+license = "Apache Software License"
+keywords = ["http", "msg", "message", "sig", "signature", "security"]
+
+[project.urls]
+Homepage = "https://github.com/tinymahua/http-message-signatures"
+Repository = "https://github.com/tinymahua/http-message-signatures.git"

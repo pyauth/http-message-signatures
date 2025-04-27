@@ -3,12 +3,12 @@
 from setuptools import find_packages, setup  # type: ignore
 
 setup(
-    name="http-message-signatures",
-    url="https://github.com/pyauth/http-message-signatures",
+    name="http-msg-sig",
+    url="https://github.com/tinymahua/http-message-signatures",
     license="Apache Software License",
-    author="Andrey Kislyuk",
-    author_email="kislyuk@gmail.com",
-    description="An implementation of the IETF HTTP Message Signatures draft standard",
+    author="Andrey Kislyuk, Tiny Twist",
+    author_email="kislyuk@gmail.com, tinymahua@gmail.com",
+    description="An implementation of the IETF HTTP Message Signatures draft standard, forked from `http-message-signatures`",
     long_description=open("README.rst").read(),
     use_scm_version={
         "write_to": "http_message_signatures/version.py",
