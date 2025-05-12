@@ -1,7 +1,61 @@
+[build-system]
+requires = ["setuptools>=42", "setuptools_scm>=3.4.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "http-message-signatures"
+description = "An implementation of the IETF HTTP Message Signatures draft standard"
+readme = "README.rst"
+requires-python = ">=3.8"
+license = {text = "Apache Software License"}
+authors = [
+    {name = "Andrey Kislyuk", email = "kislyuk@gmail.com"}
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "http-sfv >= 0.9.3",
+    "cryptography >= 36.0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/pyauth/http-message-signatures"
+
+[project.optional-dependencies]
+tests = [
+    "flake8",
+    "coverage",
+    "build",
+    "wheel",
+    "mypy",
+    "requests",
+    "ruff",
+]
+
+[tool.setuptools]
+packages = ["http_message_signatures"]
+package-data = {http_message_signatures = ["py.typed"]}
+
+[tool.setuptools_scm]
+write_to = "http_message_signatures/version.py"
+
 [tool.black]
 line-length = 120
 exclude = ".*/version.py"
+
 [tool.isort]
 profile = "black"
+
 [tool.ruff]
-line-length=120
+line-length = 120
