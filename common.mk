@@ -18,9 +18,8 @@ release:
 	@if ! type -P pandoc; then echo "Please install pandoc"; exit 1; fi
 	@if ! type -P sponge; then echo "Please install moreutils"; exit 1; fi
 	@if ! type -P gh; then echo "Please install gh"; exit 1; fi
-	@if ! type -P twine; then echo "Please install twine"; exit 1; fi
 	git pull
-	git clean -x --force $$(python setup.py --name)
+	git clean -x --force $$(ls */__init__.py | xargs dirname)
 	TAG_MSG=$$(mktemp); \
 	    echo "# Changes for ${TAG} ($$(date +%Y-%m-%d))" > $$TAG_MSG; \
 	    git log --pretty=format:%s $$(git describe --abbrev=0)..HEAD >> $$TAG_MSG; \
@@ -32,10 +31,5 @@ release:
 	git push --follow-tags
 	$(MAKE) install
 	gh release create ${TAG} dist/*.whl --notes="$$(git tag --list ${TAG} -n99 | perl -pe 's/^\S+\s*// if $$. == 1' | sed 's/^\s\s\s\s//')"
-	$(MAKE) release-pypi
-
-release-pypi:
-	python -m build
-	twine upload dist/*.tar.gz dist/*.whl --verbose
 
 .PHONY: release
