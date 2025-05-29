@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class HTTPSignatureHandler:
-    signature_metadata_parameters = {"alg", "created", "expires", "keyid", "nonce"}
+    signature_metadata_parameters = {"alg", "created", "expires", "keyid", "nonce", "tag"}
 
     def __init__(
         self,
@@ -79,6 +79,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         expires: Optional[datetime.datetime] = None,
         nonce: Optional[str] = None,
         label: Optional[str] = None,
+        tag: Optional[str] = None,
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
     ):
@@ -93,6 +94,8 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["expires"] = int(expires.timestamp())
         if nonce:
             signature_params["nonce"] = nonce
+        if tag:
+            signature_params["tag"] = tag
         if include_alg:
             signature_params["alg"] = self.signature_algorithm.algorithm_id
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)

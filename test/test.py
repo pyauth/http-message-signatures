@@ -262,6 +262,41 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request, max_age=self.max_age)
 
+    def test_http_message_signatures_B27(self):
+        signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
+        signer.sign(
+            self.test_request,
+            key_id="test-key-ed25519",
+            covered_component_ids=("date", "@method", "@path", "@authority", "content-type", "content-length"),
+            created=datetime.fromtimestamp(1618884473),
+            label="sig-b27",
+            tag="tag-b27",
+            include_alg=False,
+        )
+        self.assertEqual(
+            self.test_request.headers["Signature-Input"],
+            (
+                'sig-b27=("date" "@method" "@path" "@authority" "content-type" "content-length");'
+                'created=1618884473;keyid="test-key-ed25519";tag="tag-b27"'
+            ),
+        )
+        signature = "sig-b27=:pDPhW4vxi28JZfogrM4NLeYhZKW+TYDko8KtzCFoTOFeGCCSivD0iVcIuT9gqM6AtGfgzqQU/GaoLqh8sC6bCg==:"
+        self.assertEqual(self.test_request.headers["Signature"], signature)
+        verifier = HTTPMessageVerifier(signature_algorithm=ED25519, key_resolver=self.key_resolver)
+        result = self.verify(verifier, self.test_request)[0]
+
+        self.assertEqual(result.parameters["keyid"], "test-key-ed25519")
+        self.assertEqual(result.parameters["tag"], "tag-b27")
+        self.assertIn("created", result.parameters)
+        self.assertEqual(result.label, "sig-b27")
+
+        self.test_request.headers["Signature"] = "sig-b26=:pxcQw6G3AjtMBQjwo8XzkZf/bws5LelbaMk5rGIGtE8=:"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request, max_age=self.max_age)
+        self.test_request.headers["Signature"] = signature[::-1]
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request, max_age=self.max_age)
+
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
