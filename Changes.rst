@@ -1,3 +1,9 @@
+Changes for v0.6.0 (2025-05-29)
+===============================
+
+- [http-message-signatures-add] Add support for ‘tag’ signature
+  parameter (#17)
+
 Changes for v0.5.0 (2024-02-21)
 ===============================
 
