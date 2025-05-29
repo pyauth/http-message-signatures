@@ -1,17 +1,12 @@
-[build-system]
-requires = ["setuptools>=42", "setuptools_scm>=3.4.3", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "http-message-signatures"
-version = "0.0.0"  # This will be replaced by setuptools_scm
 description = "An implementation of the IETF HTTP Message Signatures draft standard"
 readme = "README.rst"
 requires-python = ">=3.8"
 license = {text = "Apache Software License"}
-authors = [
-    {name = "Andrey Kislyuk", email = "kislyuk@gmail.com"}
-]
+authors = [{ name = "Andrey Kislyuk"}, {email = "kislyuk@gmail.com" }]
+maintainers = [{ name = "Andrey Kislyuk"}, {email = "kislyuk@gmail.com" }]
+dynamic = ["version"]
 classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
@@ -44,12 +39,12 @@ tests = [
     "ruff",
 ]
 
-[tool.setuptools]
-packages = ["http_message_signatures"]
-package-data = {http_message_signatures = ["py.typed"]}
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
-[tool.setuptools_scm]
-write_to = "http_message_signatures/version.py"
+[tool.hatch.version]
+source = "vcs"
 
 [tool.black]
 line-length = 120
