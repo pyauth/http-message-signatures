@@ -31,7 +31,7 @@ from http_message_signatures.algorithms import (  # noqa
 )
 
 test_shared_secret = base64.b64decode(
-    "uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasj" "lTMtDQ=="
+    "uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasjlTMtDQ=="
 )
 
 
@@ -59,7 +59,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request = request.prepare()
         self.test_request.headers["Date"] = "Tue, 20 Apr 2021 02:07:55 GMT"
         self.test_request.headers["Content-Digest"] = (
-            "sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+" "AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:"
+            "sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:"
         )
         self.test_response = requests.Response()
         self.test_response.request = self.test_request
@@ -68,7 +68,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             "Date": "Tue, 20 Apr 2021 02:07:56 GMT",
             "Content-Type": "application/json",
             "Content-Digest": (
-                "sha-512=:JlEy2bfUz7WrWIjc1qV6KVLpdr/7L5/L4h7Sxvh6sNHpDQWDCL+" "GauFQWcZBvVDhiyOnAQsxzZFYwi0wDH+1pw==:"
+                "sha-512=:JlEy2bfUz7WrWIjc1qV6KVLpdr/7L5/L4h7Sxvh6sNHpDQWDCL+GauFQWcZBvVDhiyOnAQsxzZFYwi0wDH+1pw==:"
             ),
             "Content-Length": "23",
         }
@@ -205,7 +205,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         verifier = HTTPMessageVerifier(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
         self.verify(verifier, self.test_response)
         self.test_response.headers["Signature"] = (
-            "sig-b24=:0Ry6HsvzS5VmA6HlfBYS/fYYeNs7fYuA7s0tAdxfUlPGv0CSVuwrrzBOjc" "CFHTxVRJ01wjvSzM2BetJauj8dsw==:"
+            "sig-b24=:0Ry6HsvzS5VmA6HlfBYS/fYYeNs7fYuA7s0tAdxfUlPGv0CSVuwrrzBOjcCFHTxVRJ01wjvSzM2BetJauj8dsw==:"
         )
         self.verify(verifier, self.test_response)
 

@@ -23,13 +23,16 @@ jobs:
         run: pip install .[tests]
       - name: Test
         run: make test
-  black:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: psf/black@stable
   isort:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: isort/isort-action@v1.1.0
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v1
+      - uses: astral-sh/ruff-action@v1
+        with:
+          args: "format --check"

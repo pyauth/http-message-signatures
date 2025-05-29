@@ -46,7 +46,7 @@ class HTTPSignatureHandler:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if component_key in sig_elements:
                 raise HTTPMessageSignaturesException(
-                    f'Component ID "{component_key}" appeared multiple times in ' "signature input"
+                    f'Component ID "{component_key}" appeared multiple times in signature input'
                 )
             sig_elements[component_key] = component_value
         sig_params_node = http_sfv.InnerList(covered_component_ids)
