@@ -26,7 +26,7 @@ class HTTPSignatureComponentResolver:
         self.message_type = "request"
         if hasattr(message, "status_code"):
             self.message_type = "response"
-        self.url = message.url
+        self.url = str(message.url)
         self.headers = CaseInsensitiveDict(message.headers)
 
     def resolve(self, component_node: http_sfv.Item):
