@@ -1,3 +1,9 @@
+Changes for v0.7.0 (2025-06-29)
+===============================
+
+-  fix: convert url to string in HTTPSignatureComponentResolver
+   constructor (#18)
+
 Changes for v0.6.1 (2025-05-29)
 ===============================
 
