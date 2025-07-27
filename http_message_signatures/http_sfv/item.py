@@ -1,26 +1,23 @@
 from collections import UserList
 from datetime import datetime
 from decimal import Decimal
-from typing import List as _List, Tuple, Union, Any, Iterable, cast
+from typing import Any, Iterable
+from typing import List as _List
+from typing import Optional, Tuple, Union, cast
+
 from typing_extensions import SupportsIndex
 
 from .boolean import parse_boolean, ser_boolean
-from .byteseq import parse_byteseq, ser_byteseq, BYTE_DELIMIT
-from .decimal import ser_decimal
-from .integer import parse_number, ser_integer, NUMBER_START_CHARS
-from .string import parse_string, ser_string, DQUOTE
-from .token import parse_token, ser_token, Token, TOKEN_START_CHARS
+from .byteseq import BYTE_DELIMIT, parse_byteseq, ser_byteseq
 from .date import parse_date, ser_date
-from .display_string import parse_display_string, ser_display_string, DisplayString
-from .types import BareItemType, JsonItemType, JsonParamType, JsonInnerListType
-from .util import (
-    StructuredFieldValue,
-    discard_ows,
-    parse_key,
-    ser_key,
-)
-from .util_json import value_to_json, value_from_json
-
+from .decimal import ser_decimal
+from .display_string import DisplayString, parse_display_string, ser_display_string
+from .integer import NUMBER_START_CHARS, parse_number, ser_integer
+from .string import DQUOTE, parse_string, ser_string
+from .token import TOKEN_START_CHARS, Token, parse_token, ser_token
+from .types import BareItemType, JsonInnerListType, JsonItemType, JsonParamType
+from .util import StructuredFieldValue, discard_ows, parse_key, ser_key
+from .util_json import value_from_json, value_to_json
 
 SEMICOLON = ord(b";")
 EQUALS = ord(b"=")
@@ -30,7 +27,7 @@ INNERLIST_DELIMS = set(b" )")
 
 
 class Item(StructuredFieldValue):
-    def __init__(self, value: BareItemType = None) -> None:
+    def __init__(self, value: Optional[BareItemType] = None) -> None:
         StructuredFieldValue.__init__(self)
         self.value = value
         self.params = Parameters()
@@ -45,6 +42,8 @@ class Item(StructuredFieldValue):
         return bytes_consumed
 
     def __str__(self) -> str:
+        if self.value is None:
+            return "Item(None)"
         return f"{ser_bare_item(self.value)}{str(self.params)}"
 
     def __eq__(self, other: Any) -> bool:
@@ -53,6 +52,7 @@ class Item(StructuredFieldValue):
         return bool(self.value == other)
 
     def to_json(self) -> JsonItemType:
+        assert self.value is not None
         value = value_to_json(self.value)
         return (value, self.params.to_json())
 
@@ -104,8 +104,10 @@ SingleItemType = Union[BareItemType, Item]
 
 
 class InnerList(UserList):
-    def __init__(self, values: _List[Union[Item, SingleItemType]] = None) -> None:
-        UserList.__init__(self, [itemise(v) for v in values or []])
+    def __init__(self, values: Optional[_List[Union[Item, SingleItemType]]] = None) -> None:
+        if values is None:
+            values = []
+        UserList.__init__(self, [itemise(v) for v in values])
         self.params = Parameters()
 
     def parse(self, data: bytes) -> int:
