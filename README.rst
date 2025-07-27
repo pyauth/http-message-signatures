@@ -16,8 +16,8 @@ Synopsis
 
 .. code-block:: python
 
-    from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms
-    import requests, base64, hashlib, http_sfv
+    from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms, http_sfv
+    import requests, base64, hashlib
 
     class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
         keys = {"my-key": b"top-secret-key"}

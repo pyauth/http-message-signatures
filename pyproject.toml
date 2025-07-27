@@ -22,7 +22,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "http-sfv >= 0.9.3",
     "cryptography >= 36.0.2",
 ]
 

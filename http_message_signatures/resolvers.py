@@ -1,7 +1,6 @@
 import urllib.parse
 
-import http_sfv
-
+from . import http_sfv
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict
 

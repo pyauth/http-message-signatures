@@ -3,8 +3,7 @@ import datetime
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
-import http_sfv
-
+from . import http_sfv
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
