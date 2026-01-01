@@ -54,7 +54,10 @@ class HTTPSignatureComponentResolver:
         return urllib.parse.urlsplit(self.url).scheme.lower()
 
     def get_request_target(self):
-        return self.get_path() + "?" + self.get_query()
+        query = self.get_query()
+        if not query.startswith("?"):
+            query = "?" + query
+        return self.get_path() + query
 
     def get_path(self):
         return urllib.parse.urlsplit(self.url).path
