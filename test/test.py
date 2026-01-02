@@ -312,11 +312,6 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_multiple_signatures(self):
-        # Assert that multiple signatures are not supported by default
-        # Assert that when the user enables multiple signatures, the correct number of results is returned
-        # Assert duplicate labels are not allowed
-        # Assert signer does not admit the use of Signature and Signature-Input
-
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
