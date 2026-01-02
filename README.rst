@@ -64,13 +64,32 @@ builds upon this package to provide integrated signing and validation of the req
  * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
    implements returning the body upon successful digest validation).
 
-Given an HTTP request can potentially have multiple signatures the ``verify()`` method returns a list of ``VerifyResult`` s.
-However, the implementation currently supports just one signature, so the returned list currently contains just one element.
-If more signatures are found in the request then ``InvalidSignature`` is raised.
+Multiple signatures
+~~~~~~~~~~~~~~~~~~~
 
-Additionally, the ``verify()`` method raises ``HTTPMessageSignaturesException`` or an exception derived from this class in
-case an error occurs (unable to load PEM key, unsupported algorithm specified in signature input, signature doesn't match
-digest etc.)
+An HTTP request can potentially have multiple signatures. By default, http-message-signatures overwrites any existing
+signature when signing, and requires exactly one signature to be present when verifying. Before enabling multi-signature
+support, please read
+`section 7.2.6 of the RFC, Multiple Signature Confusion <https://www.rfc-editor.org/rfc/rfc9421#name-multiple-signature-confusio>`_.
+
+To append a signature to a message that might already carry an existing signature without overwriting it, use::
+
+    signer.sign(request, append_if_signature_exists=True, ...)
+
+To identify a signature using a ``tag`` parameter and verify it on a message possibly carrying multiple signatures, use::
+
+    verifier.verify(request, expect_tag="my_app_tag")
+
+This will filter all signatures down to only those that set the tag to the expected value, verify each of them, and
+return a list of ``VerifyResult`` s. Verifying multiple signatures without prior knowledge of the application tag is not
+supported.
+
+Error handling
+~~~~~~~~~~~~~~
+If multiple signatures are found in the request but ``expect_tag=...`` was not passed, then ``InvalidSignature`` is
+raised. Also, the ``verify()`` method raises ``HTTPMessageSignaturesException`` or an exception derived from this class
+in case an error occurs (unable to load PEM key, unsupported algorithm specified in signature input, signature doesn't
+match digest etc.)
 
 Authors
 -------
