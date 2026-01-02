@@ -2,6 +2,7 @@ import collections
 import datetime
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
+from warnings import warn
 
 from . import http_sfv
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
@@ -10,6 +11,10 @@ from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .structures import VerifyResult
 
 logger = logging.getLogger(__name__)
+
+
+class SignatureVerifyWarning(UserWarning):
+    pass
 
 
 class HTTPSignatureHandler:
@@ -226,6 +231,11 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         expect_tag: str | None = None,
         expect_label: str | None = None,
     ) -> List[VerifyResult]:
+        if expect_tag is None and expect_label is not None:
+            warn(
+                "Using only a label to identify a signature is not recommended, as the label is not covered by the signature. Consider setting expect_tag.",
+                SignatureVerifyWarning,
+            )
         verify_results = []
         for label, sig_input, signature in self._get_sig_inputs_and_signatures(
             message, expect_tag=expect_tag, expect_label=expect_label

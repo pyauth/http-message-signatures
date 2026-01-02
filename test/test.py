@@ -312,6 +312,8 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             verifier.verify(self.test_request, max_age=self.max_age)
 
     def test_multiple_signatures(self):
+        # The example below (and its signature test vectors) is from section 4.3 of the RFC, but it does not follow the
+        # RFC's own guidance about not trusting labels. We emit a warning if the user specifies a label when verifying
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
