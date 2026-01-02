@@ -51,3 +51,6 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
+
+[lint]
+unfixable = ["F401"]

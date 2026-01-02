@@ -167,27 +167,29 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
                 raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
-    def _get_sig_input_and_signature(self, message, expect_label):
+    def _get_sig_inputs_and_signatures(self, message, *, expect_tag=None, expect_label=None):
         sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
         signatures = self._parse_dict_header("Signature", message.headers)
         if len(sig_inputs) == 0 or len(signatures) == 0:
             raise InvalidSignature("No signatures found in the message")
-        if (len(sig_inputs) > 1 or len(signatures) > 1) and expect_label is None:
-            raise InvalidSignature("Multiple signatures found and no label specified")
+        if (len(sig_inputs) > 1 or len(signatures) > 1) and expect_tag is None and expect_label is None:
+            raise InvalidSignature("Multiple signatures found and no tag or label specified")
         if sig_inputs.keys() != signatures.keys():
             raise InvalidSignature("Signature-Input and Signature headers have different labels")
+        n_sigs = 0
         for label, sig_input in sig_inputs.items():
-            if expect_label is not None and label != expect_label:
-                continue
             if label not in signatures:
                 raise InvalidSignature(f'Signature missing expected label "{label}"')
-            return label, sig_input, signatures[label]
-        raise InvalidSignature(f'Signature-Input does not contain expected label "{expect_label}"')
+            if expect_tag is not None and sig_input.params.get("tag") != expect_tag:
+                continue
+            if expect_label is not None and label != expect_label:
+                continue
+            yield label, sig_input, signatures[label]
+            n_sigs += 1
+        if n_sigs == 0:
+            raise InvalidSignature("No signatures found matching the expected tag or label")
 
-    def verify(
-        self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1), expect_label: str | None = None
-    ) -> List[VerifyResult]:
-        label, sig_input, signature = self._get_sig_input_and_signature(message, expect_label)
+    def _verify_one(self, *, label, sig_input, signature, message, max_age):
         self.validate_created_and_expires(sig_input, max_age=max_age)
         if "alg" in sig_input.params:
             if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
@@ -208,12 +210,28 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             verifier.verify(signature=raw_signature, message=sig_base.encode())
         except Exception as e:
             raise InvalidSignature(e) from e
-        return [
-            VerifyResult(
-                label=label,
-                algorithm=self.signature_algorithm,
-                covered_components=sig_elements,
-                parameters=dict(sig_params_node.params),
-                body=None,
+        return VerifyResult(
+            label=label,
+            algorithm=self.signature_algorithm,
+            covered_components=sig_elements,
+            parameters=dict(sig_params_node.params),
+            body=None,
+        )
+
+    def verify(
+        self,
+        message,
+        *,
+        max_age: datetime.timedelta = datetime.timedelta(days=1),
+        expect_tag: str | None = None,
+        expect_label: str | None = None,
+    ) -> List[VerifyResult]:
+        verify_results = []
+        for label, sig_input, signature in self._get_sig_inputs_and_signatures(
+            message, expect_tag=expect_tag, expect_label=expect_label
+        ):
+            verify_result = self._verify_one(
+                label=label, sig_input=sig_input, signature=signature, message=message, max_age=max_age
             )
-        ]
+            verify_results.append(verify_result)
+        return verify_results

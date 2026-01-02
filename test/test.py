@@ -7,7 +7,9 @@ import json
 import os
 import sys
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import requests
 from cryptography.hazmat.primitives.serialization import (
@@ -34,6 +36,17 @@ from http_message_signatures.algorithms import (  # noqa
 test_shared_secret = base64.b64decode(
     "uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasjlTMtDQ=="
 )
+
+
+@contextmanager
+def patch_time(dt):
+    class MockDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt
+
+    with patch("http_message_signatures.signatures.datetime.datetime", MockDateTime):
+        yield
 
 
 class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
@@ -77,20 +90,20 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.key_resolver = MyHTTPSignatureKeyResolver()
         self.max_age = timedelta(weeks=90000)
 
-    def verify(self, verifier, message, max_age=None, expect_label=None):
+    def verify(self, verifier, message, max_age=None, expect_tag=None, expect_label=None):
         if max_age is None:
             max_age = self.max_age
         m = copy.deepcopy(message)
         m.headers["Signature"] = m.headers["Signature"][:8] + m.headers["Signature"][8:].upper()
         with self.assertRaises(InvalidSignature):
-            verifier.verify(m, max_age=max_age, expect_label=expect_label)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         m.headers["Signature"] = m.headers["Signature"].upper()
         with self.assertRaisesRegex(InvalidSignature, "Malformed structured header field"):
-            verifier.verify(m, max_age=max_age, expect_label=expect_label)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         del m.headers["Signature"]
         with self.assertRaisesRegex(InvalidSignature, 'Expected "Signature" header field to be present'):
-            verifier.verify(m, max_age=max_age, expect_label=expect_label)
-        return verifier.verify(message, max_age=max_age, expect_label=expect_label)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
+        return verifier.verify(message, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
 
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
@@ -345,6 +358,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             created=datetime.fromtimestamp(1618884480),
             expires=datetime.fromtimestamp(1618884540),
             label="proxy_sig",
+            tag=None,
             append_if_signature_exists=False,
         )
         signer2 = HTTPMessageSigner(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
@@ -363,13 +377,26 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             "sig1=:X5spyd6CFnAG5QnDyHfqoSNICd+BUP4LYMz2Q0JXlb//4Ijpzp+kve2w4NIyqeAuM7jTDX+sNalzA8ESSaHD3A==:, proxy_sig=:S6ZzPXSdAMOPjN/6KXfXWNO/f7V6cHm7BXYUh3YD/fRad4BCaRZxP+JH+8XY1I6+8Cy+CM5g92iHgxtRPz+MjniOaYmdkDcnL9cCpXJleXsOckpURl49GwiyUpZ10KHgOEe11sx3G2gxI8S0jnxQB+Pu68U9vVcasqOWAEObtNKKZd8tSFu7LB5YAv0RAGhB8tmpv7sFnIm9y+7X5kXQfi8NMaZaA8i2ZHwpBdg7a6CMfwnnrtflzvZdXAsD3LH2TwevU+/PBPv0B6NMNk93wUs/vfJvye+YuI87HU38lZHowtznbLVdp770I6VHR6WfgS9ddzirrswsE1w5o0LV/g==:",
         )
         self.assertIn("sig1", self.test_request.headers["Signature-Input"])
-        with self.assertRaisesRegex(InvalidSignature, "Multiple signatures found and no label specified"):
+        with self.assertRaisesRegex(InvalidSignature, "Multiple signatures found and no tag or label specified"):
             verifier.verify(self.test_request)
         verifier2 = HTTPMessageVerifier(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             self.verify(verifier2, self.test_request, expect_label="proxy_sig")
-        verifier2.validate_created_and_expires = lambda *args, **kwargs: None
-        self.verify(verifier2, self.test_request, expect_label="proxy_sig")
+
+        with patch_time(datetime.fromtimestamp(1618884500)):
+            res = self.verify(verifier2, self.test_request, expect_label="proxy_sig")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0].label, "proxy_sig")
+
+        signer2_args.update(label="my-label", tag="my-tag")
+        signer2.sign(self.test_request, **signer2_args)
+        with self.assertRaisesRegex(InvalidSignature, "No signatures found matching the expected tag or label"):
+            self.verify(verifier2, self.test_request, expect_tag="test")
+        with patch_time(datetime.fromtimestamp(1618884500)):
+            res = self.verify(verifier2, self.test_request, expect_tag="my-tag")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0].label, "my-label")
+            self.assertEqual(res[0].parameters["tag"], "my-tag")
 
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

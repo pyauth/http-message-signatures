@@ -5,6 +5,12 @@ http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Si
 `RFC 9421 HTTP Message Signatures <https://datatracker.ietf.org/doc/rfc9421/>`_ standard in
 Python.
 
+.. admonition:: Security considerations
+
+ It is recommended that you read and understand
+ `section 7 of the RFC, Security Considerations <https://www.rfc-editor.org/rfc/rfc9421#name-security-considerations>`_
+ before using this library.
+
 Installation
 ------------
 ::
