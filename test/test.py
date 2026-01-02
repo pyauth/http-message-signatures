@@ -7,7 +7,9 @@ import json
 import os
 import sys
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import requests
 from cryptography.hazmat.primitives.serialization import (
@@ -28,6 +30,7 @@ from http_message_signatures.algorithms import (  # noqa
     ED25519,
     HMAC_SHA256,
     RSA_PSS_SHA512,
+    RSA_V1_5_SHA256,
 )
 
 test_shared_secret = base64.b64decode(
@@ -35,8 +38,19 @@ test_shared_secret = base64.b64decode(
 )
 
 
+@contextmanager
+def patch_time(dt):
+    class MockDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt
+
+    with patch("http_message_signatures.signatures.datetime.datetime", MockDateTime):
+        yield
+
+
 class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
-    known_pem_keys = {"test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519"}
+    known_pem_keys = {"test-key-rsa", "test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519"}
 
     def resolve_public_key(self, key_id: str):
         if key_id == "test-shared-secret":
@@ -76,20 +90,20 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.key_resolver = MyHTTPSignatureKeyResolver()
         self.max_age = timedelta(weeks=90000)
 
-    def verify(self, verifier, message, max_age=None):
+    def verify(self, verifier, message, max_age=None, expect_tag=None, expect_label=None):
         if max_age is None:
             max_age = self.max_age
         m = copy.deepcopy(message)
         m.headers["Signature"] = m.headers["Signature"][:8] + m.headers["Signature"][8:].upper()
         with self.assertRaises(InvalidSignature):
-            verifier.verify(m, max_age=max_age)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         m.headers["Signature"] = m.headers["Signature"].upper()
         with self.assertRaisesRegex(InvalidSignature, "Malformed structured header field"):
-            verifier.verify(m, max_age=max_age)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         del m.headers["Signature"]
         with self.assertRaisesRegex(InvalidSignature, 'Expected "Signature" header field to be present'):
-            verifier.verify(m, max_age=max_age)
-        return verifier.verify(message, max_age=max_age)
+            verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
+        return verifier.verify(message, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
 
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
@@ -296,6 +310,90 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Signature"] = signature[::-1]
         with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request, max_age=self.max_age)
+
+    def test_multiple_signatures(self):
+        # The example below (and its signature test vectors) is from section 4.3 of the RFC, but it does not follow the
+        # RFC's own guidance about not trusting labels. We emit a warning if the user specifies a label when verifying
+        signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
+        signer.sign(
+            self.test_request,
+            key_id="test-key-ecc-p256",
+            covered_component_ids=(
+                "@method",
+                "@authority",
+                "@path",
+                "content-digest",
+                "content-type",
+                "content-length",
+            ),
+            created=datetime.fromtimestamp(1618884475),
+            label="sig1",
+            include_alg=False,
+        )
+        # Non-deterministic signing algorithm
+        self.assertTrue(self.test_request.headers["Signature"].startswith("sig1="))
+        verifier = HTTPMessageVerifier(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
+        self.verify(verifier, self.test_request)
+        self.test_request.headers["Signature"] = (
+            "sig1=:X5spyd6CFnAG5QnDyHfqoSNICd+BUP4LYMz2Q0JXlb//4Ijpzp+kve2w4NIyqeAuM7jTDX+sNalzA8ESSaHD3A==:"
+        )
+        self.verify(verifier, self.test_request)
+
+        self.test_request.url = "https://origin.host.internal.example/foo?param=Value&Pet=dog"
+        self.test_request.headers["Forwarded"] = "for=192.0.2.123;host=example.com;proto=https"
+        signer2_args = dict(
+            key_id="test-key-rsa",
+            covered_component_ids=(
+                "@method",
+                "@authority",
+                "@path",
+                "content-digest",
+                "content-type",
+                "content-length",
+                "forwarded",
+            ),
+            created=datetime.fromtimestamp(1618884480),
+            expires=datetime.fromtimestamp(1618884540),
+            label="proxy_sig",
+            tag=None,
+            append_if_signature_exists=False,
+        )
+        signer2 = HTTPMessageSigner(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
+        req_for_overwrite = copy.deepcopy(self.test_request)
+        signer2.sign(req_for_overwrite, **signer2_args)
+        self.assertNotIn("sig1", req_for_overwrite.headers["Signature"])
+        self.assertNotIn("sig1", req_for_overwrite.headers["Signature-Input"])
+        signer2_args["append_if_signature_exists"] = True
+        signer2.sign(self.test_request, **signer2_args)
+        self.assertEqual(
+            self.test_request.headers["Signature-Input"],
+            'sig1=("@method" "@authority" "@path" "content-digest" "content-type" "content-length");created=1618884475;keyid="test-key-ecc-p256", proxy_sig=("@method" "@authority" "@path" "content-digest" "content-type" "content-length" "forwarded");created=1618884480;keyid="test-key-rsa";alg="rsa-v1_5-sha256";expires=1618884540',
+        )
+        self.assertEqual(
+            self.test_request.headers["Signature"],
+            "sig1=:X5spyd6CFnAG5QnDyHfqoSNICd+BUP4LYMz2Q0JXlb//4Ijpzp+kve2w4NIyqeAuM7jTDX+sNalzA8ESSaHD3A==:, proxy_sig=:S6ZzPXSdAMOPjN/6KXfXWNO/f7V6cHm7BXYUh3YD/fRad4BCaRZxP+JH+8XY1I6+8Cy+CM5g92iHgxtRPz+MjniOaYmdkDcnL9cCpXJleXsOckpURl49GwiyUpZ10KHgOEe11sx3G2gxI8S0jnxQB+Pu68U9vVcasqOWAEObtNKKZd8tSFu7LB5YAv0RAGhB8tmpv7sFnIm9y+7X5kXQfi8NMaZaA8i2ZHwpBdg7a6CMfwnnrtflzvZdXAsD3LH2TwevU+/PBPv0B6NMNk93wUs/vfJvye+YuI87HU38lZHowtznbLVdp770I6VHR6WfgS9ddzirrswsE1w5o0LV/g==:",
+        )
+        self.assertIn("sig1", self.test_request.headers["Signature-Input"])
+        with self.assertRaisesRegex(InvalidSignature, "Multiple signatures found and no tag or label specified"):
+            verifier.verify(self.test_request)
+        verifier2 = HTTPMessageVerifier(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
+        with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
+            self.verify(verifier2, self.test_request, expect_label="proxy_sig")
+
+        with patch_time(datetime.fromtimestamp(1618884500)):
+            res = self.verify(verifier2, self.test_request, expect_label="proxy_sig")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0].label, "proxy_sig")
+
+        signer2_args.update(label="my-label", tag="my-tag")
+        signer2.sign(self.test_request, **signer2_args)
+        with self.assertRaisesRegex(InvalidSignature, "No signatures found matching the expected tag or label"):
+            self.verify(verifier2, self.test_request, expect_tag="test")
+        with patch_time(datetime.fromtimestamp(1618884500)):
+            res = self.verify(verifier2, self.test_request, expect_tag="my-tag")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0].label, "my-label")
+            self.assertEqual(res[0].parameters["tag"], "my-tag")
 
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
