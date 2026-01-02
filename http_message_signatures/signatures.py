@@ -233,7 +233,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
     ) -> List[VerifyResult]:
         if expect_tag is None and expect_label is not None:
             warn(
-                "Using only a label to identify a signature is not recommended, as the label is not covered by the signature. Consider setting expect_tag.",
+                "Using only a label to identify a signature is not recommended, as the label is not covered by the "
+                "signature. Consider setting expect_tag.",
                 SignatureVerifyWarning,
             )
         verify_results = []
