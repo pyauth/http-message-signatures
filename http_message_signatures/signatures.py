@@ -81,6 +81,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         tag: Optional[str] = None,
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
+        append_if_signature_exists: bool = False,
     ):
         # TODO: Accept-Signature autonegotiation
         key = self.key_resolver.resolve_private_key(key_id)
@@ -89,14 +90,14 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         signature_params: Dict[str, Any] = collections.OrderedDict()
         signature_params["created"] = int(created.timestamp())
         signature_params["keyid"] = key_id
+        if include_alg:
+            signature_params["alg"] = self.signature_algorithm.algorithm_id
         if expires:
             signature_params["expires"] = int(expires.timestamp())
         if nonce:
             signature_params["nonce"] = nonce
         if tag:
             signature_params["tag"] = tag
-        if include_alg:
-            signature_params["alg"] = self.signature_algorithm.algorithm_id
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
@@ -106,10 +107,26 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         sig_label = self.DEFAULT_SIGNATURE_LABEL
         if label is not None:
             sig_label = label
-        sig_input_node = http_sfv.Dictionary({sig_label: sig_params_node})
-        message.headers["Signature-Input"] = str(sig_input_node)
-        sig_node = http_sfv.Dictionary({sig_label: signature})
-        message.headers["Signature"] = str(sig_node)
+
+        sig_input_node = http_sfv.Dictionary()
+        if append_if_signature_exists and "Signature-Input" in message.headers:
+            if "Signature" not in message.headers:
+                err_msg = 'Cannot append to "Signature-Input" header when "Signature" header is missing'
+                raise HTTPMessageSignaturesException(err_msg)
+            sig_input_node = http_sfv.Dictionary()
+            sig_input_node.parse(message.headers["Signature-Input"].encode())
+            if sig_label in sig_input_node:
+                raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
+        sig_input_node[sig_label] = sig_params_node
+
+        sig_node = http_sfv.Dictionary()
+        if append_if_signature_exists and "Signature" in message.headers:
+            sig_node = http_sfv.Dictionary()
+            sig_node.parse(message.headers["Signature"].encode())
+            if sig_label in sig_node:
+                raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
+        sig_node[sig_label] = signature
+        message.headers.update({"Signature-Input": str(sig_input_node), "Signature": str(sig_node)})
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
@@ -150,42 +167,53 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
                 raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
-    def verify(self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1)) -> List[VerifyResult]:
+    def _get_sig_input_and_signature(self, message, expect_label):
         sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
-        if len(sig_inputs) != 1:
-            # TODO: validate all behaviors with multiple signatures
-            raise InvalidSignature("Multiple signatures are not supported")
-        signature = self._parse_dict_header("Signature", message.headers)
-        verify_results = []
+        signatures = self._parse_dict_header("Signature", message.headers)
+        if len(sig_inputs) == 0 or len(signatures) == 0:
+            raise InvalidSignature("No signatures found in the message")
+        if (len(sig_inputs) > 1 or len(signatures) > 1) and expect_label is None:
+            raise InvalidSignature("Multiple signatures found and no label specified")
+        if sig_inputs.keys() != signatures.keys():
+            raise InvalidSignature("Signature-Input and Signature headers have different labels")
         for label, sig_input in sig_inputs.items():
-            self.validate_created_and_expires(sig_input, max_age=max_age)
-            if label not in signature:
-                raise InvalidSignature("Signature-Input contains a label not listed in Signature")
-            if "alg" in sig_input.params:
-                if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
-                    raise InvalidSignature("Unexpected algorithm specified in the signature")
-            key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
-            for param in sig_input.params:
-                if param not in self.signature_metadata_parameters:
-                    raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
-            try:
-                sig_base, sig_params_node, sig_elements = self._build_signature_base(
-                    message, covered_component_ids=list(sig_input), signature_params=sig_input.params
-                )
-            except Exception as e:
-                raise InvalidSignature(e) from e
-            verifier = self.signature_algorithm(public_key=key)
-            raw_signature = signature[label].value
-            try:
-                verifier.verify(signature=raw_signature, message=sig_base.encode())
-            except Exception as e:
-                raise InvalidSignature(e) from e
-            verify_result = VerifyResult(
+            if expect_label is not None and label != expect_label:
+                continue
+            if label not in signatures:
+                raise InvalidSignature(f'Signature missing expected label "{label}"')
+            return label, sig_input, signatures[label]
+        raise InvalidSignature(f'Signature-Input does not contain expected label "{expect_label}"')
+
+    def verify(
+        self, message, *, max_age: datetime.timedelta = datetime.timedelta(days=1), expect_label: str | None = None
+    ) -> List[VerifyResult]:
+        label, sig_input, signature = self._get_sig_input_and_signature(message, expect_label)
+        self.validate_created_and_expires(sig_input, max_age=max_age)
+        if "alg" in sig_input.params:
+            if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
+                raise InvalidSignature("Unexpected algorithm specified in the signature")
+        key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
+        for param in sig_input.params:
+            if param not in self.signature_metadata_parameters:
+                raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
+        try:
+            sig_base, sig_params_node, sig_elements = self._build_signature_base(
+                message, covered_component_ids=list(sig_input), signature_params=sig_input.params
+            )
+        except Exception as e:
+            raise InvalidSignature(e) from e
+        verifier = self.signature_algorithm(public_key=key)
+        raw_signature = signature.value
+        try:
+            verifier.verify(signature=raw_signature, message=sig_base.encode())
+        except Exception as e:
+            raise InvalidSignature(e) from e
+        return [
+            VerifyResult(
                 label=label,
                 algorithm=self.signature_algorithm,
                 covered_components=sig_elements,
                 parameters=dict(sig_params_node.params),
                 body=None,
             )
-            verify_results.append(verify_result)
-        return verify_results
+        ]
