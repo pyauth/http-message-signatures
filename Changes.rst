@@ -1,3 +1,10 @@
+Changes for v2.0.0 (2026-01-02)
+===============================
+
+- Multiple signature support (#22)
+
+- Drop Python 3.9 support
+
 Changes for v1.0.1 (2026-01-01)
 ===============================
 
