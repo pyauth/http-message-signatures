@@ -137,6 +137,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 class HTTPMessageVerifier(HTTPSignatureHandler):
     max_clock_skew: datetime.timedelta = datetime.timedelta(seconds=5)
     require_created: bool = True
+    allow_label_only_selection: bool = False
 
     def _parse_dict_header(self, header_name, headers):
         if header_name not in headers:
@@ -232,11 +233,14 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         expect_label: str | None = None,
     ) -> List[VerifyResult]:
         if expect_tag is None and expect_label is not None:
-            warn(
-                "Using only a label to identify a signature is not recommended, as the label is not covered by the "
-                "signature. Consider setting expect_tag.",
-                SignatureVerifyWarning,
-            )
+            if self.allow_label_only_selection:
+                warn(
+                    "Using only a label to identify a signature is not recommended, as the label is not covered by the "
+                    "signature. Consider setting expect_tag.",
+                    SignatureVerifyWarning,
+                )
+            else:
+                raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
         verify_results = []
         for label, sig_input, signature in self._get_sig_inputs_and_signatures(
             message, expect_tag=expect_tag, expect_label=expect_label

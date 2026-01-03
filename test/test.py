@@ -24,6 +24,7 @@ from http_message_signatures import (  # noqa
     HTTPSignatureComponentResolver,
     HTTPSignatureKeyResolver,
     InvalidSignature,
+    HTTPMessageSignaturesException,
 )
 from http_message_signatures.algorithms import (  # noqa
     ECDSA_P256_SHA256,
@@ -377,6 +378,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(InvalidSignature, "Multiple signatures found and no tag or label specified"):
             verifier.verify(self.test_request)
         verifier2 = HTTPMessageVerifier(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "expect_tag must be set if expect_label is set"):
+            self.verify(verifier2, self.test_request, expect_label="proxy_sig")
+        verifier2.allow_label_only_selection = True
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             self.verify(verifier2, self.test_request, expect_label="proxy_sig")
 
