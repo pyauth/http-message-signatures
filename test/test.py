@@ -443,6 +443,14 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
             verifier.verify(self.test_request)
 
+    def test_has_nonce(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        nonce = 'random-nonce'
+        signer.sign(self.test_request, key_id="test-shared-secret", nonce=nonce)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        result = verifier.verify(self.test_request)
+        self.assertEqual(result[0].nonce, nonce)
+
 
 if __name__ == "__main__":
     unittest.main()
