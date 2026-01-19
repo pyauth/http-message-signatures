@@ -1,3 +1,8 @@
+Changes for v2.0.1 (2026-01-18)
+===============================
+
+Remove Python 3.8 and 3.9 from PyPI metadata
+
 Changes for v2.0.0 (2026-01-02)
 ===============================
 
