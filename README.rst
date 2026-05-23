@@ -15,7 +15,7 @@ Installation
 ------------
 ::
 
-    pip3 install http-message-signatures
+    pip install http-message-signatures
 
 Synopsis
 --------
