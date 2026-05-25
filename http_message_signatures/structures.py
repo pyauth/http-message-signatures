@@ -1,7 +1,7 @@
 from collections import OrderedDict, namedtuple
 from collections.abc import Mapping, MutableMapping
 
-VerifyResult = namedtuple("VerifyResult", "label algorithm covered_components parameters body")
+VerifyResult = namedtuple("VerifyResult", "label algorithm covered_components parameters body nonce")
 
 
 class CaseInsensitiveDict(MutableMapping):
