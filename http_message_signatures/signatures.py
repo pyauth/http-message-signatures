@@ -223,7 +223,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             covered_components=sig_elements,
             parameters=dict(sig_params_node.params),
             body=None,
-            nonce=sig_input.params.get('nonce'),
+            nonce=sig_input.params.get("nonce"),
         )
 
     def verify(
