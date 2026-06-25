@@ -1,6 +1,7 @@
 import urllib.parse
 
-from . import http_sfv
+from http_sf.compat import Item
+
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict
 
@@ -28,7 +29,7 @@ class HTTPSignatureComponentResolver:
         self.url = str(message.url)
         self.headers = CaseInsensitiveDict(message.headers)
 
-    def resolve(self, component_node: http_sfv.Item):
+    def resolve(self, component_node: Item):
         component_id = str(component_node.value)
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_names:

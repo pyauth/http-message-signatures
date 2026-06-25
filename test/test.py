@@ -445,12 +445,11 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_has_nonce(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        nonce = 'random-nonce'
+        nonce = "random-nonce"
         signer.sign(self.test_request, key_id="test-shared-secret", nonce=nonce)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         result = verifier.verify(self.test_request)
         self.assertEqual(result[0].nonce, nonce)
-
 
     def test_has_no_nonce(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
