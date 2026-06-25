@@ -22,8 +22,11 @@ Synopsis
 
 .. code-block:: python
 
-    from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms, http_sfv
-    import requests, base64, hashlib
+    import hashlib
+
+    import requests
+    from http_sf.compat import Dictionary
+    from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms
 
     class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
         keys = {"my-key": b"top-secret-key"}
@@ -36,7 +39,7 @@ Synopsis
 
     request = requests.Request('POST', 'https://example.com/foo?param=Value&Pet=dog', json={"hello": "world"})
     request = request.prepare()
-    request.headers["Content-Digest"] = str(http_sfv.Dictionary({"sha-256": hashlib.sha256(request.body).digest()}))
+    request.headers["Content-Digest"] = str(Dictionary({"sha-256": hashlib.sha256(request.body).digest()}))
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     signer.sign(request, key_id="my-key", covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"))
