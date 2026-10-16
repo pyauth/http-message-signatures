@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
 )
+from http_sf.compat import Item
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from http_message_signatures import (  # noqa
@@ -457,6 +458,86 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         result = verifier.verify(self.test_request)
         self.assertEqual(result[0].nonce, None)
+
+    def test_dictionary_member_key_parameter(self):
+        # RFC 9421 section 2.1.2, the Example-Dict field and its four member components.
+        self.test_request.headers["Example-Dict"] = " a=1,    b=2;x=1;y=2,   c=(a   b   c), d"
+        resolver = HTTPSignatureComponentResolver(self.test_request)
+
+        def resolve(component_id):
+            node = Item()
+            node.parse(component_id.encode())
+            return resolver.resolve(node)
+
+        self.assertEqual(resolve('"example-dict";key="a"'), "1")
+        self.assertEqual(resolve('"example-dict";key="d"'), "?1")
+        self.assertEqual(resolve('"example-dict";key="b"'), "2;x=1;y=2")
+        self.assertEqual(resolve('"example-dict";key="c"'), "(a b c)")
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, 'has no member "e"'):
+            resolve('"example-dict";key="e"')
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "not a Dictionary"):
+            resolve('"date";key="a"')
+        for flag in ("sf", "bs", "tr"):
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "not supported"):
+                resolve(f'"example-dict";{flag}')
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown parameter"):
+            resolve('"example-dict";foo="bar"')
+        for key in ("a", "1", "?1"):  # Token, Integer, Boolean: the key must be a String
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a string"):
+                resolve(f'"example-dict";key={key}')
+
+    def test_dictionary_member_key_parameter_round_trip(self):
+        # Section 2.1.2: a signature over one member survives a change to another member
+        # and fails on a change to the covered one.
+        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2, c=(a b c), d"
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(
+            self.test_request,
+            key_id="test-shared-secret",
+            covered_component_ids=("@method", "@authority", '"example-dict";key="b"'),
+        )
+        self.assertIn('"example-dict";key="b"', self.test_request.headers["Signature-Input"])
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        result = self.verify(verifier, self.test_request)
+        self.assertEqual(result[0].covered_components['"example-dict";key="b"'], "2;x=1;y=2")
+
+        other_member_changed = copy.deepcopy(self.test_request)
+        other_member_changed.headers["Example-Dict"] = "a=9, b=2;x=1;y=2, c=(x y z)"
+        verifier.verify(other_member_changed, max_age=self.max_age)
+
+        covered_member_changed = copy.deepcopy(self.test_request)
+        covered_member_changed.headers["Example-Dict"] = "a=1, b=3;x=1;y=2, c=(a b c), d"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(covered_member_changed, max_age=self.max_age)
+
+    def test_req_parameter_binds_request_components_to_a_response(self):
+        # RFC 9421 section 2.4: "@authority";req in a response signature is the request's authority.
+        resolver = HTTPSignatureComponentResolver(self.test_response)
+        node = Item()
+        node.parse(b'"@authority";req')
+        self.assertEqual(resolver.resolve(node), "example.com")
+        node.parse(b'"content-digest";req')
+        self.assertEqual(resolver.resolve(node), self.test_request.headers["Content-Digest"])
+        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
+        node.parse(b'"example-dict";req;key="b"')  # section 2.4: req combines with key
+        self.assertEqual(resolver.resolve(node), "2;x=1;y=2")
+        node.parse(b'"@query-params";name="Pet";req')
+        self.assertEqual(resolver.resolve(node), "dog")
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "only valid in a response signature"):
+            HTTPSignatureComponentResolver(self.test_request).resolve(node)
+        node.parse(b'"@authority";req=?0')
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a Boolean flag"):
+            resolver.resolve(node)
+
+        signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
+        signer.sign(
+            self.test_response,
+            key_id="test-key-ed25519",
+            covered_component_ids=("@status", '"@authority";req', "content-digest"),
+        )
+        verifier = HTTPMessageVerifier(signature_algorithm=ED25519, key_resolver=self.key_resolver)
+        result = self.verify(verifier, self.test_response)
+        self.assertEqual(result[0].covered_components['"@authority";req'], "example.com")
 
 
 if __name__ == "__main__":
