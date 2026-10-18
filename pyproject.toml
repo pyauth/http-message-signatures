@@ -37,6 +37,7 @@ tests = [
     "build",
     "wheel",
     "mypy",
+    "typing_extensions",
     "requests",
     "ruff",
 ]
