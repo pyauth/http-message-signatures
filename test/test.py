@@ -55,6 +55,14 @@ def patch_time(dt):
         yield
 
 
+def set_test_signature(message, signature_params, covered_lines):
+    """MAC explicit fixtures without passing them through the signer's validation."""
+    base = "\n".join([*covered_lines, f'"@signature-params": {signature_params}'])
+    signature = HMAC_SHA256(private_key=test_shared_secret).sign(base.encode())
+    message.headers["Signature-Input"] = "pyhms=" + signature_params
+    message.headers["Signature"] = str(Dictionary({"pyhms": signature}))
+
+
 class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
     known_pem_keys: ClassVar[set[str]] = {"test-key-rsa", "test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519"}
 
@@ -590,6 +598,84 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(verifier.verify(self.test_request)[0].label, "single")
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
+
+    def test_signature_metadata_types(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        timestamp = int(datetime.now().timestamp())
+        wrong_integers = (f'"{timestamp}"', f"{timestamp}.5", "?1", ":MTIz:", f"@{timestamp}")
+        for name in ("created", "expires"):
+            for value in wrong_integers:
+                with self.subTest(name=name, value=value):
+                    params = {"created": str(timestamp), "keyid": '"test-shared-secret"', name: value}
+                    signature_params = '("@method")' + "".join(f";{key}={item}" for key, item in params.items())
+                    set_test_signature(self.test_request, signature_params, ['"@method": POST'])
+                    with self.assertRaisesRegex(InvalidSignature, f'"{name}" must be a Structured Field Integer'):
+                        verifier.verify(self.test_request)
+        for name, value in (
+            ("keyid", "test-shared-secret"),
+            ("alg", "hmac-sha256"),
+            ("nonce", "7"),
+            ("tag", "example"),
+        ):
+            with self.subTest(name=name, value=value):
+                params = {"created": str(timestamp), "keyid": '"test-shared-secret"', name: value}
+                signature_params = '("@method")' + "".join(f";{key}={item}" for key, item in params.items())
+                set_test_signature(self.test_request, signature_params, ['"@method": POST'])
+                with self.assertRaisesRegex(InvalidSignature, f'"{name}" must be a Structured Field String'):
+                    verifier.verify(self.test_request)
+
+    def test_component_names_must_be_strings(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["example"] = "value"
+        self.test_request.headers["123"] = "value"
+        timestamp = int(datetime.now().timestamp())
+        for component in ("example", "123", '%"example"'):
+            with self.subTest(component=component):
+                params = f'({component});created={timestamp};keyid="test-shared-secret"'
+                set_test_signature(self.test_request, params, [f"{component}: value"])
+                with self.assertRaisesRegex(InvalidSignature, "Component names must be Structured Field Strings"):
+                    verifier.verify(self.test_request)
+
+    def test_signature_dictionary_member_types(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        for value in ('"text"', "(:AAAA:)", "?1"):
+            self.test_request.headers["Signature"] = "pyhms=" + value
+            with self.assertRaisesRegex(InvalidSignature, "must be a Byte Sequence"):
+                verifier.verify(self.test_request)
+        self.test_request.headers["Signature"] = "pyhms=:AAAA:"
+        self.test_request.headers["Signature-Input"] = 'pyhms="@method"'
+        with self.assertRaisesRegex(InvalidSignature, "must be an Inner List"):
+            verifier.verify(self.test_request)
+
+    def test_derived_value_character_validation(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        timestamp = int(datetime.now().timestamp())
+        params = f'("@method");created={timestamp};keyid="test-shared-secret"'
+        for method in ("GET\t", " GET", "GET ", "GE\x00T", "GET\x7f"):
+            with self.subTest(method=method):
+                self.test_request.method = method
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be printable"):
+                    signer.sign(self.test_request, key_id="test-shared-secret")
+                set_test_signature(self.test_request, params, [f'"@method": {method}'])
+                with self.assertRaisesRegex(InvalidSignature, "must be printable"):
+                    verifier.verify(self.test_request)
+
+    def test_signer_metadata_types_and_empty_strings(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for kwargs in ({"nonce": 7}, {"nonce": False}, {"tag": b""}, {"key_id": 7}):
+            with (
+                self.subTest(kwargs=kwargs),
+                self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a Structured Field String"),
+            ):
+                signer.sign(self.test_request, **({"key_id": "test-shared-secret"} | kwargs))
+        signer.sign(self.test_request, key_id="test-shared-secret", nonce="", tag="")
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        result = verifier.verify(self.test_request, expect_tag="")[0]
+        self.assertEqual(result.nonce, "")
+        self.assertEqual(result.parameters["tag"], "")
 
     def test_duplicate_signature_labels(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

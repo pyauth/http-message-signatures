@@ -61,15 +61,20 @@ class HTTPSignatureHandler:
         return result
 
     def _build_signature_base(
-        self, message, *, covered_component_ids: list[Any], signature_params: dict[str, str]
+        self, message, *, covered_component_ids: list[Any], signature_params: dict[str, Any]
     ) -> tuple:
+        self._validate_signature_param_types(signature_params)
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         seen_components = set()
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
+            if not isinstance(component_id, Item) or not isinstance(component_id.value, str):
+                raise HTTPMessageSignaturesException("Component names must be Structured Field Strings")
             component_key = str(component_id)
             component_value = component_resolver.resolve(component_id)
+            if not isinstance(component_value, str):
+                raise HTTPMessageSignaturesException(f'Component value for "{component_key}" must be a string')
             if str(component_id.value).lower() != str(component_id.value):
                 msg = f'Component ID "{component_id.value}" is not all lowercase'  # type: ignore
                 raise HTTPMessageSignaturesException(msg)
@@ -78,6 +83,18 @@ class HTTPSignatureHandler:
             if "\r" in component_value or "\n" in component_value:
                 raise HTTPMessageSignaturesException(
                     f'Component value for "{component_key}" contains newline character'
+                )
+            if (
+                component_id.value.startswith("@")
+                and component_value
+                and (
+                    not component_value.isprintable()
+                    or component_value.startswith(" ")
+                    or component_value.endswith(" ")
+                )
+            ):
+                raise HTTPMessageSignaturesException(
+                    f'Derived component "{component_key}" must be printable with no surrounding whitespace'
                 )
             # Component identity ignores parameter order (RFC 9421 section 2).
             component_identity = (component_id.value, frozenset(component_id.params.items()))
@@ -94,6 +111,14 @@ class HTTPSignatureHandler:
         if not sig_base.isascii():
             raise HTTPMessageSignaturesException("Signature base contains non-ASCII characters")
         return sig_base, sig_params_node, sig_elements
+
+    @staticmethod
+    def _validate_signature_param_types(params):
+        for name, value in params.items():
+            if name in {"created", "expires"} and type(value) is not int:
+                raise HTTPMessageSignaturesException(f'Parameter "{name}" must be a Structured Field Integer')
+            if name in {"alg", "keyid", "nonce", "tag"} and not isinstance(value, str):
+                raise HTTPMessageSignaturesException(f'Parameter "{name}" must be a Structured Field String')
 
 
 class HTTPMessageSigner(HTTPSignatureHandler):
@@ -125,7 +150,6 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         append_if_signature_exists: bool = False,
     ):
         # TODO: Accept-Signature autonegotiation
-        key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
             created = datetime.datetime.now()
         signature_params: dict[str, Any] = collections.OrderedDict()
@@ -135,14 +159,15 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["alg"] = self.signature_algorithm.algorithm_id
         if expires:
             signature_params["expires"] = int(expires.timestamp())
-        if nonce:
+        if nonce is not None:
             signature_params["nonce"] = nonce
-        if tag:
+        if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
+        key = self.key_resolver.resolve_private_key(key_id)
         signer = self.signature_algorithm(private_key=key)
         signature = signer.sign(sig_base.encode())
         sig_label = self.DEFAULT_SIGNATURE_LABEL
@@ -191,8 +216,9 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         return dict_header_node
 
     def _parse_integer_timestamp(self, ts, field_name):
+        if type(ts) is not int:
+            raise InvalidSignature(f'Parameter "{field_name}" must be a Structured Field Integer')
         try:
-            ts = int(ts)
             dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
         except Exception as e:
             raise InvalidSignature(f'Malformed "{field_name}" parameter: {e}') from e
@@ -232,6 +258,15 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         for label, sig_input in sig_inputs.items():
             if label not in signatures:
                 raise InvalidSignature(f'Signature missing expected label "{label}"')
+            if not isinstance(sig_input, InnerList):
+                raise InvalidSignature(f'Signature-Input member "{label}" must be an Inner List')
+            signature = signatures[label]
+            if not isinstance(signature, Item) or not isinstance(signature.value, bytes):
+                raise InvalidSignature(f'Signature member "{label}" must be a Byte Sequence')
+            try:
+                self._validate_signature_param_types(sig_input.params)
+            except HTTPMessageSignaturesException as e:
+                raise InvalidSignature(str(e)) from e
             if expect_tag is not None and sig_input.params.get("tag") != expect_tag:
                 continue
             if expect_label is not None and label != expect_label:

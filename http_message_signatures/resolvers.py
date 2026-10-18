@@ -152,6 +152,8 @@ class HTTPSignatureComponentResolver:
         return "?" + (self.uri.query or "")
 
     def get_query_params(self, *, name: str):
+        if not isinstance(name, str):
+            raise HTTPMessageSignaturesException('The query parameter "name" must be a string')
         query = urllib.parse.parse_qs(self.uri.query or "", keep_blank_values=True)
         name = urllib.parse.unquote(name)
         if name not in query:
