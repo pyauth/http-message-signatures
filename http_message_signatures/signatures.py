@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from typing import Any, ClassVar, cast
 from warnings import warn
 
-from http_sf import parse
+import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
@@ -42,7 +42,9 @@ class HTTPSignatureHandler:
             if context == "dictionary":
                 raise HTTPMessageSignaturesException(f'Duplicate signature label "{key}"')
 
-        parsed = cast(dict[str, Any], parse(value.encode(), tltype="dictionary", on_duplicate_key=reject_duplicate))
+        parsed = cast(
+            dict[str, Any], http_sf.parse(value.encode(), tltype="dictionary", on_duplicate_key=reject_duplicate)
+        )
         # Adapt the already parsed values to the compatibility objects used by
         # signature construction, without parsing or tokenizing the field again.
         result = Dictionary()
