@@ -8,7 +8,7 @@ VerifyResult = namedtuple("VerifyResult", "label algorithm covered_components pa
 def normalize_header_value(value: str) -> str:
     # RFC 9421 section 2.1: unfold obsolete HTTP/1.1 line folding and trim OWS.
     # Bare CR/LF are not folds and must remain visible to validation.
-    return re.sub(r"\r\n[ \t]+", " ", value).strip(" \t")
+    return re.sub(r"[ \t]*\r\n[ \t]+", " ", value).strip(" \t")
 
 
 class CaseInsensitiveDict(MutableMapping):

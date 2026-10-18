@@ -487,6 +487,22 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaises(HTTPMessageSignaturesException):
                     signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
 
+    def test_obsolete_fold_includes_preceding_whitespace(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example"] = "a b"
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        for folded in ("a \t\r\n b", "a  \r\n\t  b", "a\r\n b"):
+            with self.subTest(folded=folded):
+                self.test_request.headers["Example"] = folded
+                result = verifier.verify(self.test_request)[0]
+                self.assertEqual(result.covered_components['"example"'], "a b")
+        for distinct in ("a \t b", "a\nb", "a\rb", "a\r\nb"):
+            with self.subTest(distinct=distinct):
+                self.test_request.headers["Example"] = distinct
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(self.test_request)
+
     def test_structured_header_folding(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
