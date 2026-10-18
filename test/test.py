@@ -1152,6 +1152,45 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaisesRegex(InvalidSignature, "must be printable"):
                     verifier.verify(self.test_request)
 
+    def test_covered_header_control_characters(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        timestamp = int(datetime.now().timestamp())
+        controls = [codepoint for codepoint in range(32) if codepoint != 9] + [127]
+        for message, component in ((self.test_request, '"example"'), (self.test_response, '"example";req')):
+            params = f'({component});created={timestamp};keyid="test-shared-secret"'
+            for codepoint in controls:
+                with self.subTest(component=component, codepoint=codepoint):
+                    value = "a" + chr(codepoint) + "b"
+                    self.test_request.headers["Example"] = value
+                    # Matching MACs isolate character validation from signature mismatch.
+                    set_test_signature(message, params, [f"{component}: {value}"])
+                    with self.assertRaisesRegex(InvalidSignature, "control|newline"):
+                        verifier.verify(message)
+                    with self.assertRaisesRegex(HTTPMessageSignaturesException, "control|newline"):
+                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+
+    def test_covered_header_internal_tabs(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        created = datetime.now(timezone.utc).replace(microsecond=0)
+        value = "a\t" + "".join(chr(codepoint) for codepoint in range(32, 127)) + "\tb"
+        self.test_request.headers["Example"] = value
+        for message, component in ((self.test_request, '"example"'), (self.test_response, '"example";req')):
+            with self.subTest(component=component):
+                params = f'({component});created={int(created.timestamp())};keyid="test-shared-secret"'
+                set_test_signature(message, params, [f"{component}: {value}"])
+                signature = message.headers["Signature"]
+                self.assertEqual(verifier.verify(message)[0].covered_components[component], value)
+                signer.sign(
+                    message,
+                    key_id="test-shared-secret",
+                    created=created,
+                    include_alg=False,
+                    covered_component_ids=(component,),
+                )
+                self.assertEqual(message.headers["Signature"], signature)
+
     def test_signer_metadata_types_and_empty_strings(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         for kwargs in ({"nonce": 7}, {"nonce": False}, {"tag": b""}, {"key_id": 7}):
