@@ -510,6 +510,31 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaises(InvalidSignature):
             verifier.verify(covered_member_changed, max_age=self.max_age)
 
+    def test_dictionary_display_string_serialization(self):
+        # A one-digit percent escape must not consume the following literal digit.
+        # Exercise every location a display string can occupy in a Dictionary member.
+        templates = ('a={}', 'a=1;x={}', 'a=({})', 'a=(1);x={}', 'a=(1;x={})')
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        component = '"example-dict";key="a"'
+        for template in templates:
+            with self.subTest(template=template):
+                field_value = template.format('%"%010"')
+                self.test_request.headers["Example-Dict"] = field_value
+                signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                result = verifier.verify(self.test_request)[0]
+                self.assertEqual(result.covered_components[component], field_value.removeprefix("a="))
+                self.test_request.headers["Example-Dict"] = template.format('%"%10"')
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(self.test_request)
+
+        # All control bytes, DEL, quotes, percent signs, and UTF-8 use the same
+        # strict serializer, including the boundaries previously left unescaped.
+        value = '%"' + "".join(f"%{byte:02x}" for byte in range(32)) + '%7f%22%25%c3%a9"'
+        self.test_request.headers["Example-Dict"] = f"a={value}"
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+        self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
+
     def test_req_parameter_binds_request_components_to_a_response(self):
         # RFC 9421 section 2.4: "@authority";req in a response signature is the request's authority.
         resolver = HTTPSignatureComponentResolver(self.test_response)

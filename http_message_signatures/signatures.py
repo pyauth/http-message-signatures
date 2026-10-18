@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 from warnings import warn
 
-from http_sf.compat import Dictionary, InnerList, Item, List as StructuredFieldList
+from http_sf.compat import Dictionary, InnerList, Item
 
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
@@ -41,7 +41,7 @@ class HTTPSignatureHandler:
         sig_elements = collections.OrderedDict()
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
-            component_key = str(StructuredFieldList([component_id]))
+            component_key = str(component_id)
             # TODO: model situations when header occurs multiple times
             component_value = component_resolver.resolve(component_id)
             if str(component_id.value).lower() != str(component_id.value):
