@@ -9,7 +9,7 @@ from http_sf.compat import Dictionary, InnerList, Item
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import VerifyResult
+from .structures import VerifyResult, normalize_header_value
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ class HTTPSignatureHandler:
                 raise HTTPMessageSignaturesException(msg)
             if "\n" in component_key:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
+            if "\r" in component_value or "\n" in component_value:
+                raise HTTPMessageSignaturesException(f'Component value for "{component_key}" contains newline character')
             if component_key in sig_elements:
                 raise HTTPMessageSignaturesException(
                     f'Component ID "{component_key}" appeared multiple times in signature input'
@@ -58,6 +60,8 @@ class HTTPSignatureHandler:
         sig_params_node.params.update(signature_params)
         sig_elements['"@signature-params"'] = str(sig_params_node)
         sig_base = "\n".join(f"{k}: {v}" for k, v in sig_elements.items())
+        if not sig_base.isascii():
+            raise HTTPMessageSignaturesException("Signature base contains non-ASCII characters")
         return sig_base, sig_params_node, sig_elements
 
 
@@ -120,7 +124,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
                 err_msg = 'Cannot append to "Signature-Input" header when "Signature" header is missing'
                 raise HTTPMessageSignaturesException(err_msg)
             sig_input_node = Dictionary()
-            sig_input_node.parse(message.headers["Signature-Input"].encode())
+            sig_input_node.parse(normalize_header_value(message.headers["Signature-Input"]).encode())
             if sig_label in sig_input_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_input_node[sig_label] = sig_params_node
@@ -128,7 +132,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         sig_node = Dictionary()
         if append_if_signature_exists and "Signature" in message.headers:
             sig_node = Dictionary()
-            sig_node.parse(message.headers["Signature"].encode())
+            sig_node.parse(normalize_header_value(message.headers["Signature"]).encode())
             if sig_label in sig_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_node[sig_label] = signature
@@ -145,7 +149,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             raise InvalidSignature(f'Expected "{header_name}" header field to be present')
         try:
             dict_header_node = Dictionary()
-            dict_header_node.parse(headers[header_name].encode())
+            dict_header_node.parse(normalize_header_value(headers[header_name]).encode())
         except Exception as e:
             raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
         return dict_header_node

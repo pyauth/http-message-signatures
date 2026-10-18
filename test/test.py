@@ -10,6 +10,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 import requests
 from cryptography.hazmat.primitives.serialization import (
@@ -432,6 +433,69 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1))
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             verifier.verify(self.test_request)
+
+    def test_query_parameter_canonicalization(self):
+        self.test_request.url = (
+            "https://example.com/parameters?var=this%20is%20a%20big%0Amultiline%20value"
+            "&bar=with+plus+whitespace&fa%C3%A7ade%22%3A%20=something&empty=&symbols=%2B%2F%26%3D*~"
+        )
+        resolver = HTTPSignatureComponentResolver(self.test_request)
+        for name, expected in (
+            ("var", "this%20is%20a%20big%0Amultiline%20value"),
+            ("bar", "with%20plus%20whitespace"),
+            ("fa%C3%A7ade%22%3A%20", "something"),
+            ("empty", ""),
+            ("symbols", "%2B%2F%26%3D*%7E"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(resolver.get_query_params(name=name), expected)
+
+    def test_query_parameter_newline_collision(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
+            with self.subTest(suffix=suffix):
+                components = (f'"@query-params";name="a"{suffix}', f'"@query-params";name="b"{suffix}')
+                delimiter = f"\n{components[1]}: "
+                original = {"a": "safe" + delimiter + "injected", "b": "tail"}
+                changed = {"a": "safe", "b": "injected" + delimiter + "tail"}
+                self.test_request.url = "https://example.com/?" + urlencode(original)
+                signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                result = verifier.verify(message)[0]
+                self.assertNotIn("\n", result.covered_components[components[0]])
+                self.test_request.url = "https://example.com/?" + urlencode(changed)
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message)
+
+    def test_header_value_normalization(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example"] = "Obsolete line folding."
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        self.test_request.headers["Example"] = " \tObsolete\r\n\t  line folding.\t "
+        self.assertEqual(verifier.verify(self.test_request)[0].covered_components['"example"'], "Obsolete line folding.")
+        for invalid in ("Obsolete\nline folding.", "Obsolete\rline folding.", "Obsolete\r\nline folding.", "caf\u00e9"):
+            with self.subTest(invalid=invalid):
+                self.test_request.headers["Example"] = invalid
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(self.test_request)
+                with self.assertRaises(HTTPMessageSignaturesException):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+
+    def test_structured_header_folding(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example-Dict"] = "a=1,\r\n\t b=2"
+        component = '"example-dict";key="b"'
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,), tag="folding")
+        signature_input = self.test_request.headers["Signature-Input"]
+        self.test_request.headers["Signature-Input"] = signature_input.replace(";created", ";\r\n created")
+        self.test_request.headers["Signature"] = "\t" + self.test_request.headers["Signature"] + " "
+        self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], "2")
+        signer.sign(
+            self.test_request, key_id="test-shared-secret", label="second", tag="folding", append_if_signature_exists=True
+        )
+        self.assertEqual(len(verifier.verify(self.test_request, expect_tag="folding")), 2)
 
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
