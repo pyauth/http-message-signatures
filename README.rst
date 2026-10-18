@@ -148,6 +148,11 @@ credentials and fragments. Empty paths normally become ``/``. For ``OPTIONS``, `
 empty path so server-wide ``OPTIONS *`` remains distinct from
 ``OPTIONS /``. The separate ``@path`` component still represents an empty path as ``/``.
 
+Supply an already encoded URI. URLs that the URI parser would rewrite, such as those containing malformed percent
+escapes (``%``, ``%2``, or ``%ZZ``), unencoded spaces, or non-ASCII path or query characters, are rejected. This prevents
+parser rewrites from making different request targets share signing input. The check applies during signing, verification,
+applying a prepared signature, and resolving request components covered by a response signature.
+
 For ``@request-target``, clients can supply ``message.request_target`` containing the HTTP/1.1 request
 target. This is necessary for absolute-form proxy requests and asterisk-form ``OPTIONS *`` requests, since those
 forms cannot be inferred from an absolute URL. Without this attribute, the resolver derives origin form from the

@@ -1832,6 +1832,101 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
 
+    def test_signing_rejects_uri_parser_rewrites(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        invalid_urls = (
+            "https://example.com/files/%41%",
+            "https://example.com/files/%41%2",
+            "https://example.com/files/%41%ZZ",
+            "https://example.com/?role=%61dmin&x=%",
+            "https://example.com/?role=%61dmin&x=%2",
+            "https://example.com/?role=%61dmin&x=%ZZ",
+            "https://example.com/a b",
+            "https://example.com/?q=a b",
+            "https://example.com/café",
+            "https://example.com/?q=café",
+            "https://example.com/a\nb",
+            "https://example.com/?q=a\tb",
+        )
+        headers = dict(self.test_request.headers)
+        for url in invalid_urls:
+            for operation in (signer.prepare, signer.sign):
+                with (
+                    self.subTest(url=url, operation=operation.__name__),
+                    patch.object(
+                        self.key_resolver, "resolve_private_key", side_effect=AssertionError("local key read")
+                    ),
+                    self.assertRaisesRegex(HTTPMessageSignaturesException, "URI parsing would alter"),
+                ):
+                    self.test_request.url = url
+                    operation(self.test_request, key_id="test-shared-secret")
+                self.assertEqual(dict(self.test_request.headers), headers)
+
+    def test_verification_rejects_uri_repair_collisions(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        cases = (
+            (
+                "https://example.com/files/%2541%25ZZ",
+                "https://example.com/files/%41%ZZ",
+                (("@method", "@authority", "@target-uri"), ("@path",), ("@request-target",)),
+            ),
+            (
+                "https://example.com/?role=%2561dmin&x=%25ZZ",
+                "https://example.com/?role=%61dmin&x=%ZZ",
+                (("@method", "@authority", "@target-uri"), ("@query",), ('"@query-param";name="role"',)),
+            ),
+        )
+        for original, changed, component_lists in cases:
+            for components in component_lists:
+                for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
+                    with self.subTest(url=changed, components=components, suffix=suffix):
+                        covered = tuple(
+                            (component if component.startswith('"') else f'"{component}"') + suffix
+                            for component in components
+                        )
+                        self.test_request.url = original
+                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=covered)
+                        verifier.verify(message)
+                        self.test_request.url = changed
+                        with self.assertRaisesRegex(InvalidSignature, "URI parsing would alter"):
+                            verifier.verify(message)
+
+    def test_apply_rejects_uri_repair_collisions(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        for original, changed in (
+            ("https://example.com/files/%2541%25ZZ", "https://example.com/files/%41%ZZ"),
+            ("https://example.com/?role=%2561dmin&x=%25ZZ", "https://example.com/?role=%61dmin&x=%ZZ"),
+        ):
+            for message, component in ((self.test_request, "@target-uri"), (self.test_response, '"@target-uri";req')):
+                with self.subTest(url=changed, component=component):
+                    self.test_request.url = original
+                    prepared = signer.prepare(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+                    signer.apply(message, prepared, signature)
+                    headers = dict(message.headers)
+                    self.test_request.url = changed
+                    for append in (False, True):
+                        with self.assertRaisesRegex(HTTPMessageSignaturesException, "URI parsing would alter"):
+                            signer.apply(message, prepared, signature, append_if_signature_exists=append)
+                        self.assertEqual(dict(message.headers), headers)
+
+    def test_encoded_uris_remain_unchanged(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for url in (
+            "https://example.com/files/%2541%25ZZ?role=%2561dmin&x=%25ZZ",
+            "https://example.com/a%2fb/../caf%C3%A9?q=%20%2f%FF&plus=+",
+            "https://example.com/resource?",
+            "https://user:pass@[2001:DB8::1]:443/resource?#fragment",
+        ):
+            with self.subTest(url=url):
+                self.test_request.url = url
+                resolver = HTTPSignatureComponentResolver(self.test_request)
+                self.assertEqual(resolver.uri.unsplit(), url)
+                signer.sign(self.test_request, key_id="test-shared-secret")
+                verifier.verify(self.test_request)
+
     def test_uri_component_canonicalization(self):
         cases = (
             ("https://EXAMPLE.com:443", "example.com", "/", "/", "https://EXAMPLE.com:443/"),

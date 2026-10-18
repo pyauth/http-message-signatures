@@ -17,6 +17,7 @@ class HTTPSignatureComponentResolver:
     an uppercase ``method``. The presence of ``status_code`` identifies a
     response; its ``request`` supplies components qualified with ``req``.
     An associated request must also have an uppercase method.
+    Supply an encoded URI: URLs that the URI parser would rewrite are rejected.
 
     ``headers.items()`` must expose string names and values for all field lines
     in order, or values already combined in that order. Signing additionally
@@ -69,6 +70,10 @@ class HTTPSignatureComponentResolver:
             self._validate_method(message.request.method)
         self.url = str(message.url)
         self.uri = uri_reference(self.url)
+        # Malformed escapes cause rfc3986 to re-encode all '%' characters in a
+        # component. Reject parser rewrites that could collapse distinct URLs.
+        if self.uri.unsplit() != self.url:
+            raise HTTPMessageSignaturesException("URI parsing would alter the message URL")
         self.headers = get_header_fields(message.headers)
 
     @staticmethod
