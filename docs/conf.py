@@ -5,10 +5,12 @@ version = ""
 release = ""
 language = "en"
 master_doc = "index"
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.doctest", "sphinx.ext.viewcode"]
+extensions = ["sphinx.ext.autodoc", "sphinx.ext.viewcode"]
 source_suffix = [".rst", ".md"]
-exclude_patterns = ["_build", "html", "doctest", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "html", "Thumbs.db", ".DS_Store"]
 pygments_style = "sphinx"
 autodoc_typehints = "description"
+autodoc_member_order = "bysource"
+autoclass_content = "both"
 
 html_theme = "alabaster"

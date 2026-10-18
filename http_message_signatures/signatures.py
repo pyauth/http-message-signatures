@@ -177,7 +177,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         """Sign a message in place; return ``None``.
 
         :param message: Request or response implementing the message interface
-            documented in :doc:`usage`.
+            documented in :class:`~http_message_signatures.HTTPSignatureComponentResolver`.
         :param key_id: ID passed to ``key_resolver.resolve_private_key`` and
             included in the signed metadata.
         :param created: Creation time; defaults to the current time. A naive
@@ -377,7 +377,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
     ) -> list[VerifyResult]:
         """Return verified signatures matching the requested selection.
 
-        :param message: Request or response implementing :doc:`usage`.
+        :param message: Request or response implementing the interface documented
+            in :class:`~http_message_signatures.HTTPSignatureComponentResolver`.
         :param max_age: Maximum age since creation, with clock-skew tolerance.
             ``None`` disables the age limit; expiration checks still apply.
         :param expect_tag: Require this signed application tag. Required when

@@ -1,13 +1,23 @@
 .. include:: ../README.rst
 
-API and usage
-=============
+API documentation
+=================
 
-.. toctree::
-   :maxdepth: 2
+.. automodule:: http_message_signatures
+   :members:
+   :imported-members:
+   :undoc-members:
+   :inherited-members:
 
-   usage
-   api
+Algorithms
+==========
+
+.. automodule:: http_message_signatures.algorithms
+   :members:
+   :imported-members:
+   :undoc-members:
+   :inherited-members:
+   :no-index:
 
 Release Notes
 =============

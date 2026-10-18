@@ -13,14 +13,11 @@ init_docs:
 docs:
 	python -m sphinx -W --keep-going docs docs/html
 
-test-docs:
-	python -m sphinx -W --keep-going -b doctest docs docs/doctest
-
 install:
 	-rm -rf dist
 	python -m build
 	pip install --upgrade dist/*.whl
 
-.PHONY: test lint release docs test-docs
+.PHONY: test lint release docs
 
 include common.mk

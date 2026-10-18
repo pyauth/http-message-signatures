@@ -1,4 +1,4 @@
-"""Downstream imports and result access must work without implicit reexports or Any."""
+"""Public imports and result fields must retain their types for strict consumers."""
 
 from typing_extensions import assert_type
 
