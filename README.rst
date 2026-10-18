@@ -82,7 +82,7 @@ credentials and fragments. Empty paths normally become ``/``. For ``OPTIONS``, `
 empty path so server-wide ``OPTIONS *`` remains distinct from
 ``OPTIONS /``. The separate ``@path`` component still represents an empty path as ``/``.
 
-For ``@request-target``, transports can supply ``message.request_target`` containing the exact HTTP/1.1 request
+For ``@request-target``, clients can supply ``message.request_target`` containing the HTTP/1.1 request
 target. This is necessary for absolute-form proxy requests and asterisk-form ``OPTIONS *`` requests, since those
 forms cannot be inferred from an absolute URL. Without this attribute, the resolver derives origin form from the
 URL, or authority form for ``CONNECT``. The supplied target and URL must describe the same request.
@@ -91,8 +91,8 @@ Multiple signatures
 ~~~~~~~~~~~~~~~~~~~
 
 The message's ``headers.items()`` must expose every field line, or values already combined in wire order. Repeated
-field names are compared case-insensitively, normalized individually, and joined with ``, `` before signing or parsing
-Structured Fields. Containers that discard repeated field lines before passing them to this library cannot be used
+field names are compared case-insensitively, normalized individually, and joined with a comma followed by a space
+before signing or parsing Structured Fields. Containers that discard repeated field lines before passing them to this library cannot be used
 to verify those fields reliably. Signing also requires header assignment and deletion; existing Signature and
 Signature-Input field lines are replaced together, including when appending a signature.
 
@@ -138,7 +138,7 @@ Authors
 Links
 -----
 * `Project home page (GitHub) <https://github.com/pyauth/http-message-signatures>`_
-* `Documentation <https://FIXME>`_
+* `API reference and usage examples <https://github.com/pyauth/http-message-signatures/tree/main/docs>`_
 * `Package distribution (PyPI) <https://pypi.python.org/pypi/http-message-signatures>`_
 * `Change log <https://github.com/pyauth/http-message-signatures/blob/master/Changes.rst>`_
 * `IETF HTTP Message Signatures standard tracker <https://datatracker.ietf.org/doc/rfc9421/>`_
