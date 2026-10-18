@@ -5,7 +5,9 @@ import copy
 import io
 import json
 import os
+import subprocess
 import sys
+import textwrap
 import time
 import unittest
 from contextlib import contextmanager
@@ -874,6 +876,45 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.test_request.headers["Example"] = distinct
                 with self.assertRaises(InvalidSignature):
                     verifier.verify(self.test_request)
+
+    def test_header_normalization_long_whitespace(self):
+        # Bound runtime in a child process so a quadratic-regex regression
+        # fails promptly instead of hanging the suite. No signature is needed.
+        script = textwrap.dedent(
+            """
+            from types import SimpleNamespace
+            from http_message_signatures import HTTPMessageVerifier, HTTPSignatureKeyResolver, InvalidSignature
+            from http_message_signatures.algorithms import HMAC_SHA256
+            from http_message_signatures.structures import normalize_header_value
+
+            padding = " \\t" * 131072
+            values = ("a" + padding + "b", "a\\r\\n b" + padding + "c", "a" + padding + "\\r\\nb")
+            expected = (values[0], "a b" + padding + "c", values[2])
+            for value, normalized in zip(values, expected):
+                assert normalize_header_value(value) == normalized
+            message = SimpleNamespace(method="GET", url="https://example.com/", headers={"X-Padding": values[0]})
+            verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=HTTPSignatureKeyResolver())
+            try:
+                verifier.verify(message)
+            except InvalidSignature as error:
+                assert 'Expected "Signature-Input"' in str(error)
+            else:
+                raise AssertionError("Unsigned request was accepted")
+            """
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=5, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_adjacent_obsolete_folds(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example"] = "a  b"
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        for folded in ("a\r\n \r\n b", "a \t\r\n \t\r\n\t b"):
+            with self.subTest(folded=folded):
+                self.test_request.headers["Example"] = folded
+                result = verifier.verify(self.test_request)[0]
+                self.assertEqual(result.covered_components['"example"'], "a  b")
 
     def test_structured_header_folding(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
