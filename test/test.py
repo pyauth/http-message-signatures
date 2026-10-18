@@ -599,6 +599,45 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
 
+    def test_append_rejects_unpaired_signature_headers(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        cases = (
+            {"Signature": "old=:AAAA:"},
+            {"Signature-Input": 'old=("@method")'},
+            {"Signature-Input": 'old=("@method")', "Signature": "other=:AAAA:"},
+            {"Signature-Input": 'old=("@method"), other=("@path")', "Signature": "old=:AAAA:"},
+            {"Signature-Input": 'old=("@method")', "Signature": "old=:AAAA:, other=:AAAA:"},
+            {"Signature-Input": "invalid(", "Signature": "old=:AAAA:"},
+        )
+        for existing in cases:
+            with self.subTest(existing=existing):
+                headers = HTTPMessage()
+                for name, value in existing.items():
+                    headers[name.lower()] = value
+                self.test_request.headers = headers
+                before = list(headers.items())
+                with self.assertRaises(HTTPMessageSignaturesException):
+                    signer.sign(
+                        self.test_request, key_id="test-shared-secret", label="new", append_if_signature_exists=True
+                    )
+                self.assertEqual(list(headers.items()), before)
+
+        self.test_request.headers = HTTPMessage()
+        for label in ("first", "second"):
+            signer.sign(
+                self.test_request,
+                key_id="test-shared-secret",
+                label=label,
+                tag="append",
+                append_if_signature_exists=True,
+            )
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.assertEqual(len(verifier.verify(self.test_request, expect_tag="append")), 2)
+        before = list(self.test_request.headers.items())
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+            signer.sign(self.test_request, key_id="test-shared-secret", label="first", append_if_signature_exists=True)
+        self.assertEqual(list(self.test_request.headers.items()), before)
+
     def test_verification_error_boundary(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

@@ -176,20 +176,24 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 
         headers = get_header_fields(message.headers)
         sig_input_node = Dictionary()
-        if append_if_signature_exists and "Signature-Input" in headers:
-            if "Signature" not in headers:
-                err_msg = 'Cannot append to "Signature-Input" header when "Signature" header is missing'
-                raise HTTPMessageSignaturesException(err_msg)
-            sig_input_node = self._parse_signature_dictionary(headers["Signature-Input"])
+        sig_node = Dictionary()
+        if append_if_signature_exists and ("Signature-Input" in headers or "Signature" in headers):
+            if "Signature-Input" not in headers or "Signature" not in headers:
+                raise HTTPMessageSignaturesException(
+                    'Cannot append unless both "Signature-Input" and "Signature" are present'
+                )
+            try:
+                sig_input_node = self._parse_signature_dictionary(headers["Signature-Input"])
+                sig_node = self._parse_signature_dictionary(headers["Signature"])
+            except HTTPMessageSignaturesException:
+                raise
+            except Exception as e:
+                raise HTTPMessageSignaturesException("Malformed existing signature headers") from e
+            if sig_input_node.keys() != sig_node.keys():
+                raise HTTPMessageSignaturesException("Signature-Input and Signature headers have different labels")
             if sig_label in sig_input_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_input_node[sig_label] = sig_params_node
-
-        sig_node = Dictionary()
-        if append_if_signature_exists and "Signature" in headers:
-            sig_node = self._parse_signature_dictionary(headers["Signature"])
-            if sig_label in sig_node:
-                raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_node[sig_label] = signature
         signature_headers = {"Signature-Input": str(sig_input_node), "Signature": str(sig_node)}
         # Some containers append on assignment. Remove all old field lines first,
