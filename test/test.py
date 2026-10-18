@@ -10,6 +10,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from http.client import HTTPMessage
+from typing import ClassVar
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -29,7 +30,7 @@ from http_message_signatures import (  # noqa
     InvalidSignature,
     HTTPMessageSignaturesException,
 )
-from http_message_signatures.algorithms import (  # noqa
+from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
     ED25519,
     HMAC_SHA256,
@@ -54,7 +55,7 @@ def patch_time(dt):
 
 
 class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
-    known_pem_keys = {"test-key-rsa", "test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519"}
+    known_pem_keys: ClassVar[set[str]] = {"test-key-rsa", "test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519"}
 
     def resolve_public_key(self, key_id: str):
         if key_id == "test-shared-secret":
@@ -345,9 +346,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
         self.test_request.url = "https://origin.host.internal.example/foo?param=Value&Pet=dog"
         self.test_request.headers["Forwarded"] = "for=192.0.2.123;host=example.com;proto=https"
-        signer2_args = dict(
-            key_id="test-key-rsa",
-            covered_component_ids=(
+        signer2_args = {
+            "key_id": "test-key-rsa",
+            "covered_component_ids": (
                 "@method",
                 "@authority",
                 "@path",
@@ -356,12 +357,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 "content-length",
                 "forwarded",
             ),
-            created=datetime.fromtimestamp(1618884480),
-            expires=datetime.fromtimestamp(1618884540),
-            label="proxy_sig",
-            tag=None,
-            append_if_signature_exists=False,
-        )
+            "created": datetime.fromtimestamp(1618884480),
+            "expires": datetime.fromtimestamp(1618884540),
+            "label": "proxy_sig",
+            "tag": None,
+            "append_if_signature_exists": False,
+        }
         signer2 = HTTPMessageSigner(signature_algorithm=RSA_V1_5_SHA256, key_resolver=self.key_resolver)
         req_for_overwrite = copy.deepcopy(self.test_request)
         signer2.sign(req_for_overwrite, **signer2_args)
@@ -474,7 +475,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Example"] = "Obsolete line folding."
         signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
         self.test_request.headers["Example"] = " \tObsolete\r\n\t  line folding.\t "
-        self.assertEqual(verifier.verify(self.test_request)[0].covered_components['"example"'], "Obsolete line folding.")
+        self.assertEqual(
+            verifier.verify(self.test_request)[0].covered_components['"example"'], "Obsolete line folding."
+        )
         for invalid in ("Obsolete\nline folding.", "Obsolete\rline folding.", "Obsolete\r\nline folding.", "caf\u00e9"):
             with self.subTest(invalid=invalid):
                 self.test_request.headers["Example"] = invalid
@@ -494,7 +497,11 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Signature"] = "\t" + self.test_request.headers["Signature"] + " "
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], "2")
         signer.sign(
-            self.test_request, key_id="test-shared-secret", label="second", tag="folding", append_if_signature_exists=True
+            self.test_request,
+            key_id="test-shared-secret",
+            label="second",
+            tag="folding",
+            append_if_signature_exists=True,
         )
         self.assertEqual(len(verifier.verify(self.test_request, expect_tag="folding")), 2)
 
@@ -680,7 +687,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_dictionary_display_string_serialization(self):
         # A one-digit percent escape must not consume the following literal digit.
         # Exercise every location a display string can occupy in a Dictionary member.
-        templates = ('a={}', 'a=1;x={}', 'a=({})', 'a=(1);x={}', 'a=(1;x={})')
+        templates = ("a={}", "a=1;x={}", "a=({})", "a=(1);x={}", "a=(1;x={})")
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         component = '"example-dict";key="a"'

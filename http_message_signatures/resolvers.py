@@ -1,4 +1,5 @@
 import urllib.parse
+from typing import ClassVar
 
 from http_sf.compat import Dictionary, Item
 
@@ -12,7 +13,7 @@ class HTTPSignatureComponentResolver:
     # signature naming them is refused instead of silently resolving to the
     # wrong value.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
-    derived_component_names = {
+    derived_component_names: ClassVar[set[str]] = {
         "@method",
         "@target-uri",
         "@authority",
