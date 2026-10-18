@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import asyncio
 import base64
 import copy
 import hashlib
@@ -13,6 +14,7 @@ import textwrap
 import time
 import unittest
 from contextlib import contextmanager
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from typing import ClassVar, get_type_hints
@@ -20,6 +22,9 @@ from unittest.mock import patch
 from urllib.parse import urlencode
 
 import requests
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
@@ -35,6 +40,7 @@ from http_message_signatures import (  # noqa
     HTTPSignatureKeyResolver,
     InvalidSignature,
     HTTPMessageSignaturesException,
+    PreparedSignature,
     VerifyResult,
 )
 from http_message_signatures.algorithms import (
@@ -124,6 +130,263 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(InvalidSignature, 'Expected "Signature" header field to be present'):
             verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         return verifier.verify(message, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
+
+    def test_prepare_signature_base_and_metadata(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        created = datetime.fromtimestamp(1618884473, timezone.utc)
+        original_headers = dict(self.test_request.headers)
+        prepared = signer.prepare(
+            self.test_request,
+            key_id="test-shared-secret",
+            created=created,
+            expires=created + timedelta(seconds=60),
+            nonce='quote"\\',
+            label="sig1",
+            tag="remote",
+            covered_component_ids=("@method", "date"),
+        )
+        expected_params = (
+            '("@method" "date");created=1618884473;keyid="test-shared-secret";alg="hmac-sha256";'
+            'expires=1618884533;nonce="quote\\"\\\\";tag="remote"'
+        )
+        self.assertIsInstance(prepared, PreparedSignature)
+        self.assertEqual(prepared.signature_params, expected_params)
+        self.assertEqual(
+            prepared.signature_base,
+            (
+                '"@method": POST\n"date": Tue, 20 Apr 2021 02:07:55 GMT\n"@signature-params": ' + expected_params
+            ).encode(),
+        )
+        self.assertEqual(prepared.label, "sig1")
+        self.assertEqual(prepared.algorithm_id, "hmac-sha256")
+        self.assertEqual(dict(self.test_request.headers), original_headers)
+        with self.assertRaises(FrozenInstanceError):
+            prepared.label = "other"
+
+    def test_remote_signing_all_algorithms(self):
+        for algorithm, key_id in (
+            (HMAC_SHA256, "test-shared-secret"),
+            (ECDSA_P256_SHA256, "test-key-ecc-p256"),
+            (ED25519, "test-key-ed25519"),
+            (RSA_PSS_SHA512, "test-key-rsa-pss"),
+            (RSA_V1_5_SHA256, "test-key-rsa"),
+        ):
+            with self.subTest(algorithm=algorithm.algorithm_id):
+                message = copy.deepcopy(self.test_request)
+                local_message = copy.deepcopy(message)
+                created = datetime.now(timezone.utc)
+                key = self.key_resolver.resolve_private_key(key_id)
+                signer = HTTPMessageSigner(signature_algorithm=algorithm, key_resolver=self.key_resolver)
+                with (
+                    patch.object(
+                        self.key_resolver, "resolve_private_key", side_effect=AssertionError("local key read")
+                    ),
+                    patch.object(self.key_resolver, "resolve_public_key", side_effect=AssertionError("local key read")),
+                ):
+                    prepared = signer.prepare(message, key_id=key_id, created=created)
+                    signature = algorithm(private_key=key).sign(prepared.signature_base)
+                    signer.apply(message, prepared, signature)
+                verifier = HTTPMessageVerifier(signature_algorithm=algorithm, key_resolver=self.key_resolver)
+                self.assertEqual(len(verifier.verify(message)), 1)
+                signer.sign(local_message, key_id=key_id, created=created)
+                self.assertEqual(message.headers["Signature-Input"], local_message.headers["Signature-Input"])
+                if algorithm in (HMAC_SHA256, ED25519, RSA_V1_5_SHA256):
+                    self.assertEqual(message.headers["Signature"], local_message.headers["Signature"])
+
+    def test_async_remote_signing_without_key_resolver(self):
+        async def remote_sign(base):
+            await asyncio.sleep(0)
+            return HMAC_SHA256(shared_secret=test_shared_secret).sign(base)
+
+        async def sign_request():
+            signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+            prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+            signature = await remote_sign(prepared.signature_base)
+            signer.apply(self.test_request, prepared, signature)
+
+        asyncio.run(sign_request())
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        result = verifier.verify(self.test_request)[0]
+        self.assertNotIn("alg", result.parameters)
+        self.assertEqual(result.label, "pyhms")
+
+    def test_local_signing_requires_key_resolver(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "key_resolver is required"):
+            signer.sign(self.test_request, key_id="test-shared-secret")
+
+    def test_prepare_rejects_invalid_label_before_signing(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for label in ("", "Sig1", "sig 1", "sig1,evil", "sig1\r\nx-evil"):
+            with (
+                self.subTest(label=label),
+                patch.object(self.key_resolver, "resolve_private_key", side_effect=AssertionError("local key read")),
+                self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid signature label"),
+            ):
+                signer.sign(self.test_request, key_id="test-shared-secret", label=label)
+        self.assertNotIn("Signature", self.test_request.headers)
+
+    def test_apply_rejects_changed_covered_values(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(
+            self.test_request, key_id="test-shared-secret", covered_component_ids=("@method", "date")
+        )
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        for field, value in (("method", "DELETE"), ("date", "Wed, 21 Apr 2021 02:07:55 GMT")):
+            with self.subTest(field=field):
+                message = copy.deepcopy(self.test_request)
+                if field == "method":
+                    message.method = value
+                else:
+                    message.headers["Date"] = value
+                message.headers["Signature-Input"] = "existing-input"
+                message.headers["Signature"] = "existing-signature"
+                original_headers = dict(message.headers)
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "changed after prepare"):
+                    signer.apply(message, prepared, signature)
+                self.assertEqual(dict(message.headers), original_headers)
+
+    def test_apply_allows_copied_message_and_equivalent_values(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=("date",))
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        message = copy.deepcopy(self.test_request)
+        message.headers["Date"] = "\t" + message.headers["Date"] + " "
+        message.headers["X-Uncovered"] = "new value"
+        signer.apply(message, prepared, signature)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.assertEqual(len(verifier.verify(message)), 1)
+        self.assertNotIn("Signature", self.test_request.headers)
+
+    def test_apply_rejects_inconsistent_prepared_input(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        original_headers = dict(self.test_request.headers)
+        for changed in (
+            None,
+            replace(prepared, signature_base=prepared.signature_base + b"\n"),
+            replace(prepared, signature_params=prepared.signature_params + ';nonce="other"'),
+            replace(prepared, signature_params=prepared.signature_params + ", injected=()"),
+            replace(prepared, signature_params=prepared.signature_params + " trailing garbage"),
+            replace(prepared, signature_params='"not an inner list"'),
+            replace(prepared, signature_params=prepared.signature_params.replace("hmac-sha256", "ed25519")),
+            replace(prepared, label="sig1, injected"),
+            replace(prepared, algorithm_id="ed25519"),
+        ):
+            with self.subTest(prepared=changed), self.assertRaises(HTTPMessageSignaturesException):
+                signer.apply(self.test_request, changed, signature)
+            self.assertEqual(dict(self.test_request.headers), original_headers)
+
+    def test_apply_binds_algorithm_when_alg_omitted(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+        other_signer = HTTPMessageSigner(signature_algorithm=ED25519)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "different algorithm"):
+            other_signer.apply(self.test_request, prepared, b"signature")
+
+    def test_apply_requires_raw_nonempty_bytes(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        for signature in (None, "YWJjZA==", b"", bytearray(b"signature")):
+            with self.subTest(signature=signature), self.assertRaisesRegex(HTTPMessageSignaturesException, "raw bytes"):
+                signer.apply(self.test_request, prepared, signature)
+        self.assertNotIn("Signature", self.test_request.headers)
+
+    def test_apply_does_not_claim_to_verify_signature(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        signer.apply(self.test_request, prepared, bytes(32))
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request)
+
+    def test_remote_signature_append_and_replace(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", label="remote", tag="remote")
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        # Another signature can arrive while the remote signature is pending.
+        signer.sign(self.test_request, key_id="test-shared-secret", label="local", tag="local")
+        old_signature = Dictionary()
+        old_signature.parse(self.test_request.headers["Signature"].encode())
+        signer.apply(self.test_request, prepared, signature, append_if_signature_exists=True)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for tag in ("local", "remote"):
+            self.assertEqual(verifier.verify(self.test_request, expect_tag=tag)[0].label, tag)
+        signatures = Dictionary()
+        signatures.parse(self.test_request.headers["Signature"].encode())
+        self.assertEqual(signatures["local"].value, old_signature["local"].value)
+        headers = dict(self.test_request.headers)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+            signer.apply(self.test_request, prepared, signature, append_if_signature_exists=True)
+        self.assertEqual(dict(self.test_request.headers), headers)
+        signer.apply(self.test_request, prepared, signature)
+        self.assertEqual(verifier.verify(self.test_request)[0].label, "remote")
+
+    def test_prepare_apply_custom_component_resolver(self):
+        class Resolver(HTTPSignatureComponentResolver):
+            def get_method(self):
+                return "CUSTOM"
+
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, component_resolver_class=Resolver)
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=("@method",))
+        self.assertTrue(prepared.signature_base.startswith(b'"@method": CUSTOM\n'))
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        signer.apply(self.test_request, prepared, signature)
+        verifier = HTTPMessageVerifier(
+            signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver, component_resolver_class=Resolver
+        )
+        self.assertEqual(len(verifier.verify(self.test_request)), 1)
+        other_signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "changed after prepare"):
+            other_signer.apply(self.test_request, prepared, signature)
+
+    def test_prepare_response_with_request_components(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        prepared = signer.prepare(
+            self.test_response, key_id="test-shared-secret", covered_component_ids=("@status", '"@method";req')
+        )
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        self.test_response.request.method = "DELETE"
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "changed after prepare"):
+            signer.apply(self.test_response, prepared, signature)
+        self.test_response.request.method = "POST"
+        signer.apply(self.test_response, prepared, signature)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.assertEqual(len(verifier.verify(self.test_response)), 1)
+
+    def test_prepare_preserves_creation_time_across_delay(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        created = datetime.now(timezone.utc)
+        with patch_time(created):
+            prepared = signer.prepare(
+                self.test_request, key_id="test-shared-secret", expires=created + timedelta(seconds=10)
+            )
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        with patch_time(created + timedelta(minutes=1)):
+            signer.apply(self.test_request, prepared, signature)
+            verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+            with self.assertRaisesRegex(InvalidSignature, '"expires" parameter is set to a time in the past'):
+                verifier.verify(self.test_request)
+        self.assertIn(f"created={int(created.timestamp())}", self.test_request.headers["Signature-Input"])
+
+    def test_ecdsa_remote_der_conversion(self):
+        signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256)
+        prepared = signer.prepare(self.test_request, key_id="test-key-ecc-p256")
+        key = self.key_resolver.resolve_private_key("test-key-ecc-p256")
+        der = key.sign(prepared.signature_base, ec.ECDSA(hashes.SHA256()))
+        signature = ECDSA_P256_SHA256.signature_from_der(der)
+        self.assertEqual(len(signature), 64)
+        signer.apply(self.test_request, prepared, signature)
+        verifier = HTTPMessageVerifier(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
+        self.assertEqual(len(verifier.verify(self.test_request)), 1)
+
+    def test_ecdsa_der_conversion_padding_and_invalid_input(self):
+        signature = ECDSA_P256_SHA256.signature_from_der(encode_dss_signature(1, 2**255))
+        self.assertEqual(signature, bytes(31) + b"\x01\x80" + bytes(31))
+        for der in (b"not DER", bytes(64), encode_dss_signature(2**256, 1), encode_dss_signature(1, 2**256)):
+            with self.subTest(der=der), self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid DER"):
+                ECDSA_P256_SHA256.signature_from_der(der)
 
     def test_reject_scalar_covered_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

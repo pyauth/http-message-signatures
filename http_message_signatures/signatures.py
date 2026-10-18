@@ -11,7 +11,7 @@ from http_sf.compat import Dictionary, InnerList, Item
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import VerifyResult, get_header_fields
+from .structures import PreparedSignature, VerifyResult, get_header_fields
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class HTTPSignatureHandler:
         self,
         *,
         signature_algorithm: type[HTTPSignatureAlgorithm],
-        key_resolver: HTTPSignatureKeyResolver,
+        key_resolver: HTTPSignatureKeyResolver | None,
         component_resolver_class: type = HTTPSignatureComponentResolver,
     ):
         """Configure signing or verification.
@@ -145,6 +145,27 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 
     DEFAULT_SIGNATURE_LABEL = "pyhms"
 
+    def __init__(
+        self,
+        *,
+        signature_algorithm: type[HTTPSignatureAlgorithm],
+        key_resolver: HTTPSignatureKeyResolver | None = None,
+        component_resolver_class: type = HTTPSignatureComponentResolver,
+    ):
+        """Configure the algorithm and component resolver used for signing.
+
+        :param signature_algorithm: Algorithm class from
+            :mod:`http_message_signatures.algorithms`.
+        :param key_resolver: Required by ``sign()`` for local signing. May be
+            omitted when using ``prepare()`` and ``apply()`` with an external signer.
+        :param component_resolver_class: Resolver class instantiated for each message.
+        """
+        super().__init__(
+            signature_algorithm=signature_algorithm,
+            key_resolver=key_resolver,
+            component_resolver_class=component_resolver_class,
+        )
+
     def _parse_covered_component_ids(self, covered_component_ids):
         if isinstance(covered_component_ids, (str, bytes, bytearray)):
             raise HTTPMessageSignaturesException(
@@ -200,7 +221,51 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         Key resolver and algorithm errors can also propagate. Signing does not
         calculate a body digest; supply and cover a digest header when needed.
         """
-        # TODO: Accept-Signature autonegotiation
+        if self.key_resolver is None:
+            raise HTTPMessageSignaturesException("A key_resolver is required for local signing")
+        prepared = self.prepare(
+            message,
+            key_id=key_id,
+            created=created,
+            expires=expires,
+            nonce=nonce,
+            label=label,
+            tag=tag,
+            include_alg=include_alg,
+            covered_component_ids=covered_component_ids,
+        )
+        key = self.key_resolver.resolve_private_key(key_id)
+        signer = self.signature_algorithm(private_key=key)
+        signature = signer.sign(prepared.signature_base)
+        self.apply(message, prepared, signature, append_if_signature_exists=append_if_signature_exists)
+
+    def prepare(
+        self,
+        message,
+        *,
+        key_id: str,
+        created: datetime.datetime | None = None,
+        expires: datetime.datetime | None = None,
+        nonce: str | None = None,
+        label: str | None = None,
+        tag: str | None = None,
+        include_alg: bool = True,
+        covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
+    ) -> PreparedSignature:
+        """Build the signing input without resolving a key or changing the message.
+
+        Arguments have the same meaning and defaults as in ``sign()``. Creation
+        time is captured here, before any remote signing delay. Header append or
+        replacement policy is selected later in ``apply()``.
+
+        :returns: Immutable signing input for a synchronous or asynchronous signer.
+            Sign ``signature_base`` with the configured algorithm and the key
+            identified by ``key_id``, then pass the resulting bytes to ``apply()``.
+        :raises HTTPMessageSignaturesException: A component, parameter, or label is invalid.
+
+        The component resolver must return stable values for unchanged messages;
+        ``apply()`` resolves them again to check for changes while signing.
+        """
         if created is None:
             created = datetime.datetime.now()
         signature_params: dict[str, Any] = collections.OrderedDict()
@@ -218,12 +283,72 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
-        key = self.key_resolver.resolve_private_key(key_id)
-        signer = self.signature_algorithm(private_key=key)
-        signature = signer.sign(sig_base.encode())
-        sig_label = self.DEFAULT_SIGNATURE_LABEL
-        if label is not None:
-            sig_label = label
+        sig_label = self.DEFAULT_SIGNATURE_LABEL if label is None else label
+        try:
+            # Let the Structured Fields serializer validate the dictionary key.
+            str(Dictionary({sig_label: sig_params_node}))
+        except (ValueError, TypeError) as e:
+            raise HTTPMessageSignaturesException("Invalid signature label") from e
+        return PreparedSignature(
+            sig_base.encode(), str(sig_params_node), sig_label, self.signature_algorithm.algorithm_id
+        )
+
+    def apply(
+        self,
+        message,
+        prepared: PreparedSignature,
+        signature: bytes,
+        *,
+        append_if_signature_exists: bool = False,
+    ) -> None:
+        """Attach an externally generated signature to a message in place.
+
+        :param message: Message whose covered values still match ``prepared``.
+        :param prepared: Input returned by ``prepare()`` with the same algorithm
+            and component resolver configuration.
+        :param signature: Raw algorithm output, before base64 encoding. ECDSA
+            P-256 requires 64 bytes containing ``r || s``; convert DER output with
+            ``ECDSA_P256_SHA256.signature_from_der()`` first.
+        :param append_if_signature_exists: Preserve existing signatures and add
+            the prepared label. Otherwise replace existing signature headers.
+        :raises HTTPMessageSignaturesException: Covered values changed, prepared
+            input is inconsistent, signature bytes are empty, or headers cannot
+            be appended to. Validation completes before changing headers.
+
+        This method neither resolves keys nor verifies the signature. The caller
+        must associate the result with the prepared input and use a trusted signer
+        with the intended key and algorithm. The comparison covers signature-base
+        values only; it does not validate the body against a digest header, check
+        expiration, or prevent concurrent message mutation. Keep the message
+        stable during this call and until it is sent.
+        """
+        if not isinstance(prepared, PreparedSignature):
+            raise HTTPMessageSignaturesException("Expected a PreparedSignature from prepare()")
+        if prepared.algorithm_id != self.signature_algorithm.algorithm_id:
+            raise HTTPMessageSignaturesException("Prepared signature uses a different algorithm")
+        if not isinstance(signature, bytes) or not signature:
+            raise HTTPMessageSignaturesException("Signature must be non-empty raw bytes")
+        try:
+            # A fixed dictionary key lets the existing parser read the complete
+            # inner list, including its parameters, without parsing base lines.
+            parsed = self._parse_signature_dictionary("prepared=" + prepared.signature_params)
+            if list(parsed) != ["prepared"] or not isinstance(parsed["prepared"], InnerList):
+                raise HTTPMessageSignaturesException("Invalid prepared signature parameters")
+            sig_params_node = parsed["prepared"]
+            if "alg" in sig_params_node.params and sig_params_node.params["alg"] != prepared.algorithm_id:
+                raise HTTPMessageSignaturesException("Prepared signature has a conflicting algorithm parameter")
+            sig_base, _, _ = self._build_signature_base(
+                message, covered_component_ids=list(sig_params_node), signature_params=sig_params_node.params
+            )
+            if sig_base.encode() != prepared.signature_base:
+                raise HTTPMessageSignaturesException("Message or signature parameters changed after prepare()")
+            # Validate the label before looking at or changing existing headers.
+            str(Dictionary({prepared.label: sig_params_node}))
+        except HTTPMessageSignaturesException:
+            raise
+        except (ValueError, TypeError) as e:
+            raise HTTPMessageSignaturesException("Invalid prepared signature input") from e
+        sig_label = prepared.label
 
         headers = get_header_fields(message.headers)
         sig_input_node = Dictionary()
@@ -346,6 +471,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             if param not in self.signature_metadata_parameters:
                 raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
         try:
+            if self.key_resolver is None:
+                raise InvalidSignature("A key_resolver is required for verification")
             key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
             if key is None:
                 raise InvalidSignature("Unable to resolve verification key")

@@ -125,8 +125,24 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
 
     def sign(self, message: bytes):
         der_sig = self.private_key.sign(message, signature_algorithm=self.signature_algorithm)
-        r, s = decode_dss_signature(der_sig)
-        return r.to_bytes(32, byteorder="big") + s.to_bytes(32, byteorder="big")
+        return self.signature_from_der(der_sig)
+
+    @staticmethod
+    def signature_from_der(signature: bytes) -> bytes:
+        """Convert a DER-encoded ECDSA P-256 signature to RFC 9421 signature bytes.
+
+        Returns the 64-byte concatenation of unsigned, big-endian ``r`` and ``s``,
+        each padded to 32 bytes (RFC 9421 section 3.3.4). Use this for a remote
+        signer's DER output before calling ``HTTPMessageSigner.apply()``.
+        Malformed DER or integers that do not fit raise
+        :class:`~http_message_signatures.HTTPMessageSignaturesException`.
+        Conversion does not verify the signature or the signer's choice of curve.
+        """
+        try:
+            r, s = decode_dss_signature(signature)
+            return r.to_bytes(32, byteorder="big") + s.to_bytes(32, byteorder="big")
+        except (ValueError, TypeError, OverflowError) as e:
+            raise HTTPMessageSignaturesException("Invalid DER-encoded ECDSA P-256 signature") from e
 
     def verify(self, signature: bytes, message: bytes):
         if len(signature) != 64:
