@@ -2,6 +2,8 @@
 
 import base64
 import copy
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -142,6 +144,40 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 message.headers["Date"] = "Wed, 21 Apr 2021 02:07:55 GMT"
                 with self.assertRaises(InvalidSignature):
                     verifier.verify(message)
+
+    def test_hmac_key_arguments(self):
+        message = b"message"
+        for secret in (b"secret", b""):
+            expected = hmac.digest(secret, message, hashlib.sha256)
+            for keys in (
+                {"shared_secret": secret},
+                {"public_key": secret},
+                {"private_key": secret},
+                {"public_key": secret, "private_key": secret},
+                {"public_key": secret, "shared_secret": secret},
+                {"private_key": secret, "shared_secret": secret},
+                {"public_key": secret, "private_key": secret, "shared_secret": secret},
+            ):
+                with self.subTest(keys=keys):
+                    algorithm = HMAC_SHA256(**keys)
+                    self.assertEqual(algorithm.sign(message), expected)
+                    algorithm.verify(signature=expected, message=message)
+
+    def test_hmac_rejects_conflicting_keys(self):
+        for keys in (
+            {"public_key": b"first", "private_key": b"second"},
+            {"public_key": b"first", "shared_secret": b"second"},
+            {"private_key": b"first", "shared_secret": b"second"},
+            {"public_key": b"first", "private_key": b"first", "shared_secret": b"second"},
+            {"public_key": b"", "private_key": b"second"},
+            {"private_key": b"first", "shared_secret": b""},
+        ):
+            with self.subTest(keys=keys), self.assertRaisesRegex(HTTPMessageSignaturesException, "must be the same"):
+                HMAC_SHA256(**keys)
+
+    def test_hmac_requires_a_key(self):
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "HMAC key must be supplied"):
+            HMAC_SHA256()
 
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)

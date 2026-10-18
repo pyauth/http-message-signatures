@@ -66,9 +66,12 @@ class HMAC_SHA256(HTTPSignatureAlgorithm):
     algorithm_id = "hmac-sha256"
 
     def __init__(self, public_key=None, private_key=None, shared_secret=None):
-        if public_key and private_key and public_key != private_key:
-            raise HTTPMessageSignaturesException("HMAC public and private key must be the same")
-        self.shared_secret = public_key if public_key is not None else private_key
+        keys = [key for key in (public_key, private_key, shared_secret) if key is not None]
+        if not keys:
+            raise HTTPMessageSignaturesException("An HMAC key must be supplied")
+        if any(key != keys[0] for key in keys[1:]):
+            raise HTTPMessageSignaturesException("HMAC public key, private key, and shared secret must be the same")
+        self.shared_secret = keys[0]
         self.hash_algorithm = hashes.SHA256()
 
     def sign(self, message: bytes):
