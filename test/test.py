@@ -567,6 +567,39 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
 
+    def test_duplicate_components(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example-Dict"] = "a=1"
+        for components in (
+            ('"@status"', '"@status"'),
+            ('"example-dict";req;key="a"', '"example-dict";key="a";req'),
+        ):
+            with self.subTest(components=components):
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "appeared multiple times"):
+                    signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
+                signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components[:1])
+                sig_inputs = Dictionary()
+                sig_inputs.parse(self.test_response.headers["Signature-Input"].encode())
+                duplicate = Item()
+                duplicate.parse(components[1].encode())
+                sig_inputs["pyhms"].append(duplicate)
+                self.test_response.headers["Signature-Input"] = str(sig_inputs)
+                with self.assertRaisesRegex(InvalidSignature, "appeared multiple times"):
+                    verifier.verify(self.test_response)
+
+    def test_distinct_component_parameters(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example-Dict"] = "a=1, b=2"
+        self.test_response.headers["Example-Dict"] = "a=3"
+        components = ('"example-dict";req;key="a"', '"example-dict";key="b";req', '"example-dict";key="a"')
+        signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
+        result = verifier.verify(self.test_response)[0]
+        for component, value in zip(components, ("1", "2", "3")):
+            self.assertEqual(result.covered_components[component], value)
+            self.assertIn(component, self.test_response.headers["Signature-Input"])
+
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1))

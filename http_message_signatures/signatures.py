@@ -39,6 +39,7 @@ class HTTPSignatureHandler:
     ) -> Tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
+        seen_components = set()
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
             component_key = str(component_id)
@@ -50,10 +51,13 @@ class HTTPSignatureHandler:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if "\r" in component_value or "\n" in component_value:
                 raise HTTPMessageSignaturesException(f'Component value for "{component_key}" contains newline character')
-            if component_key in sig_elements:
+            # Component identity ignores parameter order (RFC 9421 section 2).
+            component_identity = (component_id.value, frozenset(component_id.params.items()))
+            if component_identity in seen_components:
                 raise HTTPMessageSignaturesException(
                     f'Component ID "{component_key}" appeared multiple times in signature input'
                 )
+            seen_components.add(component_identity)
             sig_elements[component_key] = component_value
         sig_params_node = InnerList(covered_component_ids)
         sig_params_node.params.update(signature_params)
