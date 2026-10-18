@@ -709,6 +709,37 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
 
+    def test_response_requires_req_for_request_components(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        self.test_response.url = self.test_request.url
+        self.test_response.headers = self.test_request.headers.copy()
+        with self.assertRaisesRegex(InvalidSignature, 'requires "req"'):
+            verifier.verify(self.test_response)
+
+        components = (
+            "@method",
+            "@target-uri",
+            "@authority",
+            "@scheme",
+            "@request-target",
+            "@path",
+            "@query",
+            '"@query-params";name="Pet"',
+        )
+        for component in components:
+            with self.subTest(component=component):
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, 'requires "req"'):
+                    signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=(component,))
+                qualified = component if component.startswith('"') else f'"{component}"'
+                signer.sign(
+                    self.test_response,
+                    key_id="test-shared-secret",
+                    covered_component_ids=("@status", qualified + ";req"),
+                )
+                verifier.verify(self.test_response)
+
     def test_req_parameter_binds_request_components_to_a_response(self):
         # RFC 9421 section 2.4: "@authority";req in a response signature is the request's authority.
         resolver = HTTPSignatureComponentResolver(self.test_response)
