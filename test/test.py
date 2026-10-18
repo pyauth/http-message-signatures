@@ -9,6 +9,7 @@ import sys
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from http.client import HTTPMessage
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -17,7 +18,7 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
 )
-from http_sf.compat import Item
+from http_sf.compat import Dictionary, Item
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from http_message_signatures import (  # noqa
@@ -496,6 +497,75 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             self.test_request, key_id="test-shared-secret", label="second", tag="folding", append_if_signature_exists=True
         )
         self.assertEqual(len(verifier.verify(self.test_request, expect_tag="folding")), 2)
+
+    def test_multiple_header_lines(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for header_type in (dict, HTTPMessage):
+            with self.subTest(header_type=header_type):
+                headers = header_type()
+                headers["Example"] = " first\t"
+                headers["eXaMpLe"] = " second "
+                self.test_request.headers = headers
+                signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+                result = verifier.verify(self.test_request)[0]
+                self.assertEqual(result.covered_components['"example"'], "first, second")
+                headers["EXAMPLE"] = "third"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(self.test_request)
+
+    def test_dictionary_member_multiple_header_lines(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        headers = HTTPMessage()
+        headers["Example-Dict"] = "a=1"
+        headers["Example-Dict"] = "b=2"
+        self.test_request.headers = headers
+        component = '"example-dict";key="b"'
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+        self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], "2")
+        headers["example-dict"] = "a=9"
+        verifier.verify(self.test_request)
+        headers["example-dict"] = "b=3"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request)
+
+    def test_multiple_signature_header_lines(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret", label="first", tag="multi")
+        signer.sign(
+            self.test_request, key_id="test-shared-secret", label="second", tag="multi", append_if_signature_exists=True
+        )
+        headers = HTTPMessage()
+        for name, value in self.test_request.headers.items():
+            if name in ("Signature-Input", "Signature"):
+                dictionary = Dictionary()
+                dictionary.parse(value.encode())
+                for label, item in dictionary.items():
+                    headers[name.lower()] = str(Dictionary({label: item}))
+            else:
+                headers[name] = value
+        self.test_request.headers = headers
+        self.assertEqual(len(verifier.verify(self.test_request, expect_tag="multi")), 2)
+        with self.assertRaisesRegex(InvalidSignature, "Multiple signatures found"):
+            verifier.verify(self.test_request)
+        tampered = copy.deepcopy(self.test_request)
+        del tampered.headers["Signature"]
+        tampered.headers["Signature"] = headers.get_all("Signature")[0]
+        tampered.headers["Signature"] = str(Dictionary({"second": b"\x00" * 32}))
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(tampered, expect_tag="multi")
+        signer.sign(
+            self.test_request, key_id="test-shared-secret", label="third", tag="multi", append_if_signature_exists=True
+        )
+        self.assertEqual(len(verifier.verify(self.test_request, expect_tag="multi")), 3)
+        for name in ("Signature-Input", "Signature"):
+            self.assertEqual(len(headers.get_all(name)), 1)
+        signer.sign(self.test_request, key_id="test-shared-secret", label="single")
+        self.assertEqual(verifier.verify(self.test_request)[0].label, "single")
+        for name in ("Signature-Input", "Signature"):
+            self.assertEqual(len(headers.get_all(name)), 1)
 
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

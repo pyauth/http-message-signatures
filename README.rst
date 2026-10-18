@@ -76,6 +76,12 @@ builds upon this package to provide integrated signing and validation of the req
 Multiple signatures
 ~~~~~~~~~~~~~~~~~~~
 
+The message's ``headers.items()`` must expose every field line, or values already combined in wire order. Repeated
+field names are compared case-insensitively, normalized individually, and joined with ``, `` before signing or parsing
+Structured Fields. Containers that discard repeated field lines before passing them to this library cannot be used
+to verify those fields reliably. Signing also requires header assignment and deletion; existing Signature and
+Signature-Input field lines are replaced together, including when appending a signature.
+
 An HTTP request can potentially have multiple signatures. By default, http-message-signatures overwrites any existing
 signature when signing, and requires exactly one signature to be present when verifying. Before enabling multi-signature
 support, please read

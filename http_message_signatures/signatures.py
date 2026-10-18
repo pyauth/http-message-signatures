@@ -9,7 +9,7 @@ from http_sf.compat import Dictionary, InnerList, Item
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import VerifyResult, normalize_header_value
+from .structures import VerifyResult, get_header_fields
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,6 @@ class HTTPSignatureHandler:
         component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
             component_key = str(component_id)
-            # TODO: model situations when header occurs multiple times
             component_value = component_resolver.resolve(component_id)
             if str(component_id.value).lower() != str(component_id.value):
                 msg = f'Component ID "{component_id.value}" is not all lowercase'  # type: ignore
@@ -118,25 +117,33 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if label is not None:
             sig_label = label
 
+        headers = get_header_fields(message.headers)
         sig_input_node = Dictionary()
-        if append_if_signature_exists and "Signature-Input" in message.headers:
-            if "Signature" not in message.headers:
+        if append_if_signature_exists and "Signature-Input" in headers:
+            if "Signature" not in headers:
                 err_msg = 'Cannot append to "Signature-Input" header when "Signature" header is missing'
                 raise HTTPMessageSignaturesException(err_msg)
             sig_input_node = Dictionary()
-            sig_input_node.parse(normalize_header_value(message.headers["Signature-Input"]).encode())
+            sig_input_node.parse(headers["Signature-Input"].encode())
             if sig_label in sig_input_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_input_node[sig_label] = sig_params_node
 
         sig_node = Dictionary()
-        if append_if_signature_exists and "Signature" in message.headers:
+        if append_if_signature_exists and "Signature" in headers:
             sig_node = Dictionary()
-            sig_node.parse(normalize_header_value(message.headers["Signature"]).encode())
+            sig_node.parse(headers["Signature"].encode())
             if sig_label in sig_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_node[sig_label] = signature
-        message.headers.update({"Signature-Input": str(sig_input_node), "Signature": str(sig_node)})
+        signature_headers = {"Signature-Input": str(sig_input_node), "Signature": str(sig_node)}
+        # Some containers append on assignment. Remove all old field lines first,
+        # including differently cased names in an ordinary dict.
+        for name in list(message.headers):
+            if name.lower() in {"signature-input", "signature"} and name in message.headers:
+                del message.headers[name]
+        for name, value in signature_headers.items():
+            message.headers[name] = value
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
@@ -149,7 +156,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             raise InvalidSignature(f'Expected "{header_name}" header field to be present')
         try:
             dict_header_node = Dictionary()
-            dict_header_node.parse(normalize_header_value(headers[header_name]).encode())
+            dict_header_node.parse(headers[header_name].encode())
         except Exception as e:
             raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
         return dict_header_node
@@ -179,8 +186,9 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
     def _get_sig_inputs_and_signatures(self, message, *, expect_tag=None, expect_label=None):
-        sig_inputs = self._parse_dict_header("Signature-Input", message.headers)
-        signatures = self._parse_dict_header("Signature", message.headers)
+        headers = get_header_fields(message.headers)
+        sig_inputs = self._parse_dict_header("Signature-Input", headers)
+        signatures = self._parse_dict_header("Signature", headers)
         if len(sig_inputs) == 0 or len(signatures) == 0:
             raise InvalidSignature("No signatures found in the message")
         if (len(sig_inputs) > 1 or len(signatures) > 1) and expect_tag is None and expect_label is None:
