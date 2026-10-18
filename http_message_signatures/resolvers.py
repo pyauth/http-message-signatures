@@ -10,11 +10,21 @@ from .structures import get_header_fields
 
 
 class HTTPSignatureComponentResolver:
-    """Resolve covered components from the message interface in :doc:`usage`.
+    """Resolve covered components from a request or response object.
 
-    The constructor reads ``headers`` and ``url``. Requests also supply an
-    uppercase ``method``. The presence of ``status_code`` identifies a response;
-    its ``request`` supplies components qualified with ``req``.
+    The constructor reads ``headers`` and ``url`` (the absolute target URI),
+    even for signatures covering only headers or status. Requests also supply
+    an uppercase ``method``. The presence of ``status_code`` identifies a
+    response; its ``request`` supplies components qualified with ``req``.
+    An associated request must also have an uppercase method.
+
+    ``headers.items()`` must expose string names and values for all field lines
+    in order, or values already combined in that order. Signing additionally
+    requires iteration over names, membership testing, assignment, and deletion.
+
+    A request may provide ``request_target`` for an HTTP/1.1 target that cannot
+    be inferred from ``url``, such as an absolute-form proxy target or ``*``.
+    The supplied target and URL must describe the same request.
     """
 
     # RFC 9421 section 2.1 parameters a covered HTTP field may carry. Dictionary
