@@ -78,7 +78,9 @@ URI components
 
 The message's ``url`` supplies the target URI. URI components preserve percent-encoded octets and distinguish an
 absent query from an empty query. ``@authority`` omits credentials and default ports; ``@target-uri`` excludes
-credentials and fragments, and an empty path becomes ``/``.
+credentials and fragments. Empty paths normally become ``/``. For ``OPTIONS``, ``@target-uri`` preserves an
+empty path so server-wide ``OPTIONS *`` remains distinct from
+``OPTIONS /``. The separate ``@path`` component still represents an empty path as ``/``.
 
 For ``@request-target``, transports can supply ``message.request_target`` containing the exact HTTP/1.1 request
 target. This is necessary for absolute-form proxy requests and asterisk-form ``OPTIONS *`` requests, since those

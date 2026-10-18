@@ -125,7 +125,10 @@ class HTTPSignatureComponentResolver:
         return self.message.method
 
     def get_target_uri(self):
-        return self.uri.copy_with(authority=self._get_authority(), path=self.get_path(), fragment=None).unsplit()
+        # An empty OPTIONS target-URI path identifies the server as a whole;
+        # RFC 9110 section 4.2.3 excludes it from normalization to '/'.
+        path = self.uri.path if self.message.method == "OPTIONS" else self.get_path()
+        return self.uri.copy_with(authority=self._get_authority(), path=path, fragment=None).unsplit()
 
     def get_authority(self):
         return self._get_authority(normalize=True)
