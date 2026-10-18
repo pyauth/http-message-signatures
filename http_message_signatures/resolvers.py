@@ -33,6 +33,20 @@ class HTTPSignatureComponentResolver:
         "@status",
         "@request-response",
     }
+    #: Callables receive the resolver instance followed by component parameters.
+    #: Subclasses can copy and extend this mapping and derived_component_names.
+    derived_component_resolvers: ClassVar[dict[str, Callable[..., str]]] = {
+        "@method": lambda resolver: resolver.get_method(),
+        "@target-uri": lambda resolver: resolver.get_target_uri(),
+        "@authority": lambda resolver: resolver.get_authority(),
+        "@scheme": lambda resolver: resolver.get_scheme(),
+        "@request-target": lambda resolver: resolver.get_request_target(),
+        "@path": lambda resolver: resolver.get_path(),
+        "@query": lambda resolver: resolver.get_query(),
+        "@query-param": lambda resolver, **params: resolver.get_query_params(**params),
+        "@status": lambda resolver: resolver.get_status(),
+        "@request-response": lambda resolver, **params: resolver.get_request_response(**params),
+    }
 
     def __init__(self, message):
         self.message = message
@@ -72,19 +86,7 @@ class HTTPSignatureComponentResolver:
                 raise HTTPMessageSignaturesException(
                     f'Component "{component_id}" requires "req" in a response signature'
                 )
-            resolvers: dict[str, Callable[..., str]] = {
-                "@method": self.get_method,
-                "@target-uri": self.get_target_uri,
-                "@authority": self.get_authority,
-                "@scheme": self.get_scheme,
-                "@request-target": self.get_request_target,
-                "@path": self.get_path,
-                "@query": self.get_query,
-                "@query-param": self.get_query_params,
-                "@status": self.get_status,
-                "@request-response": self.get_request_response,
-            }
-            return resolvers[component_id](**params)
+            return self.derived_component_resolvers[component_id](self, **params)
         if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
         field_value = self.headers[component_id]

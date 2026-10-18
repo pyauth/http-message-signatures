@@ -199,6 +199,48 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_custom_derived_component_mapping(self):
+        class CustomResolver(HTTPSignatureComponentResolver):
+            derived_component_names = HTTPSignatureComponentResolver.derived_component_names | {"@custom"}
+            derived_component_resolvers: ClassVar[dict] = {
+                **HTTPSignatureComponentResolver.derived_component_resolvers,
+                "@custom": lambda resolver, **params: resolver.get_custom(**params),
+            }
+
+            def get_custom(self, *, name):
+                return self.headers[name]
+
+        signer = HTTPMessageSigner(
+            signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver, component_resolver_class=CustomResolver
+        )
+        verifier = HTTPMessageVerifier(
+            signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver, component_resolver_class=CustomResolver
+        )
+        self.test_request.headers["Example"] = "custom-value"
+        for message, component in (
+            (self.test_request, '"@custom";name="example"'),
+            (self.test_response, '"@custom";name="example";req'),
+        ):
+            with self.subTest(component=component):
+                signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                self.assertEqual(verifier.verify(message)[0].covered_components[component], "custom-value")
+        self.test_request.headers["Example"] = "changed"
+        for message in (self.test_request, self.test_response):
+            with self.assertRaises(InvalidSignature):
+                verifier.verify(message)
+        self.assertNotIn("@custom", HTTPSignatureComponentResolver.derived_component_names)
+        self.assertNotIn("@custom", HTTPSignatureComponentResolver.derived_component_resolvers)
+
+    def test_derived_mapping_preserves_method_overrides(self):
+        class CustomResolver(HTTPSignatureComponentResolver):
+            def get_path(self):
+                return "/custom-path"
+
+        resolver = CustomResolver(self.test_request)
+        self.assertEqual(resolver.resolve(Item("@path")), "/custom-path")
+        self.assertEqual(resolver.resolve(Item("@target-uri")), "https://example.com/custom-path?param=Value&Pet=dog")
+        self.assertEqual(HTTPSignatureComponentResolver(self.test_request).resolve(Item("@path")), "/foo")
+
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         signer.sign(
