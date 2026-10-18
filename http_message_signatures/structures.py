@@ -1,9 +1,32 @@
 import re
 from collections import OrderedDict
 from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from .algorithms import HTTPSignatureAlgorithm
+
+
+@dataclass(frozen=True)
+class PreparedSignature:
+    """Immutable signing input returned by ``HTTPMessageSigner.prepare()``.
+
+    :ivar signature_base: ASCII bytes to pass to the signing algorithm, without
+        additional encoding or an added newline.
+    :ivar signature_params: Serialized ``@signature-params`` value, including the
+        covered component list and signed metadata.
+    :ivar label: Signature dictionary label (not covered by the signature).
+    :ivar algorithm_id: Configured algorithm ID, retained even when ``alg`` is omitted.
+
+    Retain this object until applying the corresponding signature. It contains
+    covered message values, which may be sensitive. Immutability prevents
+    accidental edits; it does not authenticate data sent through a queue or service.
+    """
+
+    signature_base: bytes
+    signature_params: str
+    label: str
+    algorithm_id: str
 
 
 class VerifyResult(NamedTuple):

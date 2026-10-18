@@ -8,4 +8,4 @@ from .resolvers import (
     HTTPSignatureKeyResolver,  # noqa: F401
 )
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier  # noqa:F401
-from .structures import VerifyResult  # noqa:F401
+from .structures import PreparedSignature, VerifyResult  # noqa:F401

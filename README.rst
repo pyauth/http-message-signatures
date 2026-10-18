@@ -73,6 +73,72 @@ builds upon this package to provide integrated signing and validation of the req
  * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
    implements returning the body upon successful digest validation).
 
+Remote and asynchronous signing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
+``prepare()`` builds the RFC 9421 signature base without reading a private key or modifying the message.
+It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
+nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
+``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
+
+This example expects an asynchronous ``sign_base`` function that signs the supplied bytes with Ed25519 and
+returns the raw 64-byte signature. The client must use the private key identified by ``key_id``::
+
+    from collections.abc import Awaitable, Callable
+
+    from http_message_signatures import HTTPMessageSigner, algorithms
+
+    async def sign_request(request, key_id: str, sign_base: Callable[[bytes], Awaitable[bytes]]):
+        signer = HTTPMessageSigner(signature_algorithm=algorithms.ED25519)
+        prepared = signer.prepare(
+            request,
+            key_id=key_id,
+            label="sig1",
+            covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
+        )
+        signature = await sign_base(prepared.signature_base)
+        signer.apply(request, prepared, signature)
+
+Populate ``Content-Digest`` from the request body before this example runs, as in the synopsis above.
+The same two calls work with a synchronous signer or a signing job completed in another process.
+No local ``key_resolver`` is needed. The existing ``sign()`` method still resolves a local key and performs all three
+steps synchronously.
+
+Pass ``prepared.signature_base`` to the signing algorithm as bytes, without base64 encoding or a trailing newline.
+``prepared.signature_params`` is the serialized ``@signature-params`` value; it is useful for inspecting the covered
+component list and signed metadata. Do not rebuild either value yourself. The selected algorithm applies to the remote
+signer even when ``include_alg=False``; omitting the parameter does not negotiate an algorithm.
+
+Remote clients differ in their accepted input and output formats. Configure the algorithm as specified in
+`RFC 9421 section 3.3 <https://www.rfc-editor.org/rfc/rfc9421.html#section-3.3>`_. Ed25519 signs the base without prehashing.
+For RSA and ECDSA, a client that accepts raw messages must perform the specified hashing; a client that accepts a digest
+must receive that digest and be configured to avoid hashing it a second time. The RSA-PSS profile uses SHA-512,
+MGF1 with SHA-512, and a 64-byte salt.
+
+``apply()`` expects raw signature bytes and performs the Structured Field base64 encoding. Decode base64 responses
+from a service before calling it. ECDSA P-256 clients often return DER, while RFC 9421 requires a 64-byte concatenation
+of ``r`` and ``s``, each padded to 32 bytes. Convert DER output using the algorithm's helper::
+
+    signer = HTTPMessageSigner(signature_algorithm=algorithms.ECDSA_P256_SHA256)
+    prepared = signer.prepare(request, key_id="p256-key")
+    # der_signature is the client's ECDSA P-256/SHA-256 signature of prepared.signature_base.
+    signature = algorithms.ECDSA_P256_SHA256.signature_from_der(der_signature)
+    signer.apply(request, prepared, signature)
+
+Retain the prepared object and associate each remote result with its input. Use a trusted signing service and protect
+queued signing input against modification and disclosure: the base contains covered header and URI values.
+``apply()`` compares the message's current signature base with the prepared bytes and rejects changes before writing
+headers. For example, changing a covered method from ``POST`` to ``DELETE`` while awaiting the signature is rejected.
+Changes to uncovered values or values with the same RFC normalization are permitted. This check does not authenticate
+the prepared object, verify the returned signature, or check a body against its digest. Applications must handle those
+responsibilities and keep the message stable during ``apply()`` and until it is sent.
+
+Creation and expiration times are set during preparation and are not refreshed by ``apply()``. Allow for signing delays
+when choosing expiration times; an expired result will still be rejected by a verifier. To add the result alongside
+existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
+signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
+
 URI components
 ~~~~~~~~~~~~~~
 

@@ -10,6 +10,7 @@ from http_message_signatures import (
     HTTPSignatureComponentResolver,
     HTTPSignatureKeyResolver,
     InvalidSignature,
+    PreparedSignature,
     VerifyResult,
     algorithms,
 )
@@ -44,6 +45,24 @@ def read_result(result: VerifyResult) -> None:
     nonce: str | None = result.nonce
     rebuilt = VerifyResult(label, algorithm, components, parameters, body, nonce)
     assert rebuilt == result
+
+
+def prepare_remote_signature(message: object) -> PreparedSignature:
+    signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256)
+    prepared = signer.prepare(message, key_id="remote-key")
+    assert_type(prepared, PreparedSignature)
+    assert_type(prepared.signature_base, bytes)
+    assert_type(prepared.signature_params, str)
+    assert_type(prepared.label, str)
+    assert_type(prepared.algorithm_id, str)
+    return prepared
+
+
+def apply_remote_signature(message: object, prepared: PreparedSignature, der_signature: bytes) -> None:
+    signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256)
+    signature = ECDSA_P256_SHA256.signature_from_der(der_signature)
+    assert_type(signature, bytes)
+    signer.apply(message, prepared, signature, append_if_signature_exists=True)
 
 
 supported_algorithms: tuple[type[HTTPSignatureAlgorithm], ...] = (
