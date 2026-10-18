@@ -171,13 +171,13 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
     def _parse_integer_timestamp(self, ts, field_name):
         try:
             ts = int(ts)
-            dt = datetime.datetime.fromtimestamp(ts)
+            dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
         except Exception as e:
             raise InvalidSignature(f'Malformed "{field_name}" parameter: {e}') from e
         return dt
 
     def validate_created_and_expires(self, sig_input, max_age=None):
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc)
         min_time = now - self.max_clock_skew
         max_time = now + self.max_clock_skew
         if "created" in sig_input.params:

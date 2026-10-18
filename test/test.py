@@ -6,9 +6,10 @@ import io
 import json
 import os
 import sys
+import time
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from typing import ClassVar
 from unittest.mock import patch
@@ -48,7 +49,7 @@ def patch_time(dt):
     class MockDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return dt
+            return dt.astimezone(tz) if tz is not None else dt.astimezone().replace(tzinfo=None)
 
     with patch("http_message_signatures.signatures.datetime.datetime", MockDateTime):
         yield
@@ -606,6 +607,37 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for component, value in zip(components, ("1", "2", "3")):
             self.assertEqual(result.covered_components[component], value)
             self.assertIn(component, self.test_response.headers["Signature-Input"])
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "Requires POSIX timezone switching")
+    def test_timestamps_across_dst_fallback(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        cases = (
+            # UTC hours/minutes during New York's repeated local hour, November 1, 2026.
+            ((6, 15), None, (5, 45), "future"),
+            ((5, 15), None, (6, 45), "maximum allowable age"),
+            ((5, 40), (5, 50), (6, 20), "past"),
+            ((5, 45), None, (6, 15), None),
+        )
+        try:
+            with patch.dict(os.environ, {"TZ": "America/New_York"}):
+                time.tzset()
+                for created, expires, now, error in cases:
+                    with self.subTest(created=created, expires=expires, now=now):
+                        signer.sign(
+                            self.test_request,
+                            key_id="test-shared-secret",
+                            created=datetime(2026, 11, 1, *created, tzinfo=timezone.utc),
+                            expires=datetime(2026, 11, 1, *expires, tzinfo=timezone.utc) if expires else None,
+                        )
+                        with patch_time(datetime(2026, 11, 1, *now, tzinfo=timezone.utc)):
+                            if error:
+                                with self.assertRaisesRegex(InvalidSignature, error):
+                                    verifier.verify(self.test_request, max_age=timedelta(hours=1))
+                            else:
+                                verifier.verify(self.test_request, max_age=timedelta(hours=1))
+        finally:
+            time.tzset()
 
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
