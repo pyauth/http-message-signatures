@@ -137,6 +137,10 @@ class HTTPMessageSigner(HTTPSignatureHandler):
     DEFAULT_SIGNATURE_LABEL = "pyhms"
 
     def _parse_covered_component_ids(self, covered_component_ids):
+        if isinstance(covered_component_ids, (str, bytes, bytearray)):
+            raise HTTPMessageSignaturesException(
+                'covered_component_ids must be a sequence of component strings, such as ("date",)'
+            )
         covered_component_nodes = []
         for component_id in covered_component_ids:
             component_name_node = Item()

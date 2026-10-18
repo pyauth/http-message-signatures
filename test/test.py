@@ -121,6 +121,28 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             verifier.verify(m, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
         return verifier.verify(message, max_age=max_age, expect_tag=expect_tag, expect_label=expect_label)
 
+    def test_reject_scalar_covered_components(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers.update({"d": "one", "a": "two", "t": "three", "e": "four"})
+        original_headers = dict(self.test_request.headers)
+        for components in ("date", b"date", bytearray(b"date"), ""):
+            with self.subTest(components=components):
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "sequence of component strings"):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=components)
+                self.assertEqual(dict(self.test_request.headers), original_headers)
+
+    def test_single_component_sequences_cover_the_header(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for components in (("date",), ["date"]):
+            with self.subTest(components=components):
+                message = copy.deepcopy(self.test_request)
+                signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                self.assertEqual(verifier.verify(message)[0].covered_components['"date"'], message.headers["Date"])
+                message.headers["Date"] = "Wed, 21 Apr 2021 02:07:55 GMT"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message)
+
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         signer.sign(
