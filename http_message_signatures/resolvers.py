@@ -3,8 +3,8 @@ from collections.abc import Callable
 from typing import ClassVar
 
 from http_sf.compat import Dictionary, Item
-from rfc3986 import uri_reference  # type: ignore[import-untyped]
 
+from ._url import parse_url
 from .exceptions import HTTPMessageSignaturesException
 from .structures import get_header_fields
 
@@ -12,11 +12,13 @@ from .structures import get_header_fields
 class HTTPSignatureComponentResolver:
     """Resolve covered components from a request or response object.
 
-    The constructor reads ``headers`` and ``url`` (the absolute target URI),
-    even for signatures covering only headers or status. Requests also supply
-    an uppercase ``method``. The presence of ``status_code`` identifies a
-    response; its ``request`` supplies components qualified with ``req``.
-    An associated request must also have an uppercase method.
+    The constructor reads ``headers``. Requests also supply an uppercase
+    ``method`` and an encoded absolute ``url`` with a nonempty host. Invalid
+    URL syntax is rejected, including malformed percent escapes and unencoded
+    spaces, controls, or non-ASCII characters.
+    The presence of ``status_code`` identifies a response; its ``request``
+    supplies components qualified with ``req``. An associated request must
+    also have an uppercase method. The response's own ``url`` is not used.
 
     ``headers.items()`` must expose string names and values for all field lines
     in order, or values already combined in that order. Signing additionally
@@ -65,10 +67,9 @@ class HTTPSignatureComponentResolver:
             self.message_type = "response"
         if self.message_type == "request":
             self._validate_method(message.method)
+            self.url_parts = parse_url(str(message.url))
         elif hasattr(message, "request") and message.request is not None:
             self._validate_method(message.request.method)
-        self.url = str(message.url)
-        self.uri = uri_reference(self.url)
         self.headers = get_header_fields(message.headers)
 
     @staticmethod
@@ -144,29 +145,20 @@ class HTTPSignatureComponentResolver:
         return self.message.method
 
     def get_target_uri(self):
-        # An empty OPTIONS target-URI path identifies the server as a whole;
+        # An empty OPTIONS target URL path identifies the server as a whole;
         # RFC 9110 section 4.2.3 excludes it from normalization to '/'.
-        path = self.uri.path if self.message.method == "OPTIONS" else self.get_path()
-        return self.uri.copy_with(authority=self._get_authority(), path=path, fragment=None).unsplit()
+        parts = self.url_parts
+        path = parts.path if self.message.method == "OPTIONS" else self.get_path()
+        return f"{parts.scheme}://{parts.authority}{path}{parts.query_suffix}"
 
     def get_authority(self):
-        return self._get_authority(normalize=True)
-
-    def _get_authority(self, *, normalize=False):
-        authority = self.uri.authority_info()
-        host, port = authority["host"], authority["port"]
-        if not host:
-            raise HTTPMessageSignaturesException("The message URL has no authority")
-        if normalize:
-            host = host.lower()
-            if port and int(port) == {"http": 80, "https": 443}.get(self.get_scheme()):
-                port = None
+        host, port = self.url_parts.host.lower(), self.url_parts.port
+        if port and port.lstrip("0") == {"http": "80", "https": "443"}.get(self.get_scheme()):
+            port = None
         return f"{host}:{port}" if port else host
 
     def get_scheme(self):
-        if not self.uri.scheme:
-            raise HTTPMessageSignaturesException("The message URL has no scheme")
-        return self.uri.scheme.lower()
+        return self.url_parts.scheme.lower()
 
     def get_request_target(self):
         # Clients can expose the HTTP/1.1 request target, including proxy and
@@ -174,19 +166,19 @@ class HTTPSignatureComponentResolver:
         if hasattr(self.message, "request_target"):
             return self.message.request_target
         if self.message.method == "CONNECT":
-            return self._get_authority()
-        return self.uri.copy_with(scheme=None, authority=None, path=self.get_path(), fragment=None).unsplit()
+            return self.url_parts.authority
+        return self.get_path() + self.url_parts.query_suffix
 
     def get_path(self):
-        return self.uri.path or "/"
+        return self.url_parts.path or "/"
 
     def get_query(self):
-        return "?" + (self.uri.query or "")
+        return "?" + (self.url_parts.query or "")
 
     def get_query_params(self, *, name: str):
         if not isinstance(name, str):
             raise HTTPMessageSignaturesException('The query parameter "name" must be a string')
-        query = urllib.parse.parse_qs(self.uri.query or "", keep_blank_values=True)
+        query = urllib.parse.parse_qs(self.url_parts.query or "", keep_blank_values=True)
         name = urllib.parse.unquote(name)
         if name not in query:
             raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')
