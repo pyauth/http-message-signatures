@@ -73,6 +73,18 @@ builds upon this package to provide integrated signing and validation of the req
  * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
    implements returning the body upon successful digest validation).
 
+URI components
+~~~~~~~~~~~~~~
+
+The message's ``url`` supplies the target URI. URI components preserve percent-encoded octets and distinguish an
+absent query from an empty query. ``@authority`` omits credentials and default ports; ``@target-uri`` excludes
+credentials and fragments, and an empty path becomes ``/``.
+
+For ``@request-target``, transports can supply ``message.request_target`` containing the exact HTTP/1.1 request
+target. This is necessary for absolute-form proxy requests and asterisk-form ``OPTIONS *`` requests, since those
+forms cannot be inferred from an absolute URL. Without this attribute, the resolver derives origin form from the
+URL, or authority form for ``CONNECT``. The supplied target and URL must describe the same request.
+
 Multiple signatures
 ~~~~~~~~~~~~~~~~~~~
 
