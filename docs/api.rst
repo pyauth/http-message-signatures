@@ -24,6 +24,9 @@ Resolvers
 .. autoclass:: http_message_signatures.HTTPSignatureComponentResolver
    :members: resolve
 
+.. autoattribute:: http_message_signatures.HTTPSignatureComponentResolver.derived_component_resolvers
+   :no-value:
+
 Algorithms
 ----------
 
