@@ -3,7 +3,7 @@ import urllib.parse
 from http_sf.compat import Dictionary, Item
 
 from .exceptions import HTTPMessageSignaturesException
-from .structures import CaseInsensitiveDict
+from .structures import CaseInsensitiveDict, normalize_header_value
 
 
 class HTTPSignatureComponentResolver:
@@ -53,7 +53,7 @@ class HTTPSignatureComponentResolver:
             return resolver(**params)
         if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
-        field_value = self.headers[component_id]
+        field_value = normalize_header_value(self.headers[component_id])
         unknown = set(params) - self.field_component_parameters
         if unknown:
             raise HTTPMessageSignaturesException(
@@ -118,11 +118,14 @@ class HTTPSignatureComponentResolver:
 
     def get_query_params(self, *, name: str):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.url).query, keep_blank_values=True)
+        name = urllib.parse.unquote(name)
         if name not in query:
             raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')
         if len(query[name]) != 1:
             raise HTTPMessageSignaturesException("Query parameters with multiple values are not supported.")
-        return query[name][0]
+        # RFC 9421 section 2.2.8: re-encode the decoded value using the HTML form
+        # percent-encode set, with spaces encoded as %20 rather than '+'.
+        return urllib.parse.quote(query[name][0], safe="*").replace("~", "%7E")
 
     def get_status(self):
         if self.message_type != "response":
