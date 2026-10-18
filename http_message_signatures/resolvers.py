@@ -34,9 +34,18 @@ class HTTPSignatureComponentResolver:
         self.message_type = "request"
         if hasattr(message, "status_code"):
             self.message_type = "response"
+        if self.message_type == "request":
+            self._validate_method(message.method)
+        elif hasattr(message, "request") and message.request is not None:
+            self._validate_method(message.request.method)
         self.url = str(message.url)
         self.uri = uri_reference(self.url)
         self.headers = get_header_fields(message.headers)
+
+    @staticmethod
+    def _validate_method(method):
+        if not isinstance(method, str) or method != method.upper():
+            raise HTTPMessageSignaturesException("HTTP request method must be an uppercase string")
 
     def resolve(self, component_node: Item):
         component_id = str(component_node.value)
@@ -111,8 +120,8 @@ class HTTPSignatureComponentResolver:
 
     def get_method(self):
         if self.message_type == "response":
-            return self.message.request.method.upper()
-        return self.message.method.upper()
+            return self.message.request.method
+        return self.message.method
 
     def get_target_uri(self):
         return self.uri.copy_with(authority=self._get_authority(), path=self.get_path(), fragment=None).unsplit()

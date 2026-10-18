@@ -412,6 +412,46 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             self.assertEqual(res[0].label, "my-label")
             self.assertEqual(res[0].parameters["tag"], "my-tag")
 
+    def test_uppercase_method_signature_fixture(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for message, component in ((self.test_request, '"@method"'), (self.test_response, '"@method";req')):
+            for method in ("GET", "FETCH"):
+                with self.subTest(component=component, method=method):
+                    self.test_request.method = method
+                    params = f'({component});created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
+                    set_test_signature(message, params, [f"{component}: {method}"])
+                    expected_signature = message.headers["Signature"]
+                    result = verifier.verify(message, max_age=self.max_age)[0]
+                    self.assertEqual(result.covered_components[component], method)
+                    signer.sign(
+                        message,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                        created=datetime.fromtimestamp(1618884473, timezone.utc),
+                    )
+                    self.assertEqual(message.headers["Signature"], expected_signature)
+
+    def test_method_case_rejected_on_ingestion(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for message, components in (
+            (self.test_request, ('"@method"', '"@path"')),
+            (self.test_response, ('"@method";req', '"@status"')),
+        ):
+            for component in components:
+                for method in ("get", "Get", "Fetch"):
+                    with self.subTest(component=component, method=method):
+                        self.test_request.method = method.upper()
+                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                        self.test_request.method = method
+                        with self.assertRaisesRegex(InvalidSignature, "method must be an uppercase string"):
+                            verifier.verify(message)
+                        with self.assertRaisesRegex(
+                            HTTPMessageSignaturesException, "method must be an uppercase string"
+                        ):
+                            signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
