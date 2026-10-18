@@ -231,7 +231,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         if "created" in sig_input.params:
             if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") > max_time:
                 raise InvalidSignature('Signature "created" parameter is set to a time in the future')
-        elif self.require_created:
+        elif self.require_created or max_age is not None:
             raise InvalidSignature('Signature is missing a required "created" parameter')
         if (
             "expires" in sig_input.params
@@ -280,20 +280,22 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         self.validate_created_and_expires(sig_input, max_age=max_age)
         if "alg" in sig_input.params and sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
             raise InvalidSignature("Unexpected algorithm specified in the signature")
-        key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
+        if "keyid" not in sig_input.params:
+            raise InvalidSignature('Signature is missing a required "keyid" parameter')
         for param in sig_input.params:
             if param not in self.signature_metadata_parameters:
                 raise InvalidSignature(f'Unexpected signature metadata parameter "{param}"')
         try:
+            key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
+            if key is None:
+                raise InvalidSignature("Unable to resolve verification key")
+            verifier = self.signature_algorithm(public_key=key)
             sig_base, sig_params_node, sig_elements = self._build_signature_base(
                 message, covered_component_ids=list(sig_input), signature_params=sig_input.params
             )
-        except Exception as e:
-            raise InvalidSignature(e) from e
-        verifier = self.signature_algorithm(public_key=key)
-        raw_signature = signature.value
-        try:
-            verifier.verify(signature=raw_signature, message=sig_base.encode())
+            verifier.verify(signature=signature.value, message=sig_base.encode())
+        except InvalidSignature:
+            raise
         except Exception as e:
             raise InvalidSignature(e) from e
         return VerifyResult(
@@ -309,7 +311,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         self,
         message,
         *,
-        max_age: datetime.timedelta = datetime.timedelta(days=1),
+        max_age: datetime.timedelta | None = datetime.timedelta(days=1),
         expect_tag: str | None = None,
         expect_label: str | None = None,
     ) -> list[VerifyResult]:
