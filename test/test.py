@@ -947,6 +947,55 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a string"):
                 resolve(f'"example-dict";key={key}')
 
+    def test_dictionary_member_key_and_sf_signature_fixtures(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2, c=(a   b    c), d"
+        for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
+            for key, value in (("a", "1"), ("b", "2;x=1;y=2"), ("c", "(a b c)"), ("d", "?1")):
+                for parameters in (f'key="{key}";sf', f'sf;key="{key}"'):
+                    component = f'"example-dict";{parameters}{suffix}'
+                    with self.subTest(component=component):
+                        params = f'({component});created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
+                        set_test_signature(message, params, [f"{component}: {value}"])
+                        expected_signature = message.headers["Signature"]
+                        result = verifier.verify(message, max_age=self.max_age)[0]
+                        self.assertEqual(result.covered_components[component], value)
+                        signer.sign(
+                            message,
+                            key_id="test-shared-secret",
+                            covered_component_ids=(component,),
+                            created=datetime.fromtimestamp(1618884473, timezone.utc),
+                        )
+                        self.assertEqual(message.headers["Signature-Input"], "pyhms=" + params)
+                        self.assertEqual(message.headers["Signature"], expected_signature)
+                        # Keeping the member value but dropping a signed flag must invalidate the MAC.
+                        message.headers["Signature-Input"] = message.headers["Signature-Input"].replace(";sf", "")
+                        with self.assertRaises(InvalidSignature):
+                            verifier.verify(message, max_age=self.max_age)
+
+    def test_dictionary_member_rejects_invalid_parameter_combinations(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Example-Dict"] = "b=2"
+        for parameters, error in (
+            ("bs", "cannot be combined"),
+            ("tr", "cannot be combined"),
+            ("sf;bs", "cannot be combined"),
+            ("sf;tr", "cannot be combined"),
+            ("sf=?0", "must be a Boolean flag"),
+            ("sf=1", "must be a Boolean flag"),
+            ('sf="yes"', "must be a Boolean flag"),
+        ):
+            with self.subTest(parameters=parameters):
+                component = f'"example-dict";key="b";{parameters}'
+                params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                set_test_signature(self.test_request, params, [f"{component}: 2"])
+                with self.assertRaisesRegex(InvalidSignature, error):
+                    verifier.verify(self.test_request, max_age=self.max_age)
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+
     def test_dictionary_member_key_parameter_round_trip(self):
         # Section 2.1.2: a signature over one member survives a change to another member
         # and fails on a change to the covered one.
