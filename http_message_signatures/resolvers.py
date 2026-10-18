@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import ClassVar
 
 from http_sf.compat import Dictionary, Item
+from rfc3986 import uri_reference  # type: ignore[import-untyped]
 
 from .exceptions import HTTPMessageSignaturesException
 from .structures import get_header_fields
@@ -34,6 +35,7 @@ class HTTPSignatureComponentResolver:
         if hasattr(message, "status_code"):
             self.message_type = "response"
         self.url = str(message.url)
+        self.uri = uri_reference(self.url)
         self.headers = get_header_fields(message.headers)
 
     def resolve(self, component_node: Item):
@@ -113,28 +115,44 @@ class HTTPSignatureComponentResolver:
         return self.message.method.upper()
 
     def get_target_uri(self):
-        return self.url
+        return self.uri.copy_with(authority=self._get_authority(), path=self.get_path(), fragment=None).unsplit()
 
     def get_authority(self):
-        return urllib.parse.urlsplit(self.url).netloc.lower()
+        return self._get_authority(normalize=True)
+
+    def _get_authority(self, *, normalize=False):
+        authority = self.uri.authority_info()
+        host, port = authority["host"], authority["port"]
+        if not host:
+            raise HTTPMessageSignaturesException("The message URL has no authority")
+        if normalize:
+            host = host.lower()
+            if port and int(port) == {"http": 80, "https": 443}.get(self.get_scheme()):
+                port = None
+        return f"{host}:{port}" if port else host
 
     def get_scheme(self):
-        return urllib.parse.urlsplit(self.url).scheme.lower()
+        if not self.uri.scheme:
+            raise HTTPMessageSignaturesException("The message URL has no scheme")
+        return self.uri.scheme.lower()
 
     def get_request_target(self):
-        query = self.get_query()
-        if not query.startswith("?"):
-            query = "?" + query
-        return self.get_path() + query
+        # Transports can expose the exact HTTP/1.1 target, including proxy and
+        # asterisk forms, which cannot be inferred from an absolute URL alone.
+        if hasattr(self.message, "request_target"):
+            return self.message.request_target
+        if self.message.method == "CONNECT":
+            return self._get_authority()
+        return self.uri.copy_with(scheme=None, authority=None, path=self.get_path(), fragment=None).unsplit()
 
     def get_path(self):
-        return urllib.parse.urlsplit(self.url).path
+        return self.uri.path or "/"
 
     def get_query(self):
-        return "?" + urllib.parse.urlsplit(self.url).query
+        return "?" + (self.uri.query or "")
 
     def get_query_params(self, *, name: str):
-        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.url).query, keep_blank_values=True)
+        query = urllib.parse.parse_qs(self.uri.query or "", keep_blank_values=True)
         name = urllib.parse.unquote(name)
         if name not in query:
             raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')

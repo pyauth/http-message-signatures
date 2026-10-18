@@ -741,6 +741,74 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
 
+    def test_uri_component_canonicalization(self):
+        cases = (
+            ("https://EXAMPLE.com:443", "example.com", "/", "/", "https://EXAMPLE.com:443/"),
+            ("http://example.com:80/a", "example.com", "/a", "/a", "http://example.com:80/a"),
+            ("https://[2001:DB8::1]:443/a?", "[2001:db8::1]", "/a", "/a?", "https://[2001:DB8::1]:443/a?"),
+            (
+                "https://user:pass@example.com:8443/a#fragment",
+                "example.com:8443",
+                "/a",
+                "/a",
+                "https://example.com:8443/a",
+            ),
+            (
+                "https://example.com/a%2fb/../c?q=%2f",
+                "example.com",
+                "/a%2fb/../c",
+                "/a%2fb/../c?q=%2f",
+                "https://example.com/a%2fb/../c?q=%2f",
+            ),
+        )
+        for url, authority, path, target, uri in cases:
+            with self.subTest(url=url):
+                self.test_request.url = url
+                resolver = HTTPSignatureComponentResolver(self.test_request)
+                self.assertEqual(resolver.get_authority(), authority)
+                self.assertEqual(resolver.get_path(), path)
+                self.assertEqual(resolver.get_request_target(), target)
+                self.assertEqual(resolver.get_target_uri(), uri)
+
+    def test_request_target_forms_and_empty_query(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.url = "https://example.com/resource"
+        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("@request-target",))
+        self.test_request.url += "?"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request)
+        for method, target in (
+            ("GET", "/resource?"),
+            ("GET", "https://example.com/resource?"),
+            ("CONNECT", "example.com:443"),
+            ("OPTIONS", "*"),
+        ):
+            with self.subTest(target=target):
+                self.test_request.method = method
+                self.test_request.request_target = target
+                signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("@request-target",))
+                result = verifier.verify(self.test_request)[0]
+                self.assertEqual(result.covered_components['"@request-target"'], target)
+                self.test_request.request_target += "x"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(self.test_request)
+        del self.test_request.request_target
+        self.test_request.method = "CONNECT"
+        self.test_request.url = "https://example.com:443"
+        self.assertEqual(HTTPSignatureComponentResolver(self.test_request).get_request_target(), "example.com:443")
+
+    def test_target_uri_omits_client_only_components(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.url = "https://user:pass@example.com/resource?#fragment"
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        self.test_request.url = "https://example.com/resource?"
+        verifier.verify(self.test_request)
+        self.test_request.url = "https://example.com/resource"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request)
+
     def test_response_requires_req_for_request_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
