@@ -1439,6 +1439,49 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.assertEqual(resolver.get_request_target(), target)
                 self.assertEqual(resolver.get_target_uri(), uri)
 
+    def test_options_target_uri_preserves_empty_path(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        created = datetime.now(timezone.utc).replace(microsecond=0)
+        params = f'("@method" "@authority" "@target-uri");created={int(created.timestamp())};keyid="test-shared-secret"'
+        self.test_request.method = "OPTIONS"
+        # RFC 9112 section 3.3: asterisk-form has an empty target-URI path.
+        for url, authority in (("https://example.com", "example.com"), ("http://example.com:8080", "example.com:8080")):
+            for target in (None, "*", url):
+                with self.subTest(url=url, target=target):
+                    self.test_request.url = url
+                    if target is not None:
+                        self.test_request.request_target = target
+                    elif hasattr(self.test_request, "request_target"):
+                        del self.test_request.request_target
+                    set_test_signature(
+                        self.test_request,
+                        params,
+                        ['"@method": OPTIONS', f'"@authority": {authority}', f'"@target-uri": {url}'],
+                    )
+                    signature = self.test_request.headers["Signature"]
+                    self.assertEqual(verifier.verify(self.test_request)[0].covered_components['"@target-uri"'], url)
+                    signer.sign(self.test_request, key_id="test-shared-secret", created=created, include_alg=False)
+                    self.assertEqual(self.test_request.headers["Signature"], signature)
+                    self.assertEqual(HTTPSignatureComponentResolver(self.test_request).get_path(), "/")
+
+    def test_options_signature_cannot_move_between_server_and_root(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.method = "OPTIONS"
+        for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
+            for original, changed in (("", "/"), ("/", "")):
+                with self.subTest(suffix=suffix, original=original):
+                    self.test_request.url = "https://example.com" + original
+                    self.test_request.request_target = original or "*"
+                    components = tuple(f'"{name}"{suffix}' for name in ("@method", "@authority", "@target-uri"))
+                    signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                    verifier.verify(message)
+                    self.test_request.url = "https://example.com" + changed
+                    self.test_request.request_target = changed or "*"
+                    with self.assertRaises(InvalidSignature):
+                        verifier.verify(message)
+
     def test_request_target_forms_and_empty_query(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
