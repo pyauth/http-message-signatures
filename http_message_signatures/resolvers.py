@@ -1,4 +1,5 @@
 import urllib.parse
+from collections.abc import Callable
 from typing import ClassVar
 
 from http_sf.compat import Dictionary, Item
@@ -50,8 +51,23 @@ class HTTPSignatureComponentResolver:
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_names:
                 raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
-            resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
-            return resolver(**params)
+            if self.message_type == "response" and component_id not in {"@status", "@request-response"}:
+                raise HTTPMessageSignaturesException(
+                    f'Component "{component_id}" requires "req" in a response signature'
+                )
+            resolvers: dict[str, Callable[..., str]] = {
+                "@method": self.get_method,
+                "@target-uri": self.get_target_uri,
+                "@authority": self.get_authority,
+                "@scheme": self.get_scheme,
+                "@request-target": self.get_request_target,
+                "@path": self.get_path,
+                "@query": self.get_query,
+                "@query-params": self.get_query_params,
+                "@status": self.get_status,
+                "@request-response": self.get_request_response,
+            }
+            return resolvers[component_id](**params)
         if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
         field_value = self.headers[component_id]
