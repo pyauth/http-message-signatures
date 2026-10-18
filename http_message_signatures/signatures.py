@@ -1,7 +1,8 @@
 import collections
 import datetime
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
+from collections.abc import Sequence
+from typing import Any, ClassVar
 from warnings import warn
 
 from http_sf.compat import Dictionary, InnerList, Item
@@ -19,12 +20,12 @@ class SignatureVerifyWarning(UserWarning):
 
 
 class HTTPSignatureHandler:
-    signature_metadata_parameters = {"alg", "created", "expires", "keyid", "nonce", "tag"}
+    signature_metadata_parameters: ClassVar[set[str]] = {"alg", "created", "expires", "keyid", "nonce", "tag"}
 
     def __init__(
         self,
         *,
-        signature_algorithm: Type[HTTPSignatureAlgorithm],
+        signature_algorithm: type[HTTPSignatureAlgorithm],
         key_resolver: HTTPSignatureKeyResolver,
         component_resolver_class: type = HTTPSignatureComponentResolver,
     ):
@@ -35,8 +36,8 @@ class HTTPSignatureHandler:
         self.component_resolver_class = component_resolver_class
 
     def _build_signature_base(
-        self, message, *, covered_component_ids: List[Any], signature_params: Dict[str, str]
-    ) -> Tuple:
+        self, message, *, covered_component_ids: list[Any], signature_params: dict[str, str]
+    ) -> tuple:
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         seen_components = set()
@@ -50,7 +51,9 @@ class HTTPSignatureHandler:
             if "\n" in component_key:
                 raise HTTPMessageSignaturesException(f'Component ID "{component_key}" contains newline character')
             if "\r" in component_value or "\n" in component_value:
-                raise HTTPMessageSignaturesException(f'Component value for "{component_key}" contains newline character')
+                raise HTTPMessageSignaturesException(
+                    f'Component value for "{component_key}" contains newline character'
+                )
             # Component identity ignores parameter order (RFC 9421 section 2).
             component_identity = (component_id.value, frozenset(component_id.params.items()))
             if component_identity in seen_components:
@@ -87,11 +90,11 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         message,
         *,
         key_id: str,
-        created: Optional[datetime.datetime] = None,
-        expires: Optional[datetime.datetime] = None,
-        nonce: Optional[str] = None,
-        label: Optional[str] = None,
-        tag: Optional[str] = None,
+        created: datetime.datetime | None = None,
+        expires: datetime.datetime | None = None,
+        nonce: str | None = None,
+        label: str | None = None,
+        tag: str | None = None,
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         append_if_signature_exists: bool = False,
@@ -100,7 +103,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         key = self.key_resolver.resolve_private_key(key_id)
         if created is None:
             created = datetime.datetime.now()
-        signature_params: Dict[str, Any] = collections.OrderedDict()
+        signature_params: dict[str, Any] = collections.OrderedDict()
         signature_params["created"] = int(created.timestamp())
         signature_params["keyid"] = key_id
         if include_alg:
@@ -182,12 +185,16 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 raise InvalidSignature('Signature "created" parameter is set to a time in the future')
         elif self.require_created:
             raise InvalidSignature('Signature is missing a required "created" parameter')
-        if "expires" in sig_input.params:
-            if self._parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < min_time:
-                raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
-        if max_age is not None:
-            if self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time:
-                raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
+        if (
+            "expires" in sig_input.params
+            and self._parse_integer_timestamp(sig_input.params["expires"], field_name="expires") < min_time
+        ):
+            raise InvalidSignature('Signature "expires" parameter is set to a time in the past')
+        if (
+            max_age is not None
+            and self._parse_integer_timestamp(sig_input.params["created"], field_name="created") + max_age < min_time
+        ):
+            raise InvalidSignature(f"Signature age exceeds maximum allowable age {max_age}")
 
     def _get_sig_inputs_and_signatures(self, message, *, expect_tag=None, expect_label=None):
         headers = get_header_fields(message.headers)
@@ -214,9 +221,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
 
     def _verify_one(self, *, label, sig_input, signature, message, max_age):
         self.validate_created_and_expires(sig_input, max_age=max_age)
-        if "alg" in sig_input.params:
-            if sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
-                raise InvalidSignature("Unexpected algorithm specified in the signature")
+        if "alg" in sig_input.params and sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
+            raise InvalidSignature("Unexpected algorithm specified in the signature")
         key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
         for param in sig_input.params:
             if param not in self.signature_metadata_parameters:
@@ -249,7 +255,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         max_age: datetime.timedelta = datetime.timedelta(days=1),
         expect_tag: str | None = None,
         expect_label: str | None = None,
-    ) -> List[VerifyResult]:
+    ) -> list[VerifyResult]:
         if expect_tag is None and expect_label is not None:
             if self.allow_label_only_selection:
                 warn(

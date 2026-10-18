@@ -130,7 +130,9 @@ class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
 
 signature_algorithms = {}
 for signature_algorithm_class in list(globals().values()):
-    if isinstance(signature_algorithm_class, type):
-        if issubclass(signature_algorithm_class, HTTPSignatureAlgorithm):
-            if signature_algorithm_class != HTTPSignatureAlgorithm:
-                signature_algorithms[signature_algorithm_class.algorithm_id] = signature_algorithm_class
+    if (
+        isinstance(signature_algorithm_class, type)
+        and issubclass(signature_algorithm_class, HTTPSignatureAlgorithm)
+        and signature_algorithm_class != HTTPSignatureAlgorithm
+    ):
+        signature_algorithms[signature_algorithm_class.algorithm_id] = signature_algorithm_class
