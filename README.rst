@@ -113,6 +113,10 @@ supported.
 
 Error handling
 ~~~~~~~~~~~~~~
+Signatures require a ``created`` timestamp by default. To accept signatures without one, set
+``verifier.require_created = False`` and pass ``max_age=None`` to ``verify()``; an age limit cannot be enforced
+without a creation timestamp. Expiration checks still apply when ``expires`` is present.
+
 If multiple signatures are found in the request but ``expect_tag=...`` was not passed, then ``InvalidSignature`` is
 raised. Also, the ``verify()`` method raises ``HTTPMessageSignaturesException`` or an exception derived from this class
 in case an error occurs (unable to load PEM key, unsupported algorithm specified in signature input, signature doesn't

@@ -599,6 +599,51 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
 
+    def test_verification_error_boundary(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        timestamp = int(datetime.now().timestamp())
+        set_test_signature(self.test_request, f'("@method");created={timestamp}', ['"@method": POST'])
+        with self.assertRaisesRegex(InvalidSignature, 'missing a required "keyid"'):
+            verifier.verify(self.test_request)
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        for error in (KeyError("unknown key"), ValueError("invalid key")):
+            with (
+                self.subTest(error=error),
+                patch.object(self.key_resolver, "resolve_public_key", side_effect=error),
+                self.assertRaises(InvalidSignature) as caught,
+            ):
+                verifier.verify(self.test_request)
+            self.assertIs(caught.exception.__cause__, error)
+        with (
+            patch.object(self.key_resolver, "resolve_public_key", return_value=None),
+            self.assertRaisesRegex(InvalidSignature, "Unable to resolve verification key"),
+        ):
+            verifier.verify(self.test_request)
+        rsa_verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret", include_alg=False)
+        with (
+            patch.object(self.key_resolver, "resolve_public_key", return_value=b"invalid PEM"),
+            self.assertRaises(InvalidSignature) as caught,
+        ):
+            rsa_verifier.verify(self.test_request)
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+
+    def test_optional_created_requires_disabling_age_limit(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        params = '("@method");keyid="test-shared-secret"'
+        set_test_signature(self.test_request, params, ['"@method": POST'])
+        with self.assertRaisesRegex(InvalidSignature, 'missing a required "created"'):
+            verifier.verify(self.test_request, max_age=None)
+        verifier.require_created = False
+        with self.assertRaisesRegex(InvalidSignature, 'missing a required "created"'):
+            verifier.verify(self.test_request)
+        verifier.verify(self.test_request, max_age=None)
+        expired = int((datetime.now() - timedelta(minutes=1)).timestamp())
+        set_test_signature(self.test_request, params + f";expires={expired}", ['"@method": POST'])
+        with self.assertRaisesRegex(InvalidSignature, "past"):
+            verifier.verify(self.test_request, max_age=None)
+
     def test_signature_metadata_types(self):
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         timestamp = int(datetime.now().timestamp())
