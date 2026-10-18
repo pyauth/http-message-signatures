@@ -1,12 +1,17 @@
 import urllib.parse
 
-from http_sf.compat import Item
+from http_sf.compat import Dictionary, Item
 
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict
 
 
 class HTTPSignatureComponentResolver:
+    # RFC 9421 section 2.1 parameters a covered HTTP field may carry. "key" is
+    # implemented (section 2.1.2); "sf", "bs" and "tr" are recognized so that a
+    # signature naming them is refused instead of silently resolving to the
+    # wrong value.
+    field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
     derived_component_names = {
         "@method",
         "@target-uri",
@@ -31,14 +36,59 @@ class HTTPSignatureComponentResolver:
 
     def resolve(self, component_node: Item):
         component_id = str(component_node.value)
+        params = dict(component_node.params)
+        if "req" in params:
+            # RFC 9421 section 2.4: a component of the request a response answers.
+            if params.pop("req") is not True:
+                raise HTTPMessageSignaturesException('The "req" parameter must be a Boolean flag')
+            if self.message_type != "response":
+                raise HTTPMessageSignaturesException('The "req" parameter is only valid in a response signature')
+            request_node = Item(component_node.value)
+            request_node.params.update(params)
+            return self.__class__(self.message.request).resolve(request_node)
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_names:
                 raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
             resolver = getattr(self, "get_" + component_id[1:].replace("-", "_"))
-            return resolver(**component_node.params)
+            return resolver(**params)
         if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
-        return self.headers[component_id]
+        field_value = self.headers[component_id]
+        unknown = set(params) - self.field_component_parameters
+        if unknown:
+            raise HTTPMessageSignaturesException(
+                f'Unknown parameter(s) {sorted(unknown)} on covered field "{component_id}"'
+            )
+        if "key" in params:
+            return self.get_dictionary_member(component_id, field_value, params)
+        if params:
+            raise HTTPMessageSignaturesException(
+                f'Parameter(s) {sorted(params)} on covered field "{component_id}" are not supported'
+            )
+        return field_value
+
+    def get_dictionary_member(self, component_id: str, field_value: str, params: dict):
+        # RFC 9421 section 2.1.2: the value is the serialization of the named
+        # member of the Dictionary Structured Field, parameters included.
+        key = params["key"]
+        if set(params) != {"key"}:
+            raise HTTPMessageSignaturesException(
+                f'The "key" parameter on covered field "{component_id}" cannot be combined with other parameters'
+            )
+        if not isinstance(key, str):
+            raise HTTPMessageSignaturesException(
+                f'The "key" parameter on covered field "{component_id}" must be a string'
+            )
+        dictionary = Dictionary()
+        try:
+            dictionary.parse(field_value.encode())
+        except Exception as e:
+            raise HTTPMessageSignaturesException(
+                f'Covered field "{component_id}" is not a Dictionary Structured Field'
+            ) from e
+        if key not in dictionary:
+            raise HTTPMessageSignaturesException(f'Covered field "{component_id}" has no member "{key}"')
+        return str(dictionary[key])
 
     def get_method(self):
         if self.message_type == "response":
