@@ -7,6 +7,17 @@ from .algorithms import HTTPSignatureAlgorithm
 
 
 class VerifyResult(NamedTuple):
+    """A verified signature and the values it covers.
+
+    :ivar label: Signature dictionary label (not covered by the signature).
+    :ivar algorithm: Algorithm class used for verification.
+    :ivar covered_components: Serialized component identifiers mapped to signed
+        values, including the generated ``\"@signature-params\"`` entry.
+    :ivar parameters: Signed signature metadata, such as ``keyid`` and ``created``.
+    :ivar body: ``None`` in this package; reserved for integrations validating body digests.
+    :ivar nonce: Signed nonce, or ``None`` when omitted.
+    """
+
     label: str
     algorithm: type[HTTPSignatureAlgorithm]
     covered_components: dict[str, str]

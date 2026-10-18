@@ -13,15 +13,19 @@ from .exceptions import HTTPMessageSignaturesException
 
 
 class HTTPSignatureAlgorithm:
+    """Interface implemented by the package's signature algorithm classes."""
+
     algorithm_id: str
 
     def __init__(self, public_key=None, private_key=None):
         raise NotImplementedError("This method must be implemented by a subclass.")
 
     def sign(self, message: bytes):
+        """Return signature bytes for the supplied message bytes."""
         raise NotImplementedError("This method must be implemented by a subclass.")
 
     def verify(self, signature: bytes, message: bytes):
+        """Return None for a valid signature or raise if verification fails."""
         raise NotImplementedError("This method must be implemented by a subclass.")
 
 
@@ -35,6 +39,11 @@ class PEMKeyLoader:
 
 
 class RSA_PSS_SHA512(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """RSA-PSS with SHA-512. Keys may be PEM bytes or cryptography RSA key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
     algorithm_id = "rsa-pss-sha512"
 
     def __init__(self, public_key=None, private_key=None, password=None):
@@ -54,6 +63,8 @@ class RSA_PSS_SHA512(HTTPSignatureAlgorithm, PEMKeyLoader):
 
 
 class RSA_V1_5_SHA256(RSA_PSS_SHA512):
+    """RSA PKCS#1 v1.5 with SHA-256; accepts the same key arguments as RSA-PSS."""
+
     algorithm_id = "rsa-v1_5-sha256"
 
     def __init__(self, public_key=None, private_key=None, password=None):
@@ -63,6 +74,13 @@ class RSA_V1_5_SHA256(RSA_PSS_SHA512):
 
 
 class HMAC_SHA256(HTTPSignatureAlgorithm):
+    """HMAC with SHA-256 using secret bytes.
+
+    Supply ``shared_secret``, ``public_key``, or ``private_key``. At least one is
+    required, and all supplied values must agree. The key resolver integration
+    uses ``private_key`` for signing and ``public_key`` for verification.
+    """
+
     algorithm_id = "hmac-sha256"
 
     def __init__(self, public_key=None, private_key=None, shared_secret=None):
@@ -86,6 +104,11 @@ class HMAC_SHA256(HTTPSignatureAlgorithm):
 
 
 class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ECDSA P-256 with SHA-256, using PEM bytes or cryptography EC key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
     algorithm_id = "ecdsa-p256-sha256"
 
     def __init__(self, public_key=None, private_key=None, password=None):
@@ -115,6 +138,11 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
 
 
 class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """Ed25519 using PEM bytes or cryptography Ed25519 key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
     algorithm_id = "ed25519"
 
     def __init__(self, public_key=None, private_key=None, password=None):

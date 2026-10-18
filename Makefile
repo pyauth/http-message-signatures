@@ -11,13 +11,16 @@ init_docs:
 	cd docs; sphinx-quickstart
 
 docs:
-	sphinx-build docs docs/html
+	python -m sphinx -W --keep-going docs docs/html
+
+test-docs:
+	python -m sphinx -W --keep-going -b doctest docs docs/doctest
 
 install:
 	-rm -rf dist
 	python -m build
 	pip install --upgrade dist/*.whl
 
-.PHONY: test lint release docs
+.PHONY: test lint release docs test-docs
 
 include common.mk

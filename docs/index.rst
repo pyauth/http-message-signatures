@@ -1,10 +1,13 @@
 .. include:: ../README.rst
 
-API documentation
-=================
+API and usage
+=============
 
-.. automodule:: http_message_signatures
-   :members:
+.. toctree::
+   :maxdepth: 2
+
+   usage
+   api
 
 Release Notes
 =============
@@ -13,9 +16,6 @@ Release Notes
 
 Table of Contents
 =================
-
-.. toctree::
-   :maxdepth: 5
 
 * :ref:`genindex`
 * :ref:`modindex`

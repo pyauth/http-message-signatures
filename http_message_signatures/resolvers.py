@@ -10,6 +10,13 @@ from .structures import get_header_fields
 
 
 class HTTPSignatureComponentResolver:
+    """Resolve covered components from the message interface in :doc:`usage`.
+
+    The constructor reads ``headers`` and ``url``. Requests also supply an
+    uppercase ``method``. The presence of ``status_code`` identifies a response;
+    its ``request`` supplies components qualified with ``req``.
+    """
+
     # RFC 9421 section 2.1 parameters a covered HTTP field may carry. Dictionary
     # member selection supports "key" and the redundant "sf" flag. Other uses
     # of "sf", "bs" and "tr" are refused instead of resolving to the wrong value.
@@ -27,7 +34,6 @@ class HTTPSignatureComponentResolver:
         "@request-response",
     }
 
-    # TODO: describe interface
     def __init__(self, message):
         self.message = message
         self.message_type = "request"
@@ -47,6 +53,7 @@ class HTTPSignatureComponentResolver:
             raise HTTPMessageSignaturesException("HTTP request method must be an uppercase string")
 
     def resolve(self, component_node: Item):
+        """Return the string value of a parsed Structured Field component item."""
         component_id = str(component_node.value)
         params = dict(component_node.params)
         if "req" in params:
@@ -150,7 +157,7 @@ class HTTPSignatureComponentResolver:
         return self.uri.scheme.lower()
 
     def get_request_target(self):
-        # Transports can expose the exact HTTP/1.1 target, including proxy and
+        # Clients can expose the HTTP/1.1 request target, including proxy and
         # asterisk forms, which cannot be inferred from an absolute URL alone.
         if hasattr(self.message, "request_target"):
             return self.message.request_target
@@ -189,8 +196,16 @@ class HTTPSignatureComponentResolver:
 
 
 class HTTPSignatureKeyResolver:
+    """Subclass this interface to look up keys by their signed key IDs.
+
+    Return PEM bytes or the appropriate cryptography key object for asymmetric
+    algorithms. For HMAC, return the same secret bytes from both methods.
+    """
+
     def resolve_public_key(self, key_id: str):
+        """Return the verification key for ``key_id``; ``None`` means unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")
 
     def resolve_private_key(self, key_id: str):
+        """Return the signing key for ``key_id`` or raise if it is unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")

@@ -30,6 +30,13 @@ class HTTPSignatureHandler:
         key_resolver: HTTPSignatureKeyResolver,
         component_resolver_class: type = HTTPSignatureComponentResolver,
     ):
+        """Configure signing or verification.
+
+        :param signature_algorithm: Algorithm class from
+            :mod:`http_message_signatures.algorithms`.
+        :param key_resolver: Resolves key IDs to key bytes or cryptography key objects.
+        :param component_resolver_class: Resolver class instantiated for each message.
+        """
         if signature_algorithm not in signature_algorithms.values():
             raise HTTPMessageSignaturesException(f"Unknown signature algorithm {signature_algorithm}")
         self.signature_algorithm = signature_algorithm
@@ -134,6 +141,8 @@ class HTTPSignatureHandler:
 
 
 class HTTPMessageSigner(HTTPSignatureHandler):
+    """Construct HTTP message signatures and write their headers to a message."""
+
     DEFAULT_SIGNATURE_LABEL = "pyhms"
 
     def _parse_covered_component_ids(self, covered_component_ids):
@@ -165,6 +174,32 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         append_if_signature_exists: bool = False,
     ):
+        """Sign a message in place; return ``None``.
+
+        :param message: Request or response implementing the message interface
+            documented in :doc:`usage`.
+        :param key_id: ID passed to ``key_resolver.resolve_private_key`` and
+            included in the signed metadata.
+        :param created: Creation time; defaults to the current time. A naive
+            datetime is interpreted in the local timezone.
+        :param expires: Optional expiration time, with the same timezone rules.
+        :param nonce: Optional signed nonce. Replay detection is the caller's responsibility.
+        :param label: Signature dictionary key; defaults to ``pyhms``.
+        :param tag: Optional signed application identifier.
+        :param include_alg: Include the configured algorithm ID in signed metadata.
+        :param covered_component_ids: Sequence of component names or serialized
+            Structured Field String items, for example ``("date",)`` or
+            ``('\"@query-param\";name="Pet"',)``. A scalar string is rejected.
+            Defaults cover request method, authority, and target URI. Responses
+            require an explicit list such as ``("@status", "content-type")``.
+        :param append_if_signature_exists: Preserve existing signatures and add a
+            new label. Otherwise replace existing signature headers.
+        :raises HTTPMessageSignaturesException: A component or signature parameter
+            is invalid or an existing signature cannot be appended to.
+
+        Key resolver and algorithm errors can also propagate. Signing does not
+        calculate a body digest; supply and cover a digest header when needed.
+        """
         # TODO: Accept-Signature autonegotiation
         if created is None:
             created = datetime.datetime.now()
@@ -222,8 +257,13 @@ class HTTPMessageSigner(HTTPSignatureHandler):
 
 
 class HTTPMessageVerifier(HTTPSignatureHandler):
+    """Verify signatures using a configured algorithm and key resolver."""
+
+    #: Tolerance for creation, expiration, and maximum-age checks.
     max_clock_skew: datetime.timedelta = datetime.timedelta(seconds=5)
+    #: Require a creation timestamp. Set False and use max_age=None to allow its omission.
     require_created: bool = True
+    #: Permit label selection without a signed tag, with a warning.
     allow_label_only_selection: bool = False
 
     def _parse_dict_header(self, header_name, headers):
@@ -335,6 +375,25 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         expect_tag: str | None = None,
         expect_label: str | None = None,
     ) -> list[VerifyResult]:
+        """Return verified signatures matching the requested selection.
+
+        :param message: Request or response implementing :doc:`usage`.
+        :param max_age: Maximum age since creation, with clock-skew tolerance.
+            ``None`` disables the age limit; expiration checks still apply.
+        :param expect_tag: Require this signed application tag. Required when
+            selecting among multiple signatures unless label-only selection is enabled.
+        :param expect_label: Also select this signature dictionary label. Labels
+            are not signed; normally ``expect_tag`` must be supplied with this option.
+        :returns: A list of :class:`~http_message_signatures.VerifyResult` objects.
+            Every selected signature must verify; no partial result is returned.
+        :raises InvalidSignature: A signature is missing, malformed, expired,
+            uses an unexpected algorithm, or fails cryptographic verification.
+        :raises HTTPMessageSignaturesException: The selection policy is invalid.
+
+        Check the returned coverage before trusting message data. Body digest
+        validation, authorization, and nonce replay detection remain the caller's
+        responsibility. A valid signature alone does not establish those properties.
+        """
         if expect_tag is None and expect_label is not None:
             if self.allow_label_only_selection:
                 warn(
