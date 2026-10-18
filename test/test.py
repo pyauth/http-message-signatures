@@ -591,6 +591,35 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
 
+    def test_duplicate_signature_labels(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        originals = self.test_request.headers.copy()
+        for name, invalid in (("Signature", "pyhms=:AAAA:"), ("Signature-Input", 'pyhms=("@status")')):
+            for repeated_lines in (False, True):
+                for first in (invalid, originals[name]):
+                    with self.subTest(name=name, repeated_lines=repeated_lines, first=first):
+                        headers = HTTPMessage() if repeated_lines else originals.copy()
+                        if repeated_lines:
+                            for other, value in originals.items():
+                                if other != name:
+                                    headers[other] = value
+                            headers[name.lower()] = first
+                            headers[name.upper()] = originals[name]
+                        else:
+                            headers[name] = first + ", " + originals[name]
+                        self.test_request.headers = headers
+                        with self.assertRaisesRegex(InvalidSignature, "Malformed structured header"):
+                            verifier.verify(self.test_request)
+                        with self.assertRaisesRegex(HTTPMessageSignaturesException, "Duplicate signature label"):
+                            signer.sign(
+                                self.test_request,
+                                key_id="test-shared-secret",
+                                label="new",
+                                append_if_signature_exists=True,
+                            )
+
     def test_duplicate_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

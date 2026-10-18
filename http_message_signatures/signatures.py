@@ -2,9 +2,10 @@ import collections
 import datetime
 import logging
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from warnings import warn
 
+from http_sf import parse
 from http_sf.compat import Dictionary, InnerList, Item
 
 from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
@@ -34,6 +35,30 @@ class HTTPSignatureHandler:
         self.signature_algorithm = signature_algorithm
         self.key_resolver = key_resolver
         self.component_resolver_class = component_resolver_class
+
+    @staticmethod
+    def _parse_signature_dictionary(value: str) -> Dictionary:
+        def reject_duplicate(key: str, context: str):
+            if context == "dictionary":
+                raise HTTPMessageSignaturesException(f'Duplicate signature label "{key}"')
+
+        parsed = cast(dict[str, Any], parse(value.encode(), tltype="dictionary", on_duplicate_key=reject_duplicate))
+        # Adapt the already parsed values to the compatibility objects used by
+        # signature construction, without parsing or tokenizing the field again.
+        result = Dictionary()
+        for label, (member, params) in parsed.items():
+            node: Item | InnerList
+            if isinstance(member, list):
+                node = InnerList()
+                for bare_value, item_params in member:
+                    item = Item(bare_value)
+                    item.params.update(item_params)
+                    node.append(item)
+            else:
+                node = Item(member)
+            node.params.update(params)
+            result[label] = node
+        return result
 
     def _build_signature_base(
         self, message, *, covered_component_ids: list[Any], signature_params: dict[str, str]
@@ -130,16 +155,14 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             if "Signature" not in headers:
                 err_msg = 'Cannot append to "Signature-Input" header when "Signature" header is missing'
                 raise HTTPMessageSignaturesException(err_msg)
-            sig_input_node = Dictionary()
-            sig_input_node.parse(headers["Signature-Input"].encode())
+            sig_input_node = self._parse_signature_dictionary(headers["Signature-Input"])
             if sig_label in sig_input_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_input_node[sig_label] = sig_params_node
 
         sig_node = Dictionary()
         if append_if_signature_exists and "Signature" in headers:
-            sig_node = Dictionary()
-            sig_node.parse(headers["Signature"].encode())
+            sig_node = self._parse_signature_dictionary(headers["Signature"])
             if sig_label in sig_node:
                 raise HTTPMessageSignaturesException(f'Signature label "{sig_label}" already present in the message')
         sig_node[sig_label] = signature
@@ -162,8 +185,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         if header_name not in headers:
             raise InvalidSignature(f'Expected "{header_name}" header field to be present')
         try:
-            dict_header_node = Dictionary()
-            dict_header_node.parse(headers[header_name].encode())
+            dict_header_node = self._parse_signature_dictionary(headers[header_name])
         except Exception as e:
             raise InvalidSignature(f'Malformed structured header field "{header_name}"') from e
         return dict_header_node
