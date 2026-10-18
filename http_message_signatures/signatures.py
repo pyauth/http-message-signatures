@@ -86,6 +86,16 @@ class HTTPSignatureHandler:
                 raise HTTPMessageSignaturesException(
                     f'Component value for "{component_key}" contains newline character'
                 )
+            # RFC 9421 section 2.5 permits internal HTAB in field values,
+            # but no other control characters in the signature base.
+            if (
+                not component_id.value.startswith("@")
+                and component_value
+                and not component_value.replace("\t", " ").isprintable()
+            ):
+                raise HTTPMessageSignaturesException(
+                    f'Field component "{component_key}" contains invalid control characters'
+                )
             if (
                 component_id.value.startswith("@")
                 and component_value
