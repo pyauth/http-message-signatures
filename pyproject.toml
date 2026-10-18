@@ -33,7 +33,6 @@ Homepage = "https://github.com/pyauth/http-message-signatures"
 [project.optional-dependencies]
 docs = ["sphinx >= 7"]
 tests = [
-    "flake8",
     "coverage",
     "build",
     "wheel",
