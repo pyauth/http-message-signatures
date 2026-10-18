@@ -1,8 +1,18 @@
 import re
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from collections.abc import Mapping, MutableMapping
+from typing import NamedTuple
 
-VerifyResult = namedtuple("VerifyResult", "label algorithm covered_components parameters body nonce")
+from .algorithms import HTTPSignatureAlgorithm
+
+
+class VerifyResult(NamedTuple):
+    label: str
+    algorithm: type[HTTPSignatureAlgorithm]
+    covered_components: dict[str, str]
+    parameters: dict[str, int | str]
+    body: bytes | None
+    nonce: str | None
 
 
 def normalize_header_value(value: str) -> str:

@@ -15,7 +15,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
-from typing import ClassVar
+from typing import ClassVar, get_type_hints
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -30,10 +30,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from http_message_signatures import (  # noqa
     HTTPMessageSigner,
     HTTPMessageVerifier,
+    HTTPSignatureAlgorithm,
     HTTPSignatureComponentResolver,
     HTTPSignatureKeyResolver,
     InvalidSignature,
     HTTPMessageSignaturesException,
+    VerifyResult,
 )
 from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
@@ -178,6 +180,24 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_hmac_requires_a_key(self):
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "HMAC key must be supplied"):
             HMAC_SHA256()
+
+    def test_public_api_typing(self):
+        self.assertEqual(get_type_hints(VerifyResult)["algorithm"], type[HTTPSignatureAlgorithm])
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "mypy",
+                "--strict",
+                "--follow-imports=silent",
+                "--no-incremental",
+                "test/typing_api.py",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
