@@ -50,6 +50,7 @@ from http_message_signatures.algorithms import (
     RSA_PSS_SHA512,
     RSA_V1_5_SHA256,
 )
+from http_message_signatures._url import URLParts, parse_url
 
 test_shared_secret = base64.b64decode(
     "uzvJfB4u3N0Jy4T7NZ75MDVcr8zSTInedJtkgcu46YW4XByzNJjxBdtjUkdJPBtbmHhIDi6pcl8jsasjlTMtDQ=="
@@ -91,6 +92,131 @@ class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
         if key_id in self.known_pem_keys:
             with open(f"test/{key_id}.key", "rb") as fh:
                 return load_pem_private_key(fh.read(), password=None)
+
+
+class TestURLParsing(unittest.TestCase):
+    def test_components_preserve_supplied_spelling(self):
+        cases = (
+            (
+                "HTTPS://user:p%40ss@EXAMPLE.com:00443/a%2fb/../c?q=%2f#fragment",
+                URLParts("HTTPS", "EXAMPLE.com", "00443", "/a%2fb/../c", "q=%2f"),
+            ),
+            ("http://127.0.0.1:00080", URLParts("http", "127.0.0.1", "00080", "", None)),
+            (
+                "https://[2001:0DB8:0:0:0:0:0:1]:8443/",
+                URLParts("https", "[2001:0DB8:0:0:0:0:0:1]", "8443", "/", None),
+            ),
+            ("http://[::FFFF:192.0.2.128]/", URLParts("http", "[::FFFF:192.0.2.128]", None, "/", None)),
+            ("https://[v1.a:b]/", URLParts("https", "[v1.a:b]", None, "/", None)),
+            ("https://[Vf.A:B]/", URLParts("https", "[Vf.A:B]", None, "/", None)),
+            ("http://[fe80::1%25en%2D0]/", URLParts("http", "[fe80::1%25en%2D0]", None, "/", None)),
+            ("custom+v1.2://example.com:0/a", URLParts("custom+v1.2", "example.com", "0", "/a", None)),
+            ("https://%65xample.com/", URLParts("https", "%65xample.com", None, "/", None)),
+            (
+                "https://example.com/!$&'()*+,;=:@/_~-.?a=/?:@!$&'()*+,;=_~-.#/?fragment",
+                URLParts("https", "example.com", None, "/!$&'()*+,;=:@/_~-.", "a=/?:@!$&'()*+,;=_~-."),
+            ),
+        )
+        for url, expected in cases:
+            with self.subTest(url=url):
+                self.assertEqual(parse_url(url), expected)
+
+    def test_empty_and_absent_components(self):
+        cases = (
+            ("https://example.com", None, "", None),
+            ("https://example.com?", None, "", ""),
+            ("https://example.com#", None, "", None),
+            ("https://example.com?#", None, "", ""),
+            ("https://@example.com:/?#", "", "/", ""),
+            ("https://example.com/#?", None, "/", None),
+        )
+        for url, port, path, query in cases:
+            with self.subTest(url=url):
+                self.assertEqual(parse_url(url), URLParts("https", "example.com", port, path, query))
+
+    def test_percent_escapes_are_preserved_without_decoding(self):
+        for spelling in ("02x", "02X"):
+            encoded = "".join("%" + format(octet, spelling) for octet in range(256))
+            url = f"https://{encoded}@example.com/{encoded}?{encoded}#{encoded}"
+            self.assertEqual(parse_url(url), URLParts("https", "example.com", None, "/" + encoded, encoded))
+
+    def test_invalid_url_syntax(self):
+        urls = (
+            "",
+            "/resource",
+            "//example.com/",
+            "https:example.com/",
+            "mailto:user@example.com",
+            "1http://example.com/",
+            "https:///resource",
+            "https://?query",
+            "https://user@/",
+            "https://example.com:abc/",
+            "https://example.com:-1/",
+            "https://example.com:+80/",
+            "https://example.com:８０/",
+            "https://example.com:80:90/",
+            "https://a@b@example.com/",
+            "https://[::1",
+            "https://::1/",
+            "https://[]/",
+            "https://[127.0.0.1]/",
+            "https://[:::]/",
+            "https://[1:2:3:4:5:6:7]/",
+            "https://[1:2:3:4:5:6:7:8:9]/",
+            "https://[::ffff:256.1.1.1]/",
+            "https://[::1]extra/",
+            "https://[v1.]/",
+            "https://[vG.test]/",
+            "https://[v1.%41]/",
+            "https://[fe80::1%eth0]/",
+            "https://[fe80::1%25]/",
+            "https://example.com/path#one#two",
+            "https://example.com/[path]",
+            "https://example.com/?q=[value]",
+        )
+        for url in urls:
+            with self.subTest(url=url), self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"):
+                parse_url(url)
+
+    def test_invalid_characters_and_escapes_in_each_component(self):
+        templates = (
+            "https://user{}@example.com/",
+            "https://ex{}zample.com/",
+            "https://example.com/a{}z",
+            "https://example.com/?q=a{}z",
+            "https://example.com/#a{}z",
+            "https://[fe80::1%25en{}z]/",
+        )
+        invalid = [chr(code) for code in range(33)] + [chr(127), "é", "K", "\\", '"', "<", ">", "^", "`", "{", "|", "}"]
+        invalid += ["%", "%2", "%GG", "%2g", "%41%ZZ", "%41%2"]
+        for template in templates:
+            for value in invalid:
+                url = template.format(value)
+                with self.subTest(url=url), self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"):
+                    parse_url(url)
+        for value in invalid:
+            with self.subTest(prefix=value), self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"):
+                parse_url(value + "https://example.com/")
+
+    def test_long_invalid_inputs_finish_promptly(self):
+        script = textwrap.dedent("""
+            from http_message_signatures._url import parse_url
+            from http_message_signatures.exceptions import HTTPMessageSignaturesException
+
+            for template in (
+                "https://{}^/", "https://{}^@example.com/", "https://example.com/{}^",
+                "https://example.com/?{}^", "https://example.com/#{}^", "https://example.com:{}x/",
+            ):
+                try:
+                    parse_url(template.format("1" * 100_000))
+                except HTTPMessageSignaturesException:
+                    pass
+                else:
+                    raise AssertionError("Invalid URL accepted")
+        """)
+        result = subprocess.run([sys.executable, "-c", script], check=False, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class TestHTTPMessageSignatures(unittest.TestCase):
@@ -1832,7 +1958,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
 
-    def test_signing_rejects_uri_parser_rewrites(self):
+    def test_signing_rejects_invalid_urls(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         invalid_urls = (
             "https://example.com/files/%41%",
@@ -1847,6 +1973,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             "https://example.com/?q=café",
             "https://example.com/a\nb",
             "https://example.com/?q=a\tb",
+            "https://ex ample.com/",
+            "https://user%ZZ@example.com/",
+            "https://example.com/#%ZZ",
+            "https://[:::]/",
+            "https://example.com:abc/",
+            "/resource",
         )
         headers = dict(self.test_request.headers)
         for url in invalid_urls:
@@ -1856,13 +1988,13 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     patch.object(
                         self.key_resolver, "resolve_private_key", side_effect=AssertionError("local key read")
                     ),
-                    self.assertRaisesRegex(HTTPMessageSignaturesException, "URI parsing would alter"),
+                    self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"),
                 ):
                     self.test_request.url = url
                     operation(self.test_request, key_id="test-shared-secret")
                 self.assertEqual(dict(self.test_request.headers), headers)
 
-    def test_verification_rejects_uri_repair_collisions(self):
+    def test_verification_rejects_url_repair_collisions(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         cases = (
@@ -1889,10 +2021,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                         signer.sign(message, key_id="test-shared-secret", covered_component_ids=covered)
                         verifier.verify(message)
                         self.test_request.url = changed
-                        with self.assertRaisesRegex(InvalidSignature, "URI parsing would alter"):
+                        with self.assertRaisesRegex(InvalidSignature, "Invalid URL"):
                             verifier.verify(message)
 
-    def test_apply_rejects_uri_repair_collisions(self):
+    def test_apply_rejects_url_repair_collisions(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
         for original, changed in (
             ("https://example.com/files/%2541%25ZZ", "https://example.com/files/%41%ZZ"),
@@ -1907,27 +2039,98 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     headers = dict(message.headers)
                     self.test_request.url = changed
                     for append in (False, True):
-                        with self.assertRaisesRegex(HTTPMessageSignaturesException, "URI parsing would alter"):
+                        with self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"):
                             signer.apply(message, prepared, signature, append_if_signature_exists=append)
                         self.assertEqual(dict(message.headers), headers)
 
-    def test_encoded_uris_remain_unchanged(self):
+    def test_encoded_urls_preserve_signature_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        for url in (
-            "https://example.com/files/%2541%25ZZ?role=%2561dmin&x=%25ZZ",
-            "https://example.com/a%2fb/../caf%C3%A9?q=%20%2f%FF&plus=+",
-            "https://example.com/resource?",
-            "https://user:pass@[2001:DB8::1]:443/resource?#fragment",
+        for url, target in (
+            (
+                "https://example.com/files/%2541%25ZZ?role=%2561dmin&x=%25ZZ",
+                "https://example.com/files/%2541%25ZZ?role=%2561dmin&x=%25ZZ",
+            ),
+            (
+                "https://example.com/a%2fb/../caf%C3%A9?q=%20%2f%FF&plus=+",
+                "https://example.com/a%2fb/../caf%C3%A9?q=%20%2f%FF&plus=+",
+            ),
+            ("https://example.com/resource?", "https://example.com/resource?"),
+            ("https://user:pass@[2001:DB8::1]:443/resource?#fragment", "https://[2001:DB8::1]:443/resource?"),
         ):
             with self.subTest(url=url):
                 self.test_request.url = url
                 resolver = HTTPSignatureComponentResolver(self.test_request)
-                self.assertEqual(resolver.uri.unsplit(), url)
+                self.assertEqual(resolver.get_target_uri(), target)
                 signer.sign(self.test_request, key_id="test-shared-secret")
                 verifier.verify(self.test_request)
 
-    def test_uri_component_canonicalization(self):
+    def test_url_formatting_is_specific_to_each_signature_component(self):
+        self.test_request.url = "HTTPS://user:p%40ss@EXAMPLE.com:00443/a%2fb/../c?q=%2f#fragment"
+        covered = (
+            ("@scheme", "https"),
+            ("@authority", "example.com"),
+            ("@target-uri", "HTTPS://EXAMPLE.com:00443/a%2fb/../c?q=%2f"),
+            ("@request-target", "/a%2fb/../c?q=%2f"),
+            ("@path", "/a%2fb/../c"),
+            ("@query", "?q=%2f"),
+        )
+        created = datetime.now(timezone.utc).replace(microsecond=0)
+        components = " ".join(f'"{name}"' for name, value in covered)
+        params = f'({components});created={int(created.timestamp())};keyid="test-shared-secret"'
+        set_test_signature(self.test_request, params, [f'"{name}": {value}' for name, value in covered])
+        expected_signature = self.test_request.headers["Signature"]
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        result = verifier.verify(self.test_request)[0]
+        for name, value in covered:
+            self.assertEqual(result.covered_components[f'"{name}"'], value)
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        signer.sign(
+            self.test_request,
+            key_id="test-shared-secret",
+            covered_component_ids=tuple(name for name, value in covered),
+            created=created,
+            include_alg=False,
+        )
+        self.assertEqual(self.test_request.headers["Signature"], expected_signature)
+
+    def test_empty_port_and_zero_padded_ports(self):
+        for port, authority in (
+            ("", "example.com"),
+            ("00443", "example.com"),
+            ("00000", "example.com:00000"),
+            ("08443", "example.com:08443"),
+            ("0" * 10_000 + "443", "example.com"),
+        ):
+            with self.subTest(port=port[:20]):
+                self.test_request.url = f"https://example.com:{port}/?"
+                resolver = HTTPSignatureComponentResolver(self.test_request)
+                self.assertEqual(resolver.get_authority(), authority)
+                self.assertEqual(resolver.get_target_uri(), self.test_request.url)
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.url = "https://example.com:/"
+        signer.sign(self.test_request, key_id="test-shared-secret")
+        self.test_request.url = "https://example.com/"
+        with self.assertRaises(InvalidSignature):
+            verifier.verify(self.test_request)
+
+    def test_response_uses_the_associated_request_url(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        del self.test_response.url
+        signer.sign(
+            self.test_response, key_id="test-shared-secret", covered_component_ids=("@status", '"@target-uri";req')
+        )
+        result = verifier.verify(self.test_response)[0]
+        self.assertEqual(result.covered_components['"@target-uri";req'], self.test_request.url)
+        self.test_response.url = "https://unrelated.example/%ZZ"
+        verifier.verify(self.test_response)
+        self.test_request.url = "https://example.com/%ZZ"
+        with self.assertRaisesRegex(InvalidSignature, "Invalid URL"):
+            verifier.verify(self.test_response)
+
+    def test_url_component_canonicalization(self):
         cases = (
             ("https://EXAMPLE.com:443", "example.com", "/", "/", "https://EXAMPLE.com:443/"),
             ("http://example.com:80/a", "example.com", "/a", "/a", "http://example.com:80/a"),
@@ -1947,14 +2150,14 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 "https://example.com/a%2fb/../c?q=%2f",
             ),
         )
-        for url, authority, path, target, uri in cases:
+        for url, authority, path, target, target_url in cases:
             with self.subTest(url=url):
                 self.test_request.url = url
                 resolver = HTTPSignatureComponentResolver(self.test_request)
                 self.assertEqual(resolver.get_authority(), authority)
                 self.assertEqual(resolver.get_path(), path)
                 self.assertEqual(resolver.get_request_target(), target)
-                self.assertEqual(resolver.get_target_uri(), uri)
+                self.assertEqual(resolver.get_target_uri(), target_url)
 
     def test_options_target_uri_preserves_empty_path(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

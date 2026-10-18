@@ -127,7 +127,7 @@ of ``r`` and ``s``, each padded to 32 bytes. Convert DER output using the algori
     signer.apply(request, prepared, signature)
 
 Retain the prepared object and associate each remote result with its input. Use a trusted signing service and protect
-queued signing input against modification and disclosure: the base contains covered header and URI values.
+queued signing input against modification and disclosure: the base contains covered header and URL values.
 ``apply()`` compares the message's current signature base with the prepared bytes and rejects changes before writing
 headers. For example, changing a covered method from ``POST`` to ``DELETE`` while awaiting the signature is rejected.
 Changes to uncovered values or values with the same RFC normalization are permitted. This check does not authenticate
@@ -139,19 +139,20 @@ when choosing expiration times; an expired result will still be rejected by a ve
 existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
 signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
 
-URI components
+URL components
 ~~~~~~~~~~~~~~
 
-The message's ``url`` supplies the target URI. URI components preserve percent-encoded octets and distinguish an
+The request's ``url`` supplies the target URL. URL components preserve percent-encoded octets and distinguish an
 absent query from an empty query. ``@authority`` omits credentials and default ports; ``@target-uri`` excludes
 credentials and fragments. Empty paths normally become ``/``. For ``OPTIONS``, ``@target-uri`` preserves an
 empty path so server-wide ``OPTIONS *`` remains distinct from
 ``OPTIONS /``. The separate ``@path`` component still represents an empty path as ``/``.
 
-Supply an already encoded URI. URLs that the URI parser would rewrite, such as those containing malformed percent
-escapes (``%``, ``%2``, or ``%ZZ``), unencoded spaces, or non-ASCII path or query characters, are rejected. This prevents
-parser rewrites from making different request targets share signing input. The check applies during signing, verification,
-applying a prepared signature, and resolving request components covered by a response signature.
+Supply an encoded absolute URL with a nonempty host. Parsing preserves the supplied spelling and rejects invalid
+syntax, including malformed percent escapes (``%``, ``%2``, or ``%ZZ``), spaces, control characters, and unencoded
+non-ASCII characters. It never repairs input. Each signature component applies its own RFC 9421 formatting rules.
+This applies during signing, verification, applying a prepared signature, and resolving request components covered
+by a response signature. A response's own ``url`` is not used; components marked ``req`` use its associated request.
 
 For ``@request-target``, clients can supply ``message.request_target`` containing the HTTP/1.1 request
 target. This is necessary for absolute-form proxy requests and asterisk-form ``OPTIONS *`` requests, since those

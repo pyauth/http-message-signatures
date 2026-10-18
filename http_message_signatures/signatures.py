@@ -211,7 +211,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         :param covered_component_ids: Sequence of component names or serialized
             Structured Field String items, for example ``("date",)`` or
             ``('\"@query-param\";name="Pet"',)``. A scalar string is rejected.
-            Defaults cover request method, authority, and target URI. Responses
+            Defaults cover request method, authority, and target URL. Responses
             require an explicit list such as ``("@status", "content-type")``.
         :param append_if_signature_exists: Preserve existing signatures and add a
             new label. Otherwise replace existing signature headers.
@@ -340,6 +340,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             sig_base, _, _ = self._build_signature_base(
                 message, covered_component_ids=list(sig_params_node), signature_params=sig_params_node.params
             )
+            # The message may have changed while the external signer was working.
             if sig_base.encode() != prepared.signature_base:
                 raise HTTPMessageSignaturesException("Message or signature parameters changed after prepare()")
             # Validate the label before looking at or changing existing headers.
