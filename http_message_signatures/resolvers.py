@@ -10,10 +10,9 @@ from .structures import get_header_fields
 
 
 class HTTPSignatureComponentResolver:
-    # RFC 9421 section 2.1 parameters a covered HTTP field may carry. "key" is
-    # implemented (section 2.1.2); "sf", "bs" and "tr" are recognized so that a
-    # signature naming them is refused instead of silently resolving to the
-    # wrong value.
+    # RFC 9421 section 2.1 parameters a covered HTTP field may carry. Dictionary
+    # member selection supports "key" and the redundant "sf" flag. Other uses
+    # of "sf", "bs" and "tr" are refused instead of resolving to the wrong value.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
     derived_component_names: ClassVar[set[str]] = {
         "@method",
@@ -99,10 +98,12 @@ class HTTPSignatureComponentResolver:
         # RFC 9421 section 2.1.2: the value is the serialization of the named
         # member of the Dictionary Structured Field, parameters included.
         key = params["key"]
-        if set(params) != {"key"}:
+        if set(params) - {"key", "sf"}:
             raise HTTPMessageSignaturesException(
-                f'The "key" parameter on covered field "{component_id}" cannot be combined with other parameters'
+                f'The "key" parameter on covered field "{component_id}" cannot be combined with parameters other than "sf"'
             )
+        if "sf" in params and params["sf"] is not True:
+            raise HTTPMessageSignaturesException('The "sf" parameter must be a Boolean flag')
         if not isinstance(key, str):
             raise HTTPMessageSignaturesException(
                 f'The "key" parameter on covered field "{component_id}" must be a string'
