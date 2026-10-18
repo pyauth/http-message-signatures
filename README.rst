@@ -117,6 +117,9 @@ Input request methods must be uppercase strings, including the request associate
 Methods such as ``get`` or ``Fetch`` are rejected before signature construction or verification;
 the library does not change their case. This applies even when ``@method`` is not covered.
 
+Individual query parameters use the component name ``@query-param`` with a ``name`` parameter,
+for example ``'"@query-param";name="Pet"'``. The previous spelling ``@query-params`` is rejected.
+
 Signatures require a ``created`` timestamp by default. To accept signatures without one, set
 ``verifier.require_created = False`` and pass ``max_age=None`` to ``verify()``; an age limit cannot be enforced
 without a creation timestamp. Expiration checks still apply when ``expires`` is present.

@@ -151,24 +151,26 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(
             self.test_request,
             key_id="test-key-rsa-pss",
-            covered_component_ids=("@authority", "content-digest"),
+            covered_component_ids=("@authority", "content-digest", '"@query-param";name="Pet"'),
             created=datetime.fromtimestamp(1618884473),
             label="sig-b22",
+            tag="header-example",
             include_alg=False,
         )
         self.assertEqual(
             self.test_request.headers["Signature-Input"],
-            'sig-b22=("@authority" "content-digest");created=1618884473;keyid="test-key-rsa-pss"',
+            'sig-b22=("@authority" "content-digest" "@query-param";name="Pet");'
+            'created=1618884473;keyid="test-key-rsa-pss";tag="header-example"',
         )
         verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         self.verify(verifier, self.test_request)  # Non-deterministic signing algorithm
         self.test_request.headers["Signature"] = (
-            "sig-b22=:Fee1uy9YGZq5UUwwYU6vz4dZNvfw3GYrFl1L6YlVIyUMuWs"
-            "wWDNSvql4dVtSeidYjYZUm7SBCENIb5KYy2ByoC3bI+7gydd2i4OAT5lyDtmeapnA"
-            "a8uP/b9xUpg+VSPElbBs6JWBIQsd+nMdHDe+ls/IwVMwXktC37SqsnbNyhNp6kcvc"
-            "WpevjzFcD2VqdZleUz4jN7P+W5A3wHiMGfIjIWn36KXNB+RKyrlGnIS8yaBBrom5r"
-            "cZWLrLbtg6VlrH1+/07RV+kgTh/l10h8qgpl9zQHu7mWbDKTq0tJ8K4ywcPoC4s2I"
-            "4rU88jzDKDGdTTQFZoTVZxZmuTM1FvHfzIw==:"
+            "sig-b22=:LjbtqUbfmvjj5C5kr1Ugj4PmLYvx9wVjZvD9GsTT4F7GrcQ"
+            "EdJzgI9qHxICagShLRiLMlAJjtq6N4CDfKtjvuJyE5qH7KT8UCMkSowOB4+ECxCmT"
+            "8rtAmj/0PIXxi0A0nxKyB09RNrCQibbUjsLS/2YyFYXEu4TRJQzRw1rLEuEfY17SA"
+            "RYhpTlaqwZVtR8NV7+4UKkjqpcAoFqWFQh62s7Cl+H2fjBSpqfZUJcsIk4N6wiKYd"
+            "4je2U/lankenQ99PZfB4jY3I5rSV2DSBVkSFsURIjYErOs0tFTQosMTAoxk//0RoK"
+            "UqiYY8Bh0aaUEb0rQl3/XaVe4bXTugEjHSw==:"
         )
         self.verify(verifier, self.test_request)
 
@@ -457,19 +459,58 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer.sign(
             self.test_request,
             key_id="test-shared-secret",
-            covered_component_ids=("date", "@authority", "content-type", '"@query-params";name="Pet"'),
+            covered_component_ids=("date", "@authority", "content-type", '"@query-param";name="Pet"'),
             created=datetime.fromtimestamp(1618884473),
         )
         self.assertEqual(
             self.test_request.headers["Signature-Input"],
             (
-                'pyhms=("date" "@authority" "content-type" "@query-params";name="Pet");'
+                'pyhms=("date" "@authority" "content-type" "@query-param";name="Pet");'
                 'created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
             ),
         )
-        self.assertEqual(self.test_request.headers["Signature"], "pyhms=:LOYhEJpBn34v3KohQBFl5qSy93haFd3+Ka9wwOmKeN0=:")
+        self.assertEqual(self.test_request.headers["Signature"], "pyhms=:Z9vQKeWMcZ9MyiiiN0X9p64FlcJ73F2QjV4X6QlrOYE=:")
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.verify(verifier, self.test_request)
+
+    def test_query_param_signature_fixtures(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
+            component = f'"@query-param";name="Pet"{suffix}'
+            with self.subTest(component=component):
+                self.test_request.url = "https://example.com/pets?Pet=dog&count=2"
+                params = f'({component});created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
+                set_test_signature(message, params, [f"{component}: dog"])
+                expected_signature = message.headers["Signature"]
+                result = verifier.verify(message, max_age=self.max_age)[0]
+                self.assertEqual(result.covered_components[component], "dog")
+                signer.sign(
+                    message,
+                    key_id="test-shared-secret",
+                    covered_component_ids=(component,),
+                    created=datetime.fromtimestamp(1618884473, timezone.utc),
+                )
+                self.assertEqual(message.headers["Signature-Input"], "pyhms=" + params)
+                self.assertEqual(message.headers["Signature"], expected_signature)
+                self.test_request.url = "https://example.com/pets?Pet=dog&count=3"
+                verifier.verify(message, max_age=self.max_age)
+                self.test_request.url = "https://example.com/pets?Pet=cat&count=3"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message, max_age=self.max_age)
+
+    def test_plural_query_component_is_not_supported(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        component = '"@query-params";name="Pet"'
+        params = f'({component});created=1618884473;keyid="test-shared-secret"'
+        set_test_signature(self.test_request, params, [f"{component}: dog"])
+        with self.assertRaisesRegex(InvalidSignature, "Unknown covered derived component name @query-params"):
+            verifier.verify(self.test_request, max_age=self.max_age)
+        with self.assertRaisesRegex(
+            HTTPMessageSignaturesException, "Unknown covered derived component name @query-params"
+        ):
+            signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
 
     def test_created_expires(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -499,14 +540,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             ("symbols", "%2B%2F%26%3D*%7E"),
         ):
             with self.subTest(name=name):
-                self.assertEqual(resolver.get_query_params(name=name), expected)
+                component = Item("@query-param")
+                component.params["name"] = name
+                self.assertEqual(resolver.resolve(component), expected)
 
     def test_query_parameter_newline_collision(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         for message, suffix in ((self.test_request, ""), (self.test_response, ";req")):
             with self.subTest(suffix=suffix):
-                components = (f'"@query-params";name="a"{suffix}', f'"@query-params";name="b"{suffix}')
+                components = (f'"@query-param";name="a"{suffix}', f'"@query-param";name="b"{suffix}')
                 delimiter = f"\n{components[1]}: "
                 original = {"a": "safe" + delimiter + "injected", "b": "tail"}
                 changed = {"a": "safe", "b": "injected" + delimiter + "tail"}
@@ -1130,7 +1173,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             "@request-target",
             "@path",
             "@query",
-            '"@query-params";name="Pet"',
+            '"@query-param";name="Pet"',
         )
         for component in components:
             with self.subTest(component=component):
@@ -1155,7 +1198,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
         node.parse(b'"example-dict";req;key="b"')  # section 2.4: req combines with key
         self.assertEqual(resolver.resolve(node), "2;x=1;y=2")
-        node.parse(b'"@query-params";name="Pet";req')
+        node.parse(b'"@query-param";name="Pet";req')
         self.assertEqual(resolver.resolve(node), "dog")
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "only valid in a response signature"):
             HTTPSignatureComponentResolver(self.test_request).resolve(node)

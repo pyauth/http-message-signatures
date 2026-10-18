@@ -22,7 +22,7 @@ class HTTPSignatureComponentResolver:
         "@request-target",
         "@path",
         "@query",
-        "@query-params",
+        "@query-param",
         "@status",
         "@request-response",
     }
@@ -73,7 +73,7 @@ class HTTPSignatureComponentResolver:
                 "@request-target": self.get_request_target,
                 "@path": self.get_path,
                 "@query": self.get_query,
-                "@query-params": self.get_query_params,
+                "@query-param": self.get_query_params,
                 "@status": self.get_status,
                 "@request-response": self.get_request_response,
             }
