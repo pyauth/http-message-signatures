@@ -3,7 +3,7 @@ import urllib.parse
 from http_sf.compat import Dictionary, Item
 
 from .exceptions import HTTPMessageSignaturesException
-from .structures import CaseInsensitiveDict, normalize_header_value
+from .structures import get_header_fields
 
 
 class HTTPSignatureComponentResolver:
@@ -32,7 +32,7 @@ class HTTPSignatureComponentResolver:
         if hasattr(message, "status_code"):
             self.message_type = "response"
         self.url = str(message.url)
-        self.headers = CaseInsensitiveDict(message.headers)
+        self.headers = get_header_fields(message.headers)
 
     def resolve(self, component_node: Item):
         component_id = str(component_node.value)
@@ -53,7 +53,7 @@ class HTTPSignatureComponentResolver:
             return resolver(**params)
         if component_id not in self.headers:
             raise HTTPMessageSignaturesException(f'Covered header field "{component_id}" not found in the message')
-        field_value = normalize_header_value(self.headers[component_id])
+        field_value = self.headers[component_id]
         unknown = set(params) - self.field_component_parameters
         if unknown:
             raise HTTPMessageSignaturesException(
