@@ -30,7 +30,7 @@ dependencies = [
 Homepage = "https://github.com/pyauth/http-message-signatures"
 
 [project.optional-dependencies]
-docs = ["sphinx >= 7"]
+docs = ["sphinx >= 7", "furo", "sphinx-copybutton"]
 tests = [
     "coverage",
     "build",
