@@ -8,7 +8,7 @@ from warnings import warn
 import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
-from .algorithms import HTTPSignatureAlgorithm, signature_algorithms
+from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .structures import PreparedSignature, VerifyResult, get_header_fields
@@ -32,13 +32,17 @@ class HTTPSignatureHandler:
     ):
         """Configure signing or verification.
 
-        :param signature_algorithm: Algorithm class from
-            :mod:`http_message_signatures.algorithms`.
+        :param signature_algorithm: Built-in or custom subclass of
+            :class:`~http_message_signatures.HTTPSignatureAlgorithm`.
         :param key_resolver: Resolves key IDs to key bytes or cryptography key objects.
         :param component_resolver_class: Resolver class instantiated for each message.
         """
-        if signature_algorithm not in signature_algorithms.values():
-            raise HTTPMessageSignaturesException(f"Unknown signature algorithm {signature_algorithm}")
+        if (
+            not isinstance(signature_algorithm, type)
+            or not issubclass(signature_algorithm, HTTPSignatureAlgorithm)
+            or signature_algorithm is HTTPSignatureAlgorithm
+        ):
+            raise HTTPMessageSignaturesException("signature_algorithm must be an HTTPSignatureAlgorithm subclass")
         self.signature_algorithm = signature_algorithm
         self.key_resolver = key_resolver
         self.component_resolver_class = component_resolver_class
@@ -154,8 +158,8 @@ class HTTPMessageSigner(HTTPSignatureHandler):
     ):
         """Configure the algorithm and component resolver used for signing.
 
-        :param signature_algorithm: Algorithm class from
-            :mod:`http_message_signatures.algorithms`.
+        :param signature_algorithm: Built-in or custom subclass of
+            :class:`~http_message_signatures.HTTPSignatureAlgorithm`.
         :param key_resolver: Required by ``sign()`` for local signing. May be
             omitted when using ``prepare()`` and ``apply()`` with an external signer.
         :param component_resolver_class: Resolver class instantiated for each message.
