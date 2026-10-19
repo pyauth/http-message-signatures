@@ -1,3 +1,39 @@
+Changes for v2.1.0 (2026-10-18)
+===============================
+
+-  Add prepare/apply API for remote HTTP message signing
+
+-  Honor and validate HMAC shared secret arguments
+
+-  Reject scalar strings as covered component sequences
+
+-  Reject prohibited control characters in covered header values
+
+-  Preserve empty OPTIONS paths in the target URI
+
+-  Use the RFC query-param component name
+
+-  Allow strict serialization with dictionary member selection
+
+-  Reject non-uppercase request methods before signature construction
+
+-  Report verification input and key failures as InvalidSignature
+
+-  Enforce Structured Field types and derived component characters
+
+-  Reject duplicate signature labels through the Structured Fields
+   parser
+
+-  Normalize the full obsolete header folding sequence
+
+-  Compare signature timestamps in UTC across DST transitions
+
+-  Require request context parameters on response signatures
+
+-  Normalize signature component values per RFC 9421
+
+-  Test and documentation improvements
+
 Changes for v2.0.1 (2026-01-18)
 ===============================
 
