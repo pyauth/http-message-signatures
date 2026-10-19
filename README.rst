@@ -156,6 +156,31 @@ an unknown type or a value invalid for its registered type raises ``HTTPMessageS
 signing, or ``InvalidSignature`` during verification. The library does not infer types from field values.
 Headers covered without ``sf`` use the ordinary HTTP field normalization rules and do not require a registry entry.
 
+The registry also contains retrofit mappings for legacy headers whose parsing rules can differ from Structured
+Fields. For example, this header::
+
+    Cache-Control: max-age=3600
+
+can be changed to::
+
+    Cache-Control: max-age=0, max-age=3600
+
+Both produce the same signed component because Structured Fields Dictionary parsing keeps the last duplicate::
+
+    "cache-control";sf: max-age=3600
+
+However, `RFC 9111 section 4.2.1 <https://www.rfc-editor.org/rfc/rfc9111.html#section-4.2.1>`_ says duplicate
+freshness directives should use the first occurrence or make the response stale. The change can therefore alter
+caching behavior without invalidating a signature that covers ``"cache-control";sf``. The
+`retrofit draft <https://httpwg.org/http-extensions/draft-ietf-httpbis-retrofit.html#section-2.1>`_ acknowledges
+this difference in duplicate handling.
+
+Omit ``;sf`` when the application's or other HTTP consumers' interpretation differs from Structured Fields
+semantics, or compatibility is unknown. For example, use ``covered_component_ids=("cache-control",)`` to keep
+both duplicate directives in the signed value; adding one then changes the signature base. Use ``;sf`` for fields
+defined as Structured Fields, or legacy fields only when compatible interpretation is enforced. Applications
+must still validate header values: successful signature verification does not establish their semantic validity.
+
 Repeated field lines are combined before parsing. In a response signature, ``'"priority";req;sf'`` uses
 the associated request's field. Dictionary-member selection with ``key`` continues to work without a registry
 entry and may include the redundant ``sf`` flag. The ``bs`` and ``tr`` parameters remain unsupported.
