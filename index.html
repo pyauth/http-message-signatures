@@ -1,0 +1,1754 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="./">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html">
+
+    <!-- Generated with Sphinx 8.1.3 and Furo 2025.12.19 -->
+        <title>http-message-signatures documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #eeffcc;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="#"><div class="brand">http-message-signatures  documentation</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="#">
+  
+  <span class="sidebar-brand-text">http-message-signatures  documentation</span>
+  
+</a><form class="sidebar-search-container" method="get" action="search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><ul>
+<li><a class="reference internal" href="#">http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Signatures standard</a><ul>
+<li><a class="reference internal" href="#installation">Installation</a></li>
+<li><a class="reference internal" href="#synopsis">Synopsis</a><ul>
+<li><a class="reference internal" href="#remote-and-asynchronous-signing">Remote and asynchronous signing</a></li>
+<li><a class="reference internal" href="#structured-field-serialization">Structured Field serialization</a></li>
+<li><a class="reference internal" href="#url-components">URL components</a></li>
+<li><a class="reference internal" href="#multiple-signatures">Multiple signatures</a></li>
+<li><a class="reference internal" href="#error-handling">Error handling</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#authors">Authors</a></li>
+<li><a class="reference internal" href="#links">Links</a><ul>
+<li><a class="reference internal" href="#bugs">Bugs</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#license">License</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-http_message_signatures">API documentation</a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.algorithm_id"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.algorithm_id</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.sign"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.sign()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.verify"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.verify()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException.args"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException.args</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException.with_traceback"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException.with_traceback()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature"><code class="docutils literal notranslate"><span class="pre">InvalidSignature</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature.args"><code class="docutils literal notranslate"><span class="pre">InvalidSignature.args</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature.with_traceback"><code class="docutils literal notranslate"><span class="pre">InvalidSignature.with_traceback()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.field_component_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.field_component_parameters</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.derived_component_resolvers"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.derived_component_resolvers</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.resolve"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.resolve()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_dictionary_member"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_dictionary_member()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_method"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_method()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_target_uri"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_target_uri()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_authority"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_authority()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_scheme"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_scheme()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_request_target"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_request_target()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_path"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_path()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_query()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query_params"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_query_params()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_status"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_status()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_public_key"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver.resolve_public_key()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_private_key"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver.resolve_private_key()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.sign"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.sign()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.prepare"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.prepare()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.apply"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.apply()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.signature_metadata_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.signature_metadata_parameters</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.max_clock_skew"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.max_clock_skew</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.require_created"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.require_created</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.allow_label_only_selection"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.allow_label_only_selection</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.validate_created_and_expires"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.validate_created_and_expires()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.verify"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.verify()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.signature_metadata_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.signature_metadata_parameters</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature"><code class="docutils literal notranslate"><span class="pre">PreparedSignature</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.signature_base"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.signature_base</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.signature_params"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.signature_params</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.label"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.label</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.algorithm_id"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.algorithm_id</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult"><code class="docutils literal notranslate"><span class="pre">VerifyResult</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.label"><code class="docutils literal notranslate"><span class="pre">VerifyResult.label</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.algorithm"><code class="docutils literal notranslate"><span class="pre">VerifyResult.algorithm</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.covered_components"><code class="docutils literal notranslate"><span class="pre">VerifyResult.covered_components</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.parameters"><code class="docutils literal notranslate"><span class="pre">VerifyResult.parameters</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.body"><code class="docutils literal notranslate"><span class="pre">VerifyResult.body</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.nonce"><code class="docutils literal notranslate"><span class="pre">VerifyResult.nonce</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.count"><code class="docutils literal notranslate"><span class="pre">VerifyResult.count()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.index"><code class="docutils literal notranslate"><span class="pre">VerifyResult.index()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#algorithms">Algorithms</a></li>
+<li><a class="reference internal" href="#release-notes">Release Notes</a></li>
+<li><a class="reference internal" href="#changes-for-v2-0-1-2026-01-18">Changes for v2.0.1 (2026-01-18)</a></li>
+<li><a class="reference internal" href="#changes-for-v2-0-0-2026-01-02">Changes for v2.0.0 (2026-01-02)</a></li>
+<li><a class="reference internal" href="#changes-for-v1-0-1-2026-01-01">Changes for v1.0.1 (2026-01-01)</a></li>
+<li><a class="reference internal" href="#changes-for-v1-0-0-2025-07-26">Changes for v1.0.0 (2025-07-26)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-7-0-2025-06-29">Changes for v0.7.0 (2025-06-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-6-1-2025-05-29">Changes for v0.6.1 (2025-05-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-6-0-2025-05-29">Changes for v0.6.0 (2025-05-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-5-0-2024-02-21">Changes for v0.5.0 (2024-02-21)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-4-2022-08-31">Changes for v0.4.4 (2022-08-31)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-3-2022-04-19">Changes for v0.4.3 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-2-2022-04-19">Changes for v0.4.2 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-1-2022-04-19">Changes for v0.4.1 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-0-2022-04-14">Changes for v0.4.0 (2022-04-14)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-3-0-2022-04-12">Changes for v0.3.0 (2022-04-12)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-3-2022-04-12">Changes for v0.2.3 (2022-04-12)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-2-2022-04-10">Changes for v0.2.2 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-1-2022-04-10">Changes for v0.2.1 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-0-2022-04-10">Changes for v0.2.0 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-1-0-2022-04-09">Changes for v0.1.0 (2022-04-09)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-0-3-2022-04-04">Changes for v0.0.3 (2022-04-04)</a></li>
+<li><a class="reference internal" href="#table-of-contents">Table of Contents</a></li>
+</ul>
+</div>
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="_sources/index.rst.txt" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div>
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="http-message-signatures-an-implementation-of-rfc-9421-the-ietf-http-message-signatures-standard">
+<h1>http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Signatures standard<a class="headerlink" href="#http-message-signatures-an-implementation-of-rfc-9421-the-ietf-http-message-signatures-standard" title="Link to this heading">¶</a></h1>
+<p><em>http-message-signatures</em> is an implementation of the IETF
+<a class="reference external" href="https://datatracker.ietf.org/doc/rfc9421/">RFC 9421 HTTP Message Signatures</a> standard in
+Python.</p>
+<div class="admonition-security-considerations admonition">
+<p class="admonition-title">Security considerations</p>
+<p>It is recommended that you read and understand
+<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9421#name-security-considerations">section 7 of the RFC, Security Considerations</a>
+before using this library.</p>
+</div>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">http</span><span class="o">-</span><span class="n">message</span><span class="o">-</span><span class="n">signatures</span>
+</pre></div>
+</div>
+</section>
+<section id="synopsis">
+<h2>Synopsis<a class="headerlink" href="#synopsis" title="Link to this heading">¶</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">http_sf.compat</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dictionary</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">http_message_signatures</span><span class="w"> </span><span class="kn">import</span> <span class="n">HTTPMessageSigner</span><span class="p">,</span> <span class="n">HTTPMessageVerifier</span><span class="p">,</span> <span class="n">HTTPSignatureKeyResolver</span><span class="p">,</span> <span class="n">algorithms</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyHTTPSignatureKeyResolver</span><span class="p">(</span><span class="n">HTTPSignatureKeyResolver</span><span class="p">):</span>
+    <span class="n">keys</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;my-key&quot;</span><span class="p">:</span> <span class="sa">b</span><span class="s2">&quot;top-secret-key&quot;</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">resolve_public_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">[</span><span class="n">key_id</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">resolve_private_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">[</span><span class="n">key_id</span><span class="p">]</span>
+
+<span class="n">request</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">Request</span><span class="p">(</span><span class="s1">&#39;POST&#39;</span><span class="p">,</span> <span class="s1">&#39;https://example.com/foo?param=Value&amp;Pet=dog&#39;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;hello&quot;</span><span class="p">:</span> <span class="s2">&quot;world&quot;</span><span class="p">})</span>
+<span class="n">request</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">prepare</span><span class="p">()</span>
+<span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Content-Digest&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Dictionary</span><span class="p">({</span><span class="s2">&quot;sha-256&quot;</span><span class="p">:</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">body</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()}))</span>
+
+<span class="n">signer</span> <span class="o">=</span> <span class="n">HTTPMessageSigner</span><span class="p">(</span><span class="n">signature_algorithm</span><span class="o">=</span><span class="n">algorithms</span><span class="o">.</span><span class="n">HMAC_SHA256</span><span class="p">,</span> <span class="n">key_resolver</span><span class="o">=</span><span class="n">MyHTTPSignatureKeyResolver</span><span class="p">())</span>
+<span class="n">signer</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">key_id</span><span class="o">=</span><span class="s2">&quot;my-key&quot;</span><span class="p">,</span> <span class="n">covered_component_ids</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;@method&quot;</span><span class="p">,</span> <span class="s2">&quot;@authority&quot;</span><span class="p">,</span> <span class="s2">&quot;@target-uri&quot;</span><span class="p">,</span> <span class="s2">&quot;content-digest&quot;</span><span class="p">))</span>
+
+<span class="n">verifier</span> <span class="o">=</span> <span class="n">HTTPMessageVerifier</span><span class="p">(</span><span class="n">signature_algorithm</span><span class="o">=</span><span class="n">algorithms</span><span class="o">.</span><span class="n">HMAC_SHA256</span><span class="p">,</span> <span class="n">key_resolver</span><span class="o">=</span><span class="n">MyHTTPSignatureKeyResolver</span><span class="p">())</span>
+<span class="n">verifier</span><span class="o">.</span><span class="n">verify</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Note that verifying the body content-digest is outside the scope of this package’s functionality, so it remains the
+caller’s responsibility. The <a class="reference external" href="https://github.com/pyauth/requests-http-signature">requests-http-signature</a> library
+builds upon this package to provide integrated signing and validation of the request body.</p>
+<div class="admonition-see-what-is-signed admonition">
+<p class="admonition-title">See what is signed</p>
+<p>It is important to understand and follow the best practice rule of “See what is signed” when verifying HTTP message
+signatures. The gist of this rule is: if your application neglects to verify that the information it trusts is
+what was actually signed, the attacker can supply a valid signature but point you to malicious data that wasn’t signed
+by that signature. Failure to follow this rule can lead to vulnerability against signature wrapping and substitution
+attacks.</p>
+<p>In http-message-signatures, you can ensure that the information signed is what you expect to be signed by only trusting the
+data returned by the <code class="docutils literal notranslate"><span class="pre">verify()</span></code> method:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">verify_results</span> <span class="o">=</span> <span class="n">verifier</span><span class="o">.</span><span class="n">verify</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This returns a list of <code class="docutils literal notranslate"><span class="pre">VerifyResult</span></code> s, which are <code class="docutils literal notranslate"><span class="pre">namedtuple</span></code> s with the following attributes:</p>
+<ul class="simple">
+<li><p>label (str): The label for the signature</p></li>
+<li><p>algorithm: (same as signature_algorithm above)</p></li>
+<li><p>covered_components: A mapping of component names to their values, as covered by the signature</p></li>
+<li><p>parameters: A mapping of signature parameters to their values, as covered by the signature</p></li>
+<li><p>body: Always <code class="docutils literal notranslate"><span class="pre">None</span></code> (the <a class="reference external" href="https://github.com/pyauth/requests-http-signature">requests-http-signature</a> package
+implements returning the body upon successful digest validation).</p></li>
+</ul>
+</div>
+<section id="remote-and-asynchronous-signing">
+<h3>Remote and asynchronous signing<a class="headerlink" href="#remote-and-asynchronous-signing" title="Link to this heading">¶</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">prepare()</span></code> and <code class="docutils literal notranslate"><span class="pre">apply()</span></code> when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
+<code class="docutils literal notranslate"><span class="pre">prepare()</span></code> builds the RFC 9421 signature base without reading a private key or modifying the message.
+It accepts the signing options used by <code class="docutils literal notranslate"><span class="pre">sign()</span></code>, including covered components, creation and expiration times,
+nonce, tag, label, and <code class="docutils literal notranslate"><span class="pre">include_alg</span></code>. The returned <code class="docutils literal notranslate"><span class="pre">PreparedSignature</span></code> contains immutable bytes and strings.
+<code class="docutils literal notranslate"><span class="pre">apply()</span></code> writes the Signature-Input and Signature headers after the external signer returns.</p>
+<p>This example expects an asynchronous <code class="docutils literal notranslate"><span class="pre">sign_base</span></code> function that signs the supplied bytes with Ed25519 and
+returns the raw 64-byte signature. The client must use the private key identified by <code class="docutils literal notranslate"><span class="pre">key_id</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">http_message_signatures</span><span class="w"> </span><span class="kn">import</span> <span class="n">HTTPMessageSigner</span><span class="p">,</span> <span class="n">algorithms</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sign_request</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">key_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sign_base</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bytes</span><span class="p">],</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]]):</span>
+    <span class="n">signer</span> <span class="o">=</span> <span class="n">HTTPMessageSigner</span><span class="p">(</span><span class="n">signature_algorithm</span><span class="o">=</span><span class="n">algorithms</span><span class="o">.</span><span class="n">ED25519</span><span class="p">)</span>
+    <span class="n">prepared</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span>
+        <span class="n">request</span><span class="p">,</span>
+        <span class="n">key_id</span><span class="o">=</span><span class="n">key_id</span><span class="p">,</span>
+        <span class="n">label</span><span class="o">=</span><span class="s2">&quot;sig1&quot;</span><span class="p">,</span>
+        <span class="n">covered_component_ids</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;@method&quot;</span><span class="p">,</span> <span class="s2">&quot;@authority&quot;</span><span class="p">,</span> <span class="s2">&quot;@target-uri&quot;</span><span class="p">,</span> <span class="s2">&quot;content-digest&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">signature</span> <span class="o">=</span> <span class="k">await</span> <span class="n">sign_base</span><span class="p">(</span><span class="n">prepared</span><span class="o">.</span><span class="n">signature_base</span><span class="p">)</span>
+    <span class="n">signer</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">prepared</span><span class="p">,</span> <span class="n">signature</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Populate <code class="docutils literal notranslate"><span class="pre">Content-Digest</span></code> from the request body before this example runs, as in the synopsis above.
+The same two calls work with a synchronous signer or a signing job completed in another process.
+No local <code class="docutils literal notranslate"><span class="pre">key_resolver</span></code> is needed. The existing <code class="docutils literal notranslate"><span class="pre">sign()</span></code> method still resolves a local key and performs all three
+steps synchronously.</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">prepared.signature_base</span></code> to the signing algorithm as bytes, without base64 encoding or a trailing newline.
+<code class="docutils literal notranslate"><span class="pre">prepared.signature_params</span></code> is the serialized <code class="docutils literal notranslate"><span class="pre">&#64;signature-params</span></code> value; it is useful for inspecting the covered
+component list and signed metadata. Do not rebuild either value yourself. The selected algorithm applies to the remote
+signer even when <code class="docutils literal notranslate"><span class="pre">include_alg=False</span></code>; omitting the parameter does not negotiate an algorithm.</p>
+<p>Remote clients differ in their accepted input and output formats. Configure the algorithm as specified in
+<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9421.html#section-3.3">RFC 9421 section 3.3</a>. Ed25519 signs the base without prehashing.
+For RSA and ECDSA, a client that accepts raw messages must perform the specified hashing; a client that accepts a digest
+must receive that digest and be configured to avoid hashing it a second time. The RSA-PSS profile uses SHA-512,
+MGF1 with SHA-512, and a 64-byte salt.</p>
+<p><code class="docutils literal notranslate"><span class="pre">apply()</span></code> expects raw signature bytes and performs the Structured Field base64 encoding. Decode base64 responses
+from a service before calling it. ECDSA P-256 clients often return DER, while RFC 9421 requires a 64-byte concatenation
+of <code class="docutils literal notranslate"><span class="pre">r</span></code> and <code class="docutils literal notranslate"><span class="pre">s</span></code>, each padded to 32 bytes. Convert DER output using the algorithm’s helper:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">signer</span> <span class="o">=</span> <span class="n">HTTPMessageSigner</span><span class="p">(</span><span class="n">signature_algorithm</span><span class="o">=</span><span class="n">algorithms</span><span class="o">.</span><span class="n">ECDSA_P256_SHA256</span><span class="p">)</span>
+<span class="n">prepared</span> <span class="o">=</span> <span class="n">signer</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">key_id</span><span class="o">=</span><span class="s2">&quot;p256-key&quot;</span><span class="p">)</span>
+<span class="c1"># der_signature is the client&#39;s ECDSA P-256/SHA-256 signature of prepared.signature_base.</span>
+<span class="n">signature</span> <span class="o">=</span> <span class="n">algorithms</span><span class="o">.</span><span class="n">ECDSA_P256_SHA256</span><span class="o">.</span><span class="n">signature_from_der</span><span class="p">(</span><span class="n">der_signature</span><span class="p">)</span>
+<span class="n">signer</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">prepared</span><span class="p">,</span> <span class="n">signature</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Retain the prepared object and associate each remote result with its input. Use a trusted signing service and protect
+queued signing input against modification and disclosure: the base contains covered header and URL values.
+<code class="docutils literal notranslate"><span class="pre">apply()</span></code> compares the message’s current signature base with the prepared bytes and rejects changes before writing
+headers. For example, changing a covered method from <code class="docutils literal notranslate"><span class="pre">POST</span></code> to <code class="docutils literal notranslate"><span class="pre">DELETE</span></code> while awaiting the signature is rejected.
+Changes to uncovered values or values with the same RFC normalization are permitted. This check does not authenticate
+the prepared object, verify the returned signature, or check a body against its digest. Applications must handle those
+responsibilities and keep the message stable during <code class="docutils literal notranslate"><span class="pre">apply()</span></code> and until it is sent.</p>
+<p>Creation and expiration times are set during preparation and are not refreshed by <code class="docutils literal notranslate"><span class="pre">apply()</span></code>. Allow for signing delays
+when choosing expiration times; an expired result will still be rejected by a verifier. To add the result alongside
+existing signatures, pass <code class="docutils literal notranslate"><span class="pre">append_if_signature_exists=True</span></code> to <code class="docutils literal notranslate"><span class="pre">apply()</span></code>. Duplicate labels or malformed existing
+signature headers are rejected. By default it replaces existing signature headers, just like <code class="docutils literal notranslate"><span class="pre">sign()</span></code>.</p>
+</section>
+<section id="structured-field-serialization">
+<h3>Structured Field serialization<a class="headerlink" href="#structured-field-serialization" title="Link to this heading">¶</a></h3>
+<p>Use the <code class="docutils literal notranslate"><span class="pre">sf</span></code> component parameter to cover a whole header field using Structured Fields serialization:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">signer</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">key_id</span><span class="o">=</span><span class="s2">&quot;my-key&quot;</span><span class="p">,</span> <span class="n">covered_component_ids</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;&quot;priority&quot;;sf&#39;</span><span class="p">,))</span>
+</pre></div>
+</div>
+<p>For example, <code class="docutils literal notranslate"><span class="pre">Priority:</span> <span class="pre">u=03,</span>&#160;&#160; <span class="pre">i=?1</span></code> produces this signature-base line:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;priority&quot;</span><span class="p">;</span><span class="n">sf</span><span class="p">:</span> <span class="n">u</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">i</span>
+</pre></div>
+</div>
+<p>The field’s Item, List, or Dictionary type is selected by its name using <code class="docutils literal notranslate"><span class="pre">http_sf</span></code>’s registry.
+Both endpoints must use matching type definitions. The registry may omit otherwise standardized fields;
+an unknown type or a value invalid for its registered type raises <code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code> during
+signing, or <code class="docutils literal notranslate"><span class="pre">InvalidSignature</span></code> during verification. The library does not infer types from field values.
+Headers covered without <code class="docutils literal notranslate"><span class="pre">sf</span></code> use the ordinary HTTP field normalization rules and do not require a registry entry.</p>
+<p>The registry also contains retrofit mappings for legacy headers whose parsing rules can differ from Structured
+Fields. For example, this header:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Cache</span><span class="o">-</span><span class="n">Control</span><span class="p">:</span> <span class="nb">max</span><span class="o">-</span><span class="n">age</span><span class="o">=</span><span class="mi">3600</span>
+</pre></div>
+</div>
+<p>can be changed to:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Cache</span><span class="o">-</span><span class="n">Control</span><span class="p">:</span> <span class="nb">max</span><span class="o">-</span><span class="n">age</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="nb">max</span><span class="o">-</span><span class="n">age</span><span class="o">=</span><span class="mi">3600</span>
+</pre></div>
+</div>
+<p>Both produce the same signed component because Structured Fields Dictionary parsing keeps the last duplicate:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;cache-control&quot;</span><span class="p">;</span><span class="n">sf</span><span class="p">:</span> <span class="nb">max</span><span class="o">-</span><span class="n">age</span><span class="o">=</span><span class="mi">3600</span>
+</pre></div>
+</div>
+<p>However, <a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9111.html#section-4.2.1">RFC 9111 section 4.2.1</a> says duplicate
+freshness directives should use the first occurrence or make the response stale. The change can therefore alter
+caching behavior without invalidating a signature that covers <code class="docutils literal notranslate"><span class="pre">&quot;cache-control&quot;;sf</span></code>. The
+<a class="reference external" href="https://httpwg.org/http-extensions/draft-ietf-httpbis-retrofit.html#section-2.1">retrofit draft</a> acknowledges
+this difference in duplicate handling.</p>
+<p>Omit <code class="docutils literal notranslate"><span class="pre">;sf</span></code> when the application’s or other HTTP consumers’ interpretation differs from Structured Fields
+semantics, or compatibility is unknown. For example, use <code class="docutils literal notranslate"><span class="pre">covered_component_ids=(&quot;cache-control&quot;,)</span></code> to keep
+both duplicate directives in the signed value; adding one then changes the signature base. Use <code class="docutils literal notranslate"><span class="pre">;sf</span></code> for fields
+defined as Structured Fields, or legacy fields only when compatible interpretation is enforced. Applications
+must still validate header values: successful signature verification does not establish their semantic validity.</p>
+<p>Repeated field lines are combined before parsing. In a response signature, <code class="docutils literal notranslate"><span class="pre">'&quot;priority&quot;;req;sf'</span></code> uses
+the associated request’s field. Dictionary-member selection with <code class="docutils literal notranslate"><span class="pre">key</span></code> continues to work without a registry
+entry and may include the redundant <code class="docutils literal notranslate"><span class="pre">sf</span></code> flag. The <code class="docutils literal notranslate"><span class="pre">bs</span></code> and <code class="docutils literal notranslate"><span class="pre">tr</span></code> parameters remain unsupported.</p>
+</section>
+<section id="url-components">
+<h3>URL components<a class="headerlink" href="#url-components" title="Link to this heading">¶</a></h3>
+<p>The request’s <code class="docutils literal notranslate"><span class="pre">url</span></code> supplies the target URL. URL components preserve percent-encoded octets and distinguish an
+absent query from an empty query. <code class="docutils literal notranslate"><span class="pre">&#64;authority</span></code> omits credentials and default ports; <code class="docutils literal notranslate"><span class="pre">&#64;target-uri</span></code> excludes
+credentials and fragments. Empty paths normally become <code class="docutils literal notranslate"><span class="pre">/</span></code>. For <code class="docutils literal notranslate"><span class="pre">OPTIONS</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;target-uri</span></code> preserves an
+empty path so server-wide <code class="docutils literal notranslate"><span class="pre">OPTIONS</span> <span class="pre">*</span></code> remains distinct from
+<code class="docutils literal notranslate"><span class="pre">OPTIONS</span> <span class="pre">/</span></code>. The separate <code class="docutils literal notranslate"><span class="pre">&#64;path</span></code> component still represents an empty path as <code class="docutils literal notranslate"><span class="pre">/</span></code>.</p>
+<p>Supply an encoded absolute URL with a nonempty host. Parsing preserves the supplied spelling and rejects invalid
+syntax, including malformed percent escapes (<code class="docutils literal notranslate"><span class="pre">%</span></code>, <code class="docutils literal notranslate"><span class="pre">%2</span></code>, or <code class="docutils literal notranslate"><span class="pre">%ZZ</span></code>), spaces, control characters, and unencoded
+non-ASCII characters. It never repairs input. Each signature component applies its own RFC 9421 formatting rules.
+This applies during signing, verification, applying a prepared signature, and resolving request components covered
+by a response signature. A response’s own <code class="docutils literal notranslate"><span class="pre">url</span></code> is not used; components marked <code class="docutils literal notranslate"><span class="pre">req</span></code> use its associated request.</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">&#64;request-target</span></code>, clients can supply <code class="docutils literal notranslate"><span class="pre">message.request_target</span></code> containing the HTTP/1.1 request
+target. This is necessary for absolute-form proxy requests and asterisk-form <code class="docutils literal notranslate"><span class="pre">OPTIONS</span> <span class="pre">*</span></code> requests, since those
+forms cannot be inferred from an absolute URL. Without this attribute, the resolver derives origin form from the
+URL, or authority form for <code class="docutils literal notranslate"><span class="pre">CONNECT</span></code>. The supplied target and URL must describe the same request.</p>
+</section>
+<section id="multiple-signatures">
+<h3>Multiple signatures<a class="headerlink" href="#multiple-signatures" title="Link to this heading">¶</a></h3>
+<p>The message’s <code class="docutils literal notranslate"><span class="pre">headers.items()</span></code> must expose every field line, or values already combined in wire order. Repeated
+field names are compared case-insensitively, normalized individually, and joined with a comma followed by a space
+before signing or parsing Structured Fields. Containers that discard repeated field lines before passing them to this library cannot be used
+to verify those fields reliably. Signing also requires header assignment and deletion; existing Signature and
+Signature-Input field lines are replaced together, including when appending a signature.</p>
+<p>An HTTP request can potentially have multiple signatures. By default, http-message-signatures overwrites any existing
+signature when signing, and requires exactly one signature to be present when verifying. Before enabling multi-signature
+support, please read
+<a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9421#name-multiple-signature-confusio">section 7.2.6 of the RFC, Multiple Signature Confusion</a>.</p>
+<p>To append a signature to a message that might already carry an existing signature without overwriting it, use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">signer</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">append_if_signature_exists</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>To identify a signature using a <code class="docutils literal notranslate"><span class="pre">tag</span></code> parameter and verify it on a message possibly carrying multiple signatures, use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">verifier</span><span class="o">.</span><span class="n">verify</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">expect_tag</span><span class="o">=</span><span class="s2">&quot;my_app_tag&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This will filter all signatures down to only those that set the tag to the expected value, verify each of them, and
+return a list of <code class="docutils literal notranslate"><span class="pre">VerifyResult</span></code> s. Verifying multiple signatures without prior knowledge of the application tag is not
+supported.</p>
+</section>
+<section id="error-handling">
+<h3>Error handling<a class="headerlink" href="#error-handling" title="Link to this heading">¶</a></h3>
+<p>Input request methods must be uppercase strings, including the request associated with a response.
+Methods such as <code class="docutils literal notranslate"><span class="pre">get</span></code> or <code class="docutils literal notranslate"><span class="pre">Fetch</span></code> are rejected before signature construction or verification;
+the library does not change their case. This applies even when <code class="docutils literal notranslate"><span class="pre">&#64;method</span></code> is not covered.</p>
+<p>Individual query parameters use the component name <code class="docutils literal notranslate"><span class="pre">&#64;query-param</span></code> with a <code class="docutils literal notranslate"><span class="pre">name</span></code> parameter,
+for example <code class="docutils literal notranslate"><span class="pre">'&quot;&#64;query-param&quot;;name=&quot;Pet&quot;'</span></code>. The previous spelling <code class="docutils literal notranslate"><span class="pre">&#64;query-params</span></code> is rejected.</p>
+<p>Signatures require a <code class="docutils literal notranslate"><span class="pre">created</span></code> timestamp by default. To accept signatures without one, set
+<code class="docutils literal notranslate"><span class="pre">verifier.require_created</span> <span class="pre">=</span> <span class="pre">False</span></code> and pass <code class="docutils literal notranslate"><span class="pre">max_age=None</span></code> to <code class="docutils literal notranslate"><span class="pre">verify()</span></code>; an age limit cannot be enforced
+without a creation timestamp. Expiration checks still apply when <code class="docutils literal notranslate"><span class="pre">expires</span></code> is present.</p>
+<p>If multiple signatures are found in the request but <code class="docutils literal notranslate"><span class="pre">expect_tag=...</span></code> was not passed, then <code class="docutils literal notranslate"><span class="pre">InvalidSignature</span></code> is
+raised. Also, the <code class="docutils literal notranslate"><span class="pre">verify()</span></code> method raises <code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code> or an exception derived from this class
+in case an error occurs (unable to load PEM key, unsupported algorithm specified in signature input, signature doesn’t
+match digest etc.)</p>
+</section>
+</section>
+<section id="authors">
+<h2>Authors<a class="headerlink" href="#authors" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><cite>Andrey Kislyuk &lt;https://kislyuk.com&gt;</cite></p></li>
+</ul>
+</section>
+<section id="links">
+<h2>Links<a class="headerlink" href="#links" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pyauth/http-message-signatures">Project home page (GitHub)</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pyauth/http-message-signatures/tree/main/docs">API reference and usage examples</a></p></li>
+<li><p><a class="reference external" href="https://pypi.python.org/pypi/http-message-signatures">Package distribution (PyPI)</a></p></li>
+<li><p><a class="reference external" href="https://github.com/pyauth/http-message-signatures/blob/master/Changes.rst">Change log</a></p></li>
+<li><p><a class="reference external" href="https://datatracker.ietf.org/doc/rfc9421/">IETF HTTP Message Signatures standard tracker</a></p></li>
+<li><p><a class="reference external" href="https://owasp.org/www-project-top-ten/">OWASP Top Ten</a></p></li>
+</ul>
+<section id="bugs">
+<h3>Bugs<a class="headerlink" href="#bugs" title="Link to this heading">¶</a></h3>
+<p>Please report bugs, issues, feature requests, etc. on <a class="reference external" href="https://github.com/pyauth/http-message-signatures/issues">GitHub</a>.</p>
+</section>
+</section>
+<section id="license">
+<h2>License<a class="headerlink" href="#license" title="Link to this heading">¶</a></h2>
+<p>Copyright 2022-2026, Andrey Kislyuk and http-message-signatures contributors. Licensed under the terms of the
+<a class="reference external" href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>. Distribution of attribution information,
+LICENSE and NOTICE files with source copies of this package and derivative works is <strong>REQUIRED</strong> as specified by the
+Apache License.</p>
+</section>
+</section>
+<section id="module-http_message_signatures">
+<span id="api-documentation"></span><h1>API documentation<a class="headerlink" href="#module-http_message_signatures" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureAlgorithm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPSignatureAlgorithm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureAlgorithm" title="Link to this definition">¶</a></dt>
+<dd><p>Interface for explicitly configured signature algorithm implementations.</p>
+<p>Subclasses define <code class="docutils literal notranslate"><span class="pre">algorithm_id</span></code> and implement initialization, <code class="docutils literal notranslate"><span class="pre">sign()</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">verify()</span></code>. Pass the subclass as <code class="docutils literal notranslate"><span class="pre">signature_algorithm</span></code> when creating
+a signer or verifier; no registration is required. The configured class is
+used regardless of whether the signature includes an <code class="docutils literal notranslate"><span class="pre">alg</span></code> parameter.
+When present, <code class="docutils literal notranslate"><span class="pre">alg</span></code> must match the class’s <code class="docutils literal notranslate"><span class="pre">algorithm_id</span></code>.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureAlgorithm.algorithm_id">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#http_message_signatures.HTTPSignatureAlgorithm.algorithm_id" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureAlgorithm.sign">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureAlgorithm.sign" title="Link to this definition">¶</a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureAlgorithm.verify">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureAlgorithm.verify" title="Link to this definition">¶</a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSignaturesException">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPMessageSignaturesException</span></span><a class="reference internal" href="_modules/http_message_signatures/exceptions.html#HTTPMessageSignaturesException"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageSignaturesException" title="Link to this definition">¶</a></dt>
+<dd><p>Base class for exceptions raised by http_message_signatures</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSignaturesException.args">
+<span class="sig-name descname"><span class="pre">args</span></span><a class="headerlink" href="#http_message_signatures.HTTPMessageSignaturesException.args" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSignaturesException.with_traceback">
+<span class="sig-name descname"><span class="pre">with_traceback</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#http_message_signatures.HTTPMessageSignaturesException.with_traceback" title="Link to this definition">¶</a></dt>
+<dd><p>Exception.with_traceback(tb) –
+set self.__traceback__ to tb and return self.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="http_message_signatures.InvalidSignature">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">InvalidSignature</span></span><a class="reference internal" href="_modules/http_message_signatures/exceptions.html#InvalidSignature"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.InvalidSignature" title="Link to this definition">¶</a></dt>
+<dd><p>Class for exceptions raised in the course of verifying an HTTP message signature</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.InvalidSignature.args">
+<span class="sig-name descname"><span class="pre">args</span></span><a class="headerlink" href="#http_message_signatures.InvalidSignature.args" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.InvalidSignature.with_traceback">
+<span class="sig-name descname"><span class="pre">with_traceback</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#http_message_signatures.InvalidSignature.with_traceback" title="Link to this definition">¶</a></dt>
+<dd><p>Exception.with_traceback(tb) –
+set self.__traceback__ to tb and return self.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPSignatureComponentResolver</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver" title="Link to this definition">¶</a></dt>
+<dd><p>Resolve covered components from a request or response object.</p>
+<p>The constructor reads <code class="docutils literal notranslate"><span class="pre">headers</span></code>. Requests also supply an uppercase
+<code class="docutils literal notranslate"><span class="pre">method</span></code> and an encoded absolute <code class="docutils literal notranslate"><span class="pre">url</span></code> with a nonempty host. Invalid
+URL syntax is rejected, including malformed percent escapes and unencoded
+spaces, controls, or non-ASCII characters.
+The presence of <code class="docutils literal notranslate"><span class="pre">status_code</span></code> identifies a response; its <code class="docutils literal notranslate"><span class="pre">request</span></code>
+supplies components qualified with <code class="docutils literal notranslate"><span class="pre">req</span></code>. An associated request must
+also have an uppercase method. The response’s own <code class="docutils literal notranslate"><span class="pre">url</span></code> is not used.</p>
+<p><code class="docutils literal notranslate"><span class="pre">headers.items()</span></code> must expose string names and values for all field lines
+in order, or values already combined in that order. Signing additionally
+requires iteration over names, membership testing, assignment, and deletion.</p>
+<p>A request may provide <code class="docutils literal notranslate"><span class="pre">request_target</span></code> for an HTTP/1.1 target that cannot
+be inferred from <code class="docutils literal notranslate"><span class="pre">url</span></code>, such as an absolute-form proxy target or <code class="docutils literal notranslate"><span class="pre">*</span></code>.
+The supplied target and URL must describe the same request.</p>
+<p>Whole-field <code class="docutils literal notranslate"><span class="pre">sf</span></code> serialization uses the field type registered in
+<code class="docutils literal notranslate"><span class="pre">http_sf</span></code>. Unknown types and malformed values raise
+<a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code></a>.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.field_component_parameters">
+<span class="sig-name descname"><span class="pre">field_component_parameters</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'bs',</span> <span class="pre">'key',</span> <span class="pre">'sf',</span> <span class="pre">'tr'})</span></em><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.field_component_parameters" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.derived_component_resolvers">
+<span class="sig-name descname"><span class="pre">derived_component_resolvers</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'&#64;authority':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;method':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;path':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;query':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;query-param':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;request-target':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;scheme':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;status':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;,</span> <span class="pre">'&#64;target-uri':</span> <span class="pre">&lt;function</span> <span class="pre">HTTPSignatureComponentResolver.&lt;lambda&gt;&gt;}</span></em><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.derived_component_resolvers" title="Link to this definition">¶</a></dt>
+<dd><p>Callables receive the resolver instance followed by component parameters.
+Subclasses can copy and extend this mapping to support additional components.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.resolve">
+<span class="sig-name descname"><span class="pre">resolve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">component_node</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.resolve"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.resolve" title="Link to this definition">¶</a></dt>
+<dd><p>Return the string value of a parsed Structured Field component item.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>component_node</strong> (<em>Item</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_dictionary_member">
+<span class="sig-name descname"><span class="pre">get_dictionary_member</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">component_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">field_value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_dictionary_member"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_dictionary_member" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>component_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>field_value</strong> (<em>str</em>)</p></li>
+<li><p><strong>params</strong> (<em>dict</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_method">
+<span class="sig-name descname"><span class="pre">get_method</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_method"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_method" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_target_uri">
+<span class="sig-name descname"><span class="pre">get_target_uri</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_target_uri"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_target_uri" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_authority">
+<span class="sig-name descname"><span class="pre">get_authority</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_authority"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_authority" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_scheme">
+<span class="sig-name descname"><span class="pre">get_scheme</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_scheme"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_scheme" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_request_target">
+<span class="sig-name descname"><span class="pre">get_request_target</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_request_target"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_request_target" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_path">
+<span class="sig-name descname"><span class="pre">get_path</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_path"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_path" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_query">
+<span class="sig-name descname"><span class="pre">get_query</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_query"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_query_params">
+<span class="sig-name descname"><span class="pre">get_query_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_query_params"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query_params" title="Link to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureComponentResolver.get_status">
+<span class="sig-name descname"><span class="pre">get_status</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureComponentResolver.get_status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureComponentResolver.get_status" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureKeyResolver">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPSignatureKeyResolver</span></span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureKeyResolver"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureKeyResolver" title="Link to this definition">¶</a></dt>
+<dd><p>Subclass this interface to look up keys by their signed key IDs.</p>
+<p>Return PEM bytes or the appropriate cryptography key object for asymmetric
+algorithms. For HMAC, return the same secret bytes from both methods.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureKeyResolver.resolve_public_key">
+<span class="sig-name descname"><span class="pre">resolve_public_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureKeyResolver.resolve_public_key"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_public_key" title="Link to this definition">¶</a></dt>
+<dd><p>Return the verification key for <code class="docutils literal notranslate"><span class="pre">key_id</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means unavailable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key_id</strong> (<em>str</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPSignatureKeyResolver.resolve_private_key">
+<span class="sig-name descname"><span class="pre">resolve_private_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/resolvers.html#HTTPSignatureKeyResolver.resolve_private_key"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_private_key" title="Link to this definition">¶</a></dt>
+<dd><p>Return the signing key for <code class="docutils literal notranslate"><span class="pre">key_id</span></code> or raise if it is unavailable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key_id</strong> (<em>str</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPMessageSigner</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signature_algorithm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_resolver=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_resolver_class=&lt;class</span> <span class="pre">'http_message_signatures.resolvers.HTTPSignatureComponentResolver'&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageSigner"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner" title="Link to this definition">¶</a></dt>
+<dd><p>Construct HTTP message signatures and write their headers to a message.</p>
+<p>Configure the algorithm and component resolver used for signing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature_algorithm</strong> (<em>type</em><em>[</em><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures._algorithms.HTTPSignatureAlgorithm"><em>HTTPSignatureAlgorithm</em></a><em>]</em>) – Built-in or custom subclass of
+<a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures.HTTPSignatureAlgorithm"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm</span></code></a>.</p></li>
+<li><p><strong>key_resolver</strong> (<a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver" title="http_message_signatures.resolvers.HTTPSignatureKeyResolver"><em>HTTPSignatureKeyResolver</em></a><em> | </em><em>None</em>) – Required by <code class="docutils literal notranslate"><span class="pre">sign()</span></code> for local signing. May be
+omitted when using <code class="docutils literal notranslate"><span class="pre">prepare()</span></code> and <code class="docutils literal notranslate"><span class="pre">apply()</span></code> with an external signer.</p></li>
+<li><p><strong>component_resolver_class</strong> (<em>type</em>) – Resolver class instantiated for each message.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL">
+<span class="sig-name descname"><span class="pre">DEFAULT_SIGNATURE_LABEL</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'pyhms'</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner.sign">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">created</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonce</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_alg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covered_component_ids</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">('&#64;method',</span> <span class="pre">'&#64;authority',</span> <span class="pre">'&#64;target-uri')</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">append_if_signature_exists</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageSigner.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner.sign" title="Link to this definition">¶</a></dt>
+<dd><p>Sign a message in place; return <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> – Request or response implementing the message interface
+documented in <a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver" title="http_message_signatures.HTTPSignatureComponentResolver"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver</span></code></a>.</p></li>
+<li><p><strong>key_id</strong> (<em>str</em>) – ID passed to <code class="docutils literal notranslate"><span class="pre">key_resolver.resolve_private_key</span></code> and
+included in the signed metadata.</p></li>
+<li><p><strong>created</strong> (<em>datetime</em><em> | </em><em>None</em>) – Creation time; defaults to the current time. A naive
+datetime is interpreted in the local timezone.</p></li>
+<li><p><strong>expires</strong> (<em>datetime</em><em> | </em><em>None</em>) – Optional expiration time, with the same timezone rules.</p></li>
+<li><p><strong>nonce</strong> (<em>str</em><em> | </em><em>None</em>) – Optional signed nonce. Replay detection is the caller’s responsibility.</p></li>
+<li><p><strong>label</strong> (<em>str</em><em> | </em><em>None</em>) – Signature dictionary key; defaults to <code class="docutils literal notranslate"><span class="pre">pyhms</span></code>.</p></li>
+<li><p><strong>tag</strong> (<em>str</em><em> | </em><em>None</em>) – Optional signed application identifier.</p></li>
+<li><p><strong>include_alg</strong> (<em>bool</em>) – Include the configured algorithm ID in signed metadata.</p></li>
+<li><p><strong>covered_component_ids</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Sequence of component names or serialized
+Structured Field String items, for example <code class="docutils literal notranslate"><span class="pre">(&quot;date&quot;,)</span></code> or
+<code class="docutils literal notranslate"><span class="pre">('&quot;&#64;query-param&quot;;name=&quot;Pet&quot;',)</span></code>. A scalar string is rejected.
+Defaults cover request method, authority, and target URL. Responses
+require an explicit list such as <code class="docutils literal notranslate"><span class="pre">(&quot;&#64;status&quot;,</span> <span class="pre">&quot;content-type&quot;)</span></code>.</p></li>
+<li><p><strong>append_if_signature_exists</strong> (<em>bool</em>) – Preserve existing signatures and add a
+new label. Otherwise replace existing signature headers.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><strong>HTTPMessageSignaturesException</strong></a> – A component or signature parameter
+is invalid or an existing signature cannot be appended to.</p>
+</dd>
+</dl>
+<p>Key resolver and algorithm errors can also propagate. Signing does not
+calculate a body digest; supply and cover a digest header when needed.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner.prepare">
+<span class="sig-name descname"><span class="pre">prepare</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">created</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonce</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_alg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covered_component_ids</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">('&#64;method',</span> <span class="pre">'&#64;authority',</span> <span class="pre">'&#64;target-uri')</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageSigner.prepare"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner.prepare" title="Link to this definition">¶</a></dt>
+<dd><p>Build the signing input without resolving a key or changing the message.</p>
+<p>Arguments have the same meaning and defaults as in <code class="docutils literal notranslate"><span class="pre">sign()</span></code>. Creation
+time is captured here, before any remote signing delay. Header append or
+replacement policy is selected later in <code class="docutils literal notranslate"><span class="pre">apply()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Immutable signing input for a synchronous or asynchronous signer.
+Sign <code class="docutils literal notranslate"><span class="pre">signature_base</span></code> with the configured algorithm and the key
+identified by <code class="docutils literal notranslate"><span class="pre">key_id</span></code>, then pass the resulting bytes to <code class="docutils literal notranslate"><span class="pre">apply()</span></code>.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><strong>HTTPMessageSignaturesException</strong></a> – A component, parameter, or label is invalid.</p>
+</dd>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>key_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>created</strong> (<em>datetime</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>expires</strong> (<em>datetime</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>nonce</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>label</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>include_alg</strong> (<em>bool</em>)</p></li>
+<li><p><strong>covered_component_ids</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#http_message_signatures.PreparedSignature" title="http_message_signatures.structures.PreparedSignature"><em>PreparedSignature</em></a></p>
+</dd>
+</dl>
+<p>The component resolver must return stable values for unchanged messages;
+<code class="docutils literal notranslate"><span class="pre">apply()</span></code> resolves them again to check for changes while signing.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner.apply">
+<span class="sig-name descname"><span class="pre">apply</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prepared</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">append_if_signature_exists</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageSigner.apply"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner.apply" title="Link to this definition">¶</a></dt>
+<dd><p>Attach an externally generated signature to a message in place.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> – Message whose covered values still match <code class="docutils literal notranslate"><span class="pre">prepared</span></code>.</p></li>
+<li><p><strong>prepared</strong> (<a class="reference internal" href="#http_message_signatures.PreparedSignature" title="http_message_signatures.structures.PreparedSignature"><em>PreparedSignature</em></a>) – Input returned by <code class="docutils literal notranslate"><span class="pre">prepare()</span></code> with the same algorithm
+and component resolver configuration.</p></li>
+<li><p><strong>signature</strong> (<em>bytes</em>) – Raw algorithm output, before base64 encoding. ECDSA
+P-256 requires 64 bytes containing <code class="docutils literal notranslate"><span class="pre">r</span> <span class="pre">||</span> <span class="pre">s</span></code>; convert DER output with
+<code class="docutils literal notranslate"><span class="pre">ECDSA_P256_SHA256.signature_from_der()</span></code> first.</p></li>
+<li><p><strong>append_if_signature_exists</strong> (<em>bool</em>) – Preserve existing signatures and add
+the prepared label. Otherwise replace existing signature headers.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><strong>HTTPMessageSignaturesException</strong></a> – Covered values changed, prepared
+input is inconsistent, signature bytes are empty, or headers cannot
+be appended to. Validation completes before changing headers.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+<p>This method neither resolves keys nor verifies the signature. The caller
+must associate the result with the prepared input and use a trusted signer
+with the intended key and algorithm. The comparison covers signature-base
+values only; it does not validate the body against a digest header, check
+expiration, or prevent concurrent message mutation. Keep the message
+stable during this call and until it is sent.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageSigner.signature_metadata_parameters">
+<span class="sig-name descname"><span class="pre">signature_metadata_parameters</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">set</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'alg',</span> <span class="pre">'created',</span> <span class="pre">'expires',</span> <span class="pre">'keyid',</span> <span class="pre">'nonce',</span> <span class="pre">'tag'}</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageSigner.signature_metadata_parameters" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">HTTPMessageVerifier</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signature_algorithm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_resolver</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_resolver_class=&lt;class</span> <span class="pre">'http_message_signatures.resolvers.HTTPSignatureComponentResolver'&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageVerifier"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier" title="Link to this definition">¶</a></dt>
+<dd><p>Verify signatures using a configured algorithm and key resolver.</p>
+<p>Configure signing or verification.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature_algorithm</strong> (<em>type</em><em>[</em><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures._algorithms.HTTPSignatureAlgorithm"><em>HTTPSignatureAlgorithm</em></a><em>]</em>) – Built-in or custom subclass of
+<a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures.HTTPSignatureAlgorithm"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm</span></code></a>.</p></li>
+<li><p><strong>key_resolver</strong> (<a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver" title="http_message_signatures.resolvers.HTTPSignatureKeyResolver"><em>HTTPSignatureKeyResolver</em></a><em> | </em><em>None</em>) – Resolves key IDs to key bytes or cryptography key objects.</p></li>
+<li><p><strong>component_resolver_class</strong> (<em>type</em>) – Resolver class instantiated for each message.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.max_clock_skew">
+<span class="sig-name descname"><span class="pre">max_clock_skew</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">timedelta</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">datetime.timedelta(seconds=5)</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.max_clock_skew" title="Link to this definition">¶</a></dt>
+<dd><p>Tolerance for creation, expiration, and maximum-age checks.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.require_created">
+<span class="sig-name descname"><span class="pre">require_created</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.require_created" title="Link to this definition">¶</a></dt>
+<dd><p>Require a creation timestamp. Set False and use max_age=None to allow its omission.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.allow_label_only_selection">
+<span class="sig-name descname"><span class="pre">allow_label_only_selection</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.allow_label_only_selection" title="Link to this definition">¶</a></dt>
+<dd><p>Permit label selection without a signed tag, with a warning.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.validate_created_and_expires">
+<span class="sig-name descname"><span class="pre">validate_created_and_expires</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sig_input</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_age</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageVerifier.validate_created_and_expires"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.validate_created_and_expires" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.verify">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_age</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.timedelta(days=1)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expect_tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expect_label</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/signatures.html#HTTPMessageVerifier.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.verify" title="Link to this definition">¶</a></dt>
+<dd><p>Return verified signatures matching the requested selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> – Request or response implementing the interface documented
+in <a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver" title="http_message_signatures.HTTPSignatureComponentResolver"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver</span></code></a>.</p></li>
+<li><p><strong>max_age</strong> (<em>timedelta</em><em> | </em><em>None</em>) – Maximum age since creation, with clock-skew tolerance.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> disables the age limit; expiration checks still apply.</p></li>
+<li><p><strong>expect_tag</strong> (<em>str</em><em> | </em><em>None</em>) – Require this signed application tag. Required when
+selecting among multiple signatures unless label-only selection is enabled.</p></li>
+<li><p><strong>expect_label</strong> (<em>str</em><em> | </em><em>None</em>) – Also select this signature dictionary label. Labels
+are not signed; normally <code class="docutils literal notranslate"><span class="pre">expect_tag</span></code> must be supplied with this option.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A list of <a class="reference internal" href="#http_message_signatures.VerifyResult" title="http_message_signatures.VerifyResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">VerifyResult</span></code></a> objects.
+Every selected signature must verify; no partial result is returned.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#http_message_signatures.InvalidSignature" title="http_message_signatures.InvalidSignature"><strong>InvalidSignature</strong></a> – A signature is missing, malformed, expired,
+uses an unexpected algorithm, or fails cryptographic verification.</p></li>
+<li><p><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><strong>HTTPMessageSignaturesException</strong></a> – The selection policy is invalid.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[<a class="reference internal" href="#http_message_signatures.VerifyResult" title="http_message_signatures.structures.VerifyResult"><em>VerifyResult</em></a>]</p>
+</dd>
+</dl>
+<p>Check the returned coverage before trusting message data. Body digest
+validation, authorization, and nonce replay detection remain the caller’s
+responsibility. A valid signature alone does not establish those properties.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.HTTPMessageVerifier.signature_metadata_parameters">
+<span class="sig-name descname"><span class="pre">signature_metadata_parameters</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">set</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'alg',</span> <span class="pre">'created',</span> <span class="pre">'expires',</span> <span class="pre">'keyid',</span> <span class="pre">'nonce',</span> <span class="pre">'tag'}</span></em><a class="headerlink" href="#http_message_signatures.HTTPMessageVerifier.signature_metadata_parameters" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.PreparedSignature">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">PreparedSignature</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature_base</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signature_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">algorithm_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/structures.html#PreparedSignature"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.PreparedSignature" title="Link to this definition">¶</a></dt>
+<dd><p>Immutable signing input returned by <code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.prepare()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature_base</strong> – ASCII bytes to pass to the signing algorithm, without
+additional encoding or an added newline.</p></li>
+<li><p><strong>signature_params</strong> – Serialized <code class="docutils literal notranslate"><span class="pre">&#64;signature-params</span></code> value, including the
+covered component list and signed metadata.</p></li>
+<li><p><strong>label</strong> – Signature dictionary label (not covered by the signature).</p></li>
+<li><p><strong>algorithm_id</strong> – Configured algorithm ID, retained even when <code class="docutils literal notranslate"><span class="pre">alg</span></code> is omitted.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>signature_base</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>signature_params</strong> (<em>str</em>)</p></li>
+<li><p><strong>label</strong> (<em>str</em>)</p></li>
+<li><p><strong>algorithm_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<p>Retain this object until applying the corresponding signature. It contains
+covered message values, which may be sensitive. Immutability prevents
+accidental edits; it does not authenticate data sent through a queue or service.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.PreparedSignature.signature_base">
+<span class="sig-name descname"><span class="pre">signature_base</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bytes</span></em><a class="headerlink" href="#http_message_signatures.PreparedSignature.signature_base" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.PreparedSignature.signature_params">
+<span class="sig-name descname"><span class="pre">signature_params</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#http_message_signatures.PreparedSignature.signature_params" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.PreparedSignature.label">
+<span class="sig-name descname"><span class="pre">label</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#http_message_signatures.PreparedSignature.label" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.PreparedSignature.algorithm_id">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#http_message_signatures.PreparedSignature.algorithm_id" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.</span></span><span class="sig-name descname"><span class="pre">VerifyResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">label</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">algorithm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covered_components</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">body</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonce</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/structures.html#VerifyResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#http_message_signatures.VerifyResult" title="Link to this definition">¶</a></dt>
+<dd><p>A verified signature and the values it covers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>label</strong> – Signature dictionary label (not covered by the signature).</p></li>
+<li><p><strong>algorithm</strong> – Algorithm class used for verification.</p></li>
+<li><p><strong>covered_components</strong> – Serialized component identifiers mapped to signed
+values, including the generated <code class="docutils literal notranslate"><span class="pre">&quot;&#64;signature-params&quot;</span></code> entry.</p></li>
+<li><p><strong>parameters</strong> – Signed signature metadata, such as <code class="docutils literal notranslate"><span class="pre">keyid</span></code> and <code class="docutils literal notranslate"><span class="pre">created</span></code>.</p></li>
+<li><p><strong>body</strong> – <code class="docutils literal notranslate"><span class="pre">None</span></code> in this package; reserved for integrations validating body digests.</p></li>
+<li><p><strong>nonce</strong> – Signed nonce, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when omitted.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>label</strong> (<em>str</em>)</p></li>
+<li><p><strong>algorithm</strong> (<em>type</em><em>[</em><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures._algorithms.HTTPSignatureAlgorithm"><em>HTTPSignatureAlgorithm</em></a><em>]</em>)</p></li>
+<li><p><strong>covered_components</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>parameters</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>int</em><em> | </em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>body</strong> (<em>bytes</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>nonce</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<p>Create new instance of VerifyResult(label, algorithm, covered_components, parameters, body, nonce)</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.label">
+<span class="sig-name descname"><span class="pre">label</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.label" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.algorithm">
+<span class="sig-name descname"><span class="pre">algorithm</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">type</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm" title="http_message_signatures._algorithms.HTTPSignatureAlgorithm"><span class="pre">HTTPSignatureAlgorithm</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.algorithm" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.covered_components">
+<span class="sig-name descname"><span class="pre">covered_components</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.covered_components" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 2</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.parameters">
+<span class="sig-name descname"><span class="pre">parameters</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.parameters" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 3</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.body">
+<span class="sig-name descname"><span class="pre">body</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.body" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 4</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.nonce">
+<span class="sig-name descname"><span class="pre">nonce</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#http_message_signatures.VerifyResult.nonce" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 5</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.count">
+<span class="sig-name descname"><span class="pre">count</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">/</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#http_message_signatures.VerifyResult.count" title="Link to this definition">¶</a></dt>
+<dd><p>Return number of occurrences of value.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="http_message_signatures.VerifyResult.index">
+<span class="sig-name descname"><span class="pre">index</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">9223372036854775807</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">/</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#http_message_signatures.VerifyResult.index" title="Link to this definition">¶</a></dt>
+<dd><p>Return first index of value.</p>
+<p>Raises ValueError if the value is not present.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="algorithms">
+<h1>Algorithms<a class="headerlink" href="#algorithms" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">ECDSA_P256_SHA256</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ECDSA_P256_SHA256"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>ECDSA P-256 with SHA-256, using PEM bytes or cryptography EC key objects.</p>
+<p><code class="docutils literal notranslate"><span class="pre">password</span></code> decrypts an encrypted PEM private key when provided.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'ecdsa-p256-sha256'</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ECDSA_P256_SHA256.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">signature_from_der</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ECDSA_P256_SHA256.signature_from_der"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Convert a DER-encoded ECDSA P-256 signature to RFC 9421 signature bytes.</p>
+<p>Returns the 64-byte concatenation of unsigned, big-endian <code class="docutils literal notranslate"><span class="pre">r</span></code> and <code class="docutils literal notranslate"><span class="pre">s</span></code>,
+each padded to 32 bytes (RFC 9421 section 3.3.4). Use this for a remote
+signer’s DER output before calling <code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.apply()</span></code>.
+Malformed DER or integers that do not fit raise
+<a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException" title="http_message_signatures.HTTPMessageSignaturesException"><code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code></a>.
+Conversion does not verify the signature or the signer’s choice of curve.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>signature</strong> (<em>bytes</em>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bytes</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ECDSA_P256_SHA256.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">load_pem_keys</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">ED25519</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ED25519"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Ed25519 using PEM bytes or cryptography Ed25519 key objects.</p>
+<p><code class="docutils literal notranslate"><span class="pre">password</span></code> decrypts an encrypted PEM private key when provided.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'ed25519'</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ED25519.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#ED25519.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">load_pem_keys</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">HMAC_SHA256</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shared_secret</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HMAC_SHA256"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>HMAC with SHA-256 using secret bytes.</p>
+<p>Supply <code class="docutils literal notranslate"><span class="pre">shared_secret</span></code>, <code class="docutils literal notranslate"><span class="pre">public_key</span></code>, or <code class="docutils literal notranslate"><span class="pre">private_key</span></code>. At least one is
+required, and all supplied values must agree. The key resolver integration
+uses <code class="docutils literal notranslate"><span class="pre">private_key</span></code> for signing and <code class="docutils literal notranslate"><span class="pre">public_key</span></code> for verification.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'hmac-sha256'</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HMAC_SHA256.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HMAC_SHA256.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">RSA_PSS_SHA512</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#RSA_PSS_SHA512"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>RSA-PSS with SHA-512. Keys may be PEM bytes or cryptography RSA key objects.</p>
+<p><code class="docutils literal notranslate"><span class="pre">password</span></code> decrypts an encrypted PEM private key when provided.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'rsa-pss-sha512'</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#RSA_PSS_SHA512.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#RSA_PSS_SHA512.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">load_pem_keys</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">RSA_V1_5_SHA256</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#RSA_V1_5_SHA256"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>RSA PKCS#1 v1.5 with SHA-256; accepts the same key arguments as RSA-PSS.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'rsa-v1_5-sha256'</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">padding</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">AsymmetricPadding</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">hash_algorithm</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">HashAlgorithm</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">load_pem_keys</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">http_message_signatures.algorithms.</span></span><span class="sig-name descname"><span class="pre">HTTPSignatureAlgorithm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">public_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">private_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Interface for explicitly configured signature algorithm implementations.</p>
+<p>Subclasses define <code class="docutils literal notranslate"><span class="pre">algorithm_id</span></code> and implement initialization, <code class="docutils literal notranslate"><span class="pre">sign()</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">verify()</span></code>. Pass the subclass as <code class="docutils literal notranslate"><span class="pre">signature_algorithm</span></code> when creating
+a signer or verifier; no registration is required. The configured class is
+used regardless of whether the signature includes an <code class="docutils literal notranslate"><span class="pre">alg</span></code> parameter.
+When present, <code class="docutils literal notranslate"><span class="pre">alg</span></code> must match the class’s <code class="docutils literal notranslate"><span class="pre">algorithm_id</span></code>.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">algorithm_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">sign</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm.sign"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return signature bytes for the supplied message bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>message</strong> (<em>bytes</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/http_message_signatures/_algorithms.html#HTTPSignatureAlgorithm.verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Return None for a valid signature or raise if verification fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>signature</strong> (<em>bytes</em>)</p></li>
+<li><p><strong>message</strong> (<em>bytes</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="release-notes">
+<h1>Release Notes<a class="headerlink" href="#release-notes" title="Link to this heading">¶</a></h1>
+</section>
+<section id="changes-for-v2-0-1-2026-01-18">
+<h1>Changes for v2.0.1 (2026-01-18)<a class="headerlink" href="#changes-for-v2-0-1-2026-01-18" title="Link to this heading">¶</a></h1>
+<p>Remove Python 3.8 and 3.9 from PyPI metadata</p>
+</section>
+<section id="changes-for-v2-0-0-2026-01-02">
+<h1>Changes for v2.0.0 (2026-01-02)<a class="headerlink" href="#changes-for-v2-0-0-2026-01-02" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Multiple signature support (#22)</p></li>
+<li><p>Drop Python 3.9 support</p></li>
+</ul>
+</section>
+<section id="changes-for-v1-0-1-2026-01-01">
+<h1>Changes for v1.0.1 (2026-01-01)<a class="headerlink" href="#changes-for-v1-0-1-2026-01-01" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Remove extra ? in get_request_target (#19)</p></li>
+</ul>
+</section>
+<section id="changes-for-v1-0-0-2025-07-26">
+<h1>Changes for v1.0.0 (2025-07-26)<a class="headerlink" href="#changes-for-v1-0-0-2025-07-26" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Vendor http_sfv</p></li>
+<li><p>Package is stable</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-7-0-2025-06-29">
+<h1>Changes for v0.7.0 (2025-06-29)<a class="headerlink" href="#changes-for-v0-7-0-2025-06-29" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>fix: convert url to string in HTTPSignatureComponentResolver
+constructor (#18)</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-6-1-2025-05-29">
+<h1>Changes for v0.6.1 (2025-05-29)<a class="headerlink" href="#changes-for-v0-6-1-2025-05-29" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Switch to trusted publishing</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-6-0-2025-05-29">
+<h1>Changes for v0.6.0 (2025-05-29)<a class="headerlink" href="#changes-for-v0-6-0-2025-05-29" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>[http-message-signatures-add] Add support for ‘tag’ signature
+parameter (#17)</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-5-0-2024-02-21">
+<h1>Changes for v0.5.0 (2024-02-21)<a class="headerlink" href="#changes-for-v0-5-0-2024-02-21" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Add max_clock_skew to HTTPMessageVerifier (#11)</p></li>
+<li><p>Documentation and test infrastructure improvements</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-4-4-2022-08-31">
+<h1>Changes for v0.4.4 (2022-08-31)<a class="headerlink" href="#changes-for-v0-4-4-2022-08-31" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Fix call signature in RSA_V1_5_SHA256 algorithm</p></li>
+<li><p>Test improvements</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-4-3-2022-04-19">
+<h1>Changes for v0.4.3 (2022-04-19)<a class="headerlink" href="#changes-for-v0-4-3-2022-04-19" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Relocate VerifyResult</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-4-2-2022-04-19">
+<h1>Changes for v0.4.2 (2022-04-19)<a class="headerlink" href="#changes-for-v0-4-2-2022-04-19" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Fix casting bug</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-4-1-2022-04-19">
+<h1>Changes for v0.4.1 (2022-04-19)<a class="headerlink" href="#changes-for-v0-4-1-2022-04-19" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Add type information</p></li>
+<li><p>Clean up algorithms namespace</p></li>
+<li><p>Use max-age=24h by default</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-4-0-2022-04-14">
+<h1>Changes for v0.4.0 (2022-04-14)<a class="headerlink" href="#changes-for-v0-4-0-2022-04-14" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Validate created and expires params</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-3-0-2022-04-12">
+<h1>Changes for v0.3.0 (2022-04-12)<a class="headerlink" href="#changes-for-v0-3-0-2022-04-12" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Support query parameter addressing</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-2-3-2022-04-12">
+<h1>Changes for v0.2.3 (2022-04-12)<a class="headerlink" href="#changes-for-v0-2-3-2022-04-12" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Raise InvalidSignature in more code paths</p></li>
+<li><p>Return related request method</p></li>
+<li><p>Clarify that sign and verify work on both requests and responses</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-2-2-2022-04-10">
+<h1>Changes for v0.2.2 (2022-04-10)<a class="headerlink" href="#changes-for-v0-2-2-2022-04-10" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Add body placeholder</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-2-1-2022-04-10">
+<h1>Changes for v0.2.1 (2022-04-10)<a class="headerlink" href="#changes-for-v0-2-1-2022-04-10" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Return VerifyResult in verifier</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-2-0-2022-04-10">
+<h1>Changes for v0.2.0 (2022-04-10)<a class="headerlink" href="#changes-for-v0-2-0-2022-04-10" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Organize exceptions</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-1-0-2022-04-09">
+<h1>Changes for v0.1.0 (2022-04-09)<a class="headerlink" href="#changes-for-v0-1-0-2022-04-09" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Initial release.</p></li>
+</ul>
+</section>
+<section id="changes-for-v0-0-3-2022-04-04">
+<h1>Changes for v0.0.3 (2022-04-04)<a class="headerlink" href="#changes-for-v0-0-3-2022-04-04" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Begin http-message-signatures</p></li>
+</ul>
+</section>
+<section id="table-of-contents">
+<h1>Table of Contents<a class="headerlink" href="#table-of-contents" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></p></li>
+</ul>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; Andrey Kislyuk
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">http-message-signatures: An implementation of RFC 9421, the IETF HTTP Message Signatures standard</a><ul>
+<li><a class="reference internal" href="#installation">Installation</a></li>
+<li><a class="reference internal" href="#synopsis">Synopsis</a><ul>
+<li><a class="reference internal" href="#remote-and-asynchronous-signing">Remote and asynchronous signing</a></li>
+<li><a class="reference internal" href="#structured-field-serialization">Structured Field serialization</a></li>
+<li><a class="reference internal" href="#url-components">URL components</a></li>
+<li><a class="reference internal" href="#multiple-signatures">Multiple signatures</a></li>
+<li><a class="reference internal" href="#error-handling">Error handling</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#authors">Authors</a></li>
+<li><a class="reference internal" href="#links">Links</a><ul>
+<li><a class="reference internal" href="#bugs">Bugs</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#license">License</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-http_message_signatures">API documentation</a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.algorithm_id"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.algorithm_id</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.sign"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.sign()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureAlgorithm.verify"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureAlgorithm.verify()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException.args"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException.args</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSignaturesException.with_traceback"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSignaturesException.with_traceback()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature"><code class="docutils literal notranslate"><span class="pre">InvalidSignature</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature.args"><code class="docutils literal notranslate"><span class="pre">InvalidSignature.args</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.InvalidSignature.with_traceback"><code class="docutils literal notranslate"><span class="pre">InvalidSignature.with_traceback()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.field_component_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.field_component_parameters</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.derived_component_resolvers"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.derived_component_resolvers</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.resolve"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.resolve()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_dictionary_member"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_dictionary_member()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_method"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_method()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_target_uri"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_target_uri()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_authority"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_authority()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_scheme"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_scheme()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_request_target"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_request_target()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_path"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_path()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_query()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_query_params"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_query_params()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureComponentResolver.get_status"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureComponentResolver.get_status()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_public_key"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver.resolve_public_key()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPSignatureKeyResolver.resolve_private_key"><code class="docutils literal notranslate"><span class="pre">HTTPSignatureKeyResolver.resolve_private_key()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.DEFAULT_SIGNATURE_LABEL</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.sign"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.sign()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.prepare"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.prepare()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.apply"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.apply()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageSigner.signature_metadata_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPMessageSigner.signature_metadata_parameters</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.max_clock_skew"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.max_clock_skew</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.require_created"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.require_created</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.allow_label_only_selection"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.allow_label_only_selection</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.validate_created_and_expires"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.validate_created_and_expires()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.verify"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.verify()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.HTTPMessageVerifier.signature_metadata_parameters"><code class="docutils literal notranslate"><span class="pre">HTTPMessageVerifier.signature_metadata_parameters</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature"><code class="docutils literal notranslate"><span class="pre">PreparedSignature</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.signature_base"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.signature_base</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.signature_params"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.signature_params</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.label"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.label</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.PreparedSignature.algorithm_id"><code class="docutils literal notranslate"><span class="pre">PreparedSignature.algorithm_id</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult"><code class="docutils literal notranslate"><span class="pre">VerifyResult</span></code></a><ul>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.label"><code class="docutils literal notranslate"><span class="pre">VerifyResult.label</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.algorithm"><code class="docutils literal notranslate"><span class="pre">VerifyResult.algorithm</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.covered_components"><code class="docutils literal notranslate"><span class="pre">VerifyResult.covered_components</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.parameters"><code class="docutils literal notranslate"><span class="pre">VerifyResult.parameters</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.body"><code class="docutils literal notranslate"><span class="pre">VerifyResult.body</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.nonce"><code class="docutils literal notranslate"><span class="pre">VerifyResult.nonce</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.count"><code class="docutils literal notranslate"><span class="pre">VerifyResult.count()</span></code></a></li>
+<li><a class="reference internal" href="#http_message_signatures.VerifyResult.index"><code class="docutils literal notranslate"><span class="pre">VerifyResult.index()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#algorithms">Algorithms</a></li>
+<li><a class="reference internal" href="#release-notes">Release Notes</a></li>
+<li><a class="reference internal" href="#changes-for-v2-0-1-2026-01-18">Changes for v2.0.1 (2026-01-18)</a></li>
+<li><a class="reference internal" href="#changes-for-v2-0-0-2026-01-02">Changes for v2.0.0 (2026-01-02)</a></li>
+<li><a class="reference internal" href="#changes-for-v1-0-1-2026-01-01">Changes for v1.0.1 (2026-01-01)</a></li>
+<li><a class="reference internal" href="#changes-for-v1-0-0-2025-07-26">Changes for v1.0.0 (2025-07-26)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-7-0-2025-06-29">Changes for v0.7.0 (2025-06-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-6-1-2025-05-29">Changes for v0.6.1 (2025-05-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-6-0-2025-05-29">Changes for v0.6.0 (2025-05-29)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-5-0-2024-02-21">Changes for v0.5.0 (2024-02-21)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-4-2022-08-31">Changes for v0.4.4 (2022-08-31)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-3-2022-04-19">Changes for v0.4.3 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-2-2022-04-19">Changes for v0.4.2 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-1-2022-04-19">Changes for v0.4.1 (2022-04-19)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-4-0-2022-04-14">Changes for v0.4.0 (2022-04-14)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-3-0-2022-04-12">Changes for v0.3.0 (2022-04-12)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-3-2022-04-12">Changes for v0.2.3 (2022-04-12)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-2-2022-04-10">Changes for v0.2.2 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-1-2022-04-10">Changes for v0.2.1 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-2-0-2022-04-10">Changes for v0.2.0 (2022-04-10)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-1-0-2022-04-09">Changes for v0.1.0 (2022-04-09)</a></li>
+<li><a class="reference internal" href="#changes-for-v0-0-3-2022-04-04">Changes for v0.0.3 (2022-04-04)</a></li>
+<li><a class="reference internal" href="#table-of-contents">Table of Contents</a></li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>
