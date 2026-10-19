@@ -2,6 +2,7 @@ import urllib.parse
 from collections.abc import Callable
 from typing import ClassVar
 
+import http_sf
 from http_sf.compat import Dictionary, Item
 
 from ._url import parse_url
@@ -27,11 +28,15 @@ class HTTPSignatureComponentResolver:
     A request may provide ``request_target`` for an HTTP/1.1 target that cannot
     be inferred from ``url``, such as an absolute-form proxy target or ``*``.
     The supplied target and URL must describe the same request.
+
+    Whole-field ``sf`` serialization uses the field type registered in
+    ``http_sf``. Unknown types and malformed values raise
+    :class:`~http_message_signatures.HTTPMessageSignaturesException`.
     """
 
-    # RFC 9421 section 2.1 parameters a covered HTTP field may carry. Dictionary
-    # member selection supports "key" and the redundant "sf" flag. Other uses
-    # of "sf", "bs" and "tr" are refused instead of resolving to the wrong value.
+    # RFC 9421 section 2.1 parameters a covered HTTP field may carry.
+    # "sf" supports whole fields and dictionary member selection with "key".
+    # "bs" and "tr" are refused instead of resolving to the wrong value.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
     #: Callables receive the resolver instance followed by component parameters.
     #: Subclasses can copy and extend this mapping to support additional components.
@@ -95,6 +100,20 @@ class HTTPSignatureComponentResolver:
             )
         if "key" in params:
             return self.get_dictionary_member(component_id, field_value, params)
+        if set(params) == {"sf"}:
+            if params["sf"] is not True:
+                raise HTTPMessageSignaturesException('The "sf" parameter must be a Boolean flag')
+            try:
+                parsed = http_sf.parse(field_value.encode(), name=component_id)
+                return http_sf.ser(parsed)
+            except KeyError as e:
+                raise HTTPMessageSignaturesException(
+                    f'Unknown Structured Field type for covered field "{component_id}"'
+                ) from e
+            except (ValueError, TypeError) as e:
+                raise HTTPMessageSignaturesException(
+                    f'Covered field "{component_id}" is not valid for its registered Structured Field type'
+                ) from e
         if params:
             raise HTTPMessageSignaturesException(
                 f'Parameter(s) {sorted(params)} on covered field "{component_id}" are not supported'
