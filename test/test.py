@@ -1908,7 +1908,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             resolve('"example-dict";key="e"')
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "not a Dictionary"):
             resolve('"date";key="a"')
-        for flag in ("sf", "bs", "tr"):
+        for flag in ("bs", "tr"):
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "not supported"):
                 resolve(f'"example-dict";{flag}')
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown parameter"):
@@ -1916,6 +1916,159 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for key in ("a", "1", "?1"):  # Token, Integer, Boolean: the key must be a String
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a string"):
                 resolve(f'"example-dict";key={key}')
+
+    def test_whole_structured_field_signature_fixtures(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        cases = (
+            ("Priority", "u=03,   i=?1", "u=3, i", "u=4, i"),
+            ("Accept-CH", "Sec-CH-UA,   Sec-CH-UA-Platform", "Sec-CH-UA, Sec-CH-UA-Platform", "Sec-CH-UA"),
+            ("Content-Type", 'text/html; charset="utf-8"', 'text/html;charset="utf-8"', "text/plain"),
+            # The same bytes have different meanings under the registered types.
+            ("Priority", "foo, foo", "foo", "bar"),
+            ("Accept-CH", "foo, foo", "foo, foo", "foo"),
+        )
+        for name, value, expected, changed in cases:
+            with self.subTest(name=name, value=value):
+                message = copy.deepcopy(self.test_request)
+                message.headers[name] = value
+                component = f'"{name.lower()}";sf'
+                params = f'({component});created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
+                set_test_signature(message, params, [f"{component}: {expected}"])
+                expected_signature = message.headers["Signature"]
+                self.assertEqual(
+                    verifier.verify(message, max_age=self.max_age)[0].covered_components[component], expected
+                )
+                signer.sign(
+                    message,
+                    key_id="test-shared-secret",
+                    covered_component_ids=(component,),
+                    created=datetime.fromtimestamp(1618884473, timezone.utc),
+                )
+                self.assertEqual(message.headers["Signature-Input"], "pyhms=" + params)
+                self.assertEqual(message.headers["Signature"], expected_signature)
+                self.assertEqual(HTTPSignatureComponentResolver(message).resolve(Item(name.lower())), value)
+                message.headers[name] = expected
+                verifier.verify(message, max_age=self.max_age)
+                message.headers[name] = changed
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message, max_age=self.max_age)
+
+    def test_whole_structured_field_multiple_header_lines(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for name, first, second, expected in (
+            ("Priority", "u=3,\r\n\ti=?1", "custom=1", "u=3, i, custom=1"),
+            (
+                "Accept-CH",
+                "Sec-CH-UA,\r\n\tSec-CH-UA-Platform",
+                "Sec-CH-UA-Mobile",
+                "Sec-CH-UA, Sec-CH-UA-Platform, Sec-CH-UA-Mobile",
+            ),
+        ):
+            with self.subTest(name=name):
+                message = copy.deepcopy(self.test_request)
+                message.headers = HTTPMessage()
+                message.headers[name] = first
+                message.headers[name.lower()] = second
+                component = f'"{name.lower()}";sf'
+                signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                self.assertEqual(verifier.verify(message)[0].covered_components[component], expected)
+
+    def test_whole_structured_field_response_request_context(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Priority"] = "u=3,   i=?1"
+        self.test_response.headers["Priority"] = "u=6"
+        components = ('"priority";sf', '"priority";req;sf')
+        signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
+        result = verifier.verify(self.test_response)[0]
+        self.assertEqual(result.covered_components[components[0]], "u=6")
+        self.assertEqual(result.covered_components[components[1]], "u=3, i")
+        for request in (True, False):
+            with self.subTest(request=request):
+                changed = copy.deepcopy(self.test_response)
+                (changed.request if request else changed).headers["Priority"] = "u=5"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(changed)
+
+    def test_whole_structured_field_unknown_type(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        component = '"example-unregistered";sf'
+        for value in ("", "foo", "a=1", "(a b)"):
+            with self.subTest(value=value):
+                self.test_request.headers["Example-Unregistered"] = value
+                params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                set_test_signature(self.test_request, params, [f"{component}: {value}"])
+                with self.assertRaisesRegex(InvalidSignature, "Unknown Structured Field type"):
+                    verifier.verify(self.test_request, max_age=self.max_age)
+                headers = dict(self.test_request.headers)
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown Structured Field type"):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                self.assertEqual(dict(self.test_request.headers), headers)
+                signer.sign(
+                    self.test_request, key_id="test-shared-secret", covered_component_ids=("example-unregistered",)
+                )
+                verifier.verify(self.test_request)
+
+    def test_whole_structured_field_malformed_registered_type(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for name, value in (
+            ("Priority", "42"),  # Valid Item or List, but not a Dictionary.
+            ("Priority", "u=3,"),
+            ("Accept-CH", "a=1"),  # Valid Dictionary, but not a List.
+            ("Origin-Agent-Cluster", "?1, ?0"),  # Valid List, but not an Item.
+        ):
+            with self.subTest(name=name, value=value):
+                self.test_request.headers[name] = value
+                component = f'"{name.lower()}";sf'
+                params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                set_test_signature(self.test_request, params, [f"{component}: {value}"])
+                with self.assertRaisesRegex(InvalidSignature, "not valid for its registered Structured Field type"):
+                    verifier.verify(self.test_request, max_age=self.max_age)
+                with self.assertRaisesRegex(
+                    HTTPMessageSignaturesException, "not valid for its registered Structured Field type"
+                ):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+
+    def test_whole_structured_field_invalid_parameters(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Priority"] = "u=3"
+        for parameters, error in (
+            ("sf=?0", "must be a Boolean flag"),
+            ("sf=1", "must be a Boolean flag"),
+            ('sf="yes"', "must be a Boolean flag"),
+            ("sf;bs", "not supported"),
+            ("sf;tr", "not supported"),
+            ("sf;unknown", "Unknown parameter"),
+        ):
+            with self.subTest(parameters=parameters):
+                component = f'"priority";{parameters}'
+                params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                set_test_signature(self.test_request, params, [f"{component}: u=3"])
+                with self.assertRaisesRegex(InvalidSignature, error):
+                    verifier.verify(self.test_request, max_age=self.max_age)
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
+                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+
+    def test_whole_structured_field_remote_signing(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        self.test_request.headers["Priority"] = "u=3,   i=?1"
+        component = '"priority";sf'
+        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+        signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
+        self.test_request.headers["Priority"] = "u=3, i"
+        signer.apply(self.test_request, prepared, signature)
+        self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], "u=3, i")
+        self.test_request.headers["Priority"] = "u=4, i"
+        headers = dict(self.test_request.headers)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "changed after prepare"):
+            signer.apply(self.test_request, prepared, signature)
+        self.assertEqual(dict(self.test_request.headers), headers)
 
     def test_dictionary_member_key_and_sf_signature_fixtures(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

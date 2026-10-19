@@ -139,6 +139,27 @@ when choosing expiration times; an expired result will still be rejected by a ve
 existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
 signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
 
+Structured Field serialization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the ``sf`` component parameter to cover a whole header field using Structured Fields serialization::
+
+    signer.sign(request, key_id="my-key", covered_component_ids=('"priority";sf',))
+
+For example, ``Priority: u=03,   i=?1`` produces this signature-base line::
+
+    "priority";sf: u=3, i
+
+The field's Item, List, or Dictionary type is selected by its name using ``http_sf``'s registry.
+Both endpoints must use matching type definitions. The registry may omit otherwise standardized fields;
+an unknown type or a value invalid for its registered type raises ``HTTPMessageSignaturesException`` during
+signing, or ``InvalidSignature`` during verification. The library does not infer types from field values.
+Headers covered without ``sf`` use the ordinary HTTP field normalization rules and do not require a registry entry.
+
+Repeated field lines are combined before parsing. In a response signature, ``'"priority";req;sf'`` uses
+the associated request's field. Dictionary-member selection with ``key`` continues to work without a registry
+entry and may include the redundant ``sf`` flag. The ``bs`` and ``tr`` parameters remain unsupported.
+
 URL components
 ~~~~~~~~~~~~~~
 
