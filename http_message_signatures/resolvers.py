@@ -33,20 +33,8 @@ class HTTPSignatureComponentResolver:
     # member selection supports "key" and the redundant "sf" flag. Other uses
     # of "sf", "bs" and "tr" are refused instead of resolving to the wrong value.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
-    derived_component_names: ClassVar[set[str]] = {
-        "@method",
-        "@target-uri",
-        "@authority",
-        "@scheme",
-        "@request-target",
-        "@path",
-        "@query",
-        "@query-param",
-        "@status",
-        "@request-response",
-    }
     #: Callables receive the resolver instance followed by component parameters.
-    #: Subclasses can copy and extend this mapping and derived_component_names.
+    #: Subclasses can copy and extend this mapping to support additional components.
     derived_component_resolvers: ClassVar[dict[str, Callable[..., str]]] = {
         "@method": lambda resolver: resolver.get_method(),
         "@target-uri": lambda resolver: resolver.get_target_uri(),
@@ -57,7 +45,6 @@ class HTTPSignatureComponentResolver:
         "@query": lambda resolver: resolver.get_query(),
         "@query-param": lambda resolver, **params: resolver.get_query_params(**params),
         "@status": lambda resolver: resolver.get_status(),
-        "@request-response": lambda resolver, **params: resolver.get_request_response(**params),
     }
 
     def __init__(self, message):
@@ -91,9 +78,9 @@ class HTTPSignatureComponentResolver:
             request_node.params.update(params)
             return self.__class__(self.message.request).resolve(request_node)
         if component_id.startswith("@"):  # derived component
-            if component_id not in self.derived_component_names:
+            if component_id not in self.derived_component_resolvers:
                 raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
-            if self.message_type == "response" and component_id not in {"@status", "@request-response"}:
+            if self.message_type == "response" and component_id != "@status":
                 raise HTTPMessageSignaturesException(
                     f'Component "{component_id}" requires "req" in a response signature'
                 )
@@ -192,11 +179,6 @@ class HTTPSignatureComponentResolver:
         if self.message_type != "response":
             raise HTTPMessageSignaturesException('Unexpected "@status" component in a request signature')
         return str(self.message.status_code)
-
-    def get_request_response(self, *, key: str):
-        # See 2.2.11 Request-Response Signature Binding
-        # self.message.request.headers["Signature"][key]
-        raise NotImplementedError()
 
 
 class HTTPSignatureKeyResolver:

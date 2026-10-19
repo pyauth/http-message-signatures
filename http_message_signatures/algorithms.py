@@ -7,5 +7,4 @@ from ._algorithms import (  # noqa:F401
     RSA_PSS_SHA512,
     RSA_V1_5_SHA256,
     HTTPSignatureAlgorithm,
-    signature_algorithms,
 )

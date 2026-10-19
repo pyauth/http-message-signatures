@@ -13,7 +13,14 @@ from .exceptions import HTTPMessageSignaturesException
 
 
 class HTTPSignatureAlgorithm:
-    """Interface implemented by the package's signature algorithm classes."""
+    """Interface for explicitly configured signature algorithm implementations.
+
+    Subclasses define ``algorithm_id`` and implement initialization, ``sign()``,
+    and ``verify()``. Pass the subclass as ``signature_algorithm`` when creating
+    a signer or verifier; no registration is required. The configured class is
+    used regardless of whether the signature includes an ``alg`` parameter.
+    When present, ``alg`` must match the class's ``algorithm_id``.
+    """
 
     algorithm_id: str
 
@@ -173,13 +180,3 @@ class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
 
     def verify(self, signature: bytes, message: bytes):
         self.public_key.verify(signature=signature, data=message)
-
-
-signature_algorithms = {}
-for signature_algorithm_class in list(globals().values()):
-    if (
-        isinstance(signature_algorithm_class, type)
-        and issubclass(signature_algorithm_class, HTTPSignatureAlgorithm)
-        and signature_algorithm_class != HTTPSignatureAlgorithm
-    ):
-        signature_algorithms[signature_algorithm_class.algorithm_id] = signature_algorithm_class

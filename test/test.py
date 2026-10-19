@@ -570,6 +570,51 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "HMAC key must be supplied"):
             HMAC_SHA256()
 
+    def test_configured_algorithm_subclass(self):
+        class CustomHMAC(HMAC_SHA256):
+            pass
+
+        signer = HTTPMessageSigner(signature_algorithm=CustomHMAC, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=CustomHMAC, key_resolver=self.key_resolver)
+        for include_alg in (True, False):
+            with self.subTest(include_alg=include_alg):
+                message = copy.deepcopy(self.test_request)
+                signer.sign(message, key_id="test-shared-secret", include_alg=include_alg)
+                result = verifier.verify(message)[0]
+                self.assertIs(result.algorithm, CustomHMAC)
+                self.assertEqual("alg" in result.parameters, include_alg)
+                message.method = "DELETE"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message)
+
+    def test_configured_algorithm_rejects_other_algorithm_ids(self):
+        class CustomHMAC(HMAC_SHA256):
+            algorithm_id = "app-hmac-sha256"
+
+        for signing_algorithm, verifying_algorithm in ((CustomHMAC, HMAC_SHA256), (HMAC_SHA256, CustomHMAC)):
+            with self.subTest(algorithm=signing_algorithm.algorithm_id):
+                signer = HTTPMessageSigner(signature_algorithm=signing_algorithm, key_resolver=self.key_resolver)
+                signer.sign(self.test_request, key_id="test-shared-secret")
+                verifier = HTTPMessageVerifier(signature_algorithm=verifying_algorithm, key_resolver=self.key_resolver)
+                with (
+                    patch.object(self.key_resolver, "resolve_public_key", side_effect=AssertionError("key read")),
+                    self.assertRaisesRegex(InvalidSignature, "Unexpected algorithm"),
+                ):
+                    verifier.verify(self.test_request)
+                prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+                other_signer = HTTPMessageSigner(signature_algorithm=verifying_algorithm)
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "different algorithm"):
+                    other_signer.apply(self.test_request, prepared, b"signature")
+
+    def test_invalid_algorithm_configuration(self):
+        for algorithm in (None, "hmac-sha256", object, HTTPSignatureAlgorithm, HMAC_SHA256(shared_secret=b"secret")):
+            for handler in (HTTPMessageSigner, HTTPMessageVerifier):
+                with (
+                    self.subTest(algorithm=algorithm, handler=handler),
+                    self.assertRaisesRegex(HTTPMessageSignaturesException, "HTTPSignatureAlgorithm subclass"),
+                ):
+                    handler(signature_algorithm=algorithm, key_resolver=self.key_resolver)
+
     def test_public_api_typing(self):
         self.assertEqual(get_type_hints(VerifyResult)["algorithm"], type[HTTPSignatureAlgorithm])
         result = subprocess.run(
@@ -590,7 +635,6 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_custom_derived_component_mapping(self):
         class CustomResolver(HTTPSignatureComponentResolver):
-            derived_component_names = HTTPSignatureComponentResolver.derived_component_names | {"@custom"}
             derived_component_resolvers: ClassVar[dict] = {
                 **HTTPSignatureComponentResolver.derived_component_resolvers,
                 "@custom": lambda resolver, **params: resolver.get_custom(**params),
@@ -617,7 +661,6 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for message in (self.test_request, self.test_response):
             with self.assertRaises(InvalidSignature):
                 verifier.verify(message)
-        self.assertNotIn("@custom", HTTPSignatureComponentResolver.derived_component_names)
         self.assertNotIn("@custom", HTTPSignatureComponentResolver.derived_component_resolvers)
 
     def test_derived_mapping_preserves_method_overrides(self):
@@ -629,6 +672,20 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.assertEqual(resolver.resolve(Item("@path")), "/custom-path")
         self.assertEqual(resolver.resolve(Item("@target-uri")), "https://example.com/custom-path?param=Value&Pet=dog")
         self.assertEqual(HTTPSignatureComponentResolver(self.test_request).resolve(Item("@path")), "/foo")
+
+    def test_obsolete_request_response_component_is_rejected(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        component = '"@request-response";key="sig1"'
+        created = int(datetime.now(timezone.utc).timestamp())
+        params = f'({component});created={created};keyid="test-shared-secret";alg="hmac-sha256"'
+        for message in (self.test_request, self.test_response):
+            with self.subTest(message=type(message).__name__):
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown covered derived component"):
+                    signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                set_test_signature(message, params, [f"{component}: value"])
+                with self.assertRaisesRegex(InvalidSignature, "Unknown covered derived component"):
+                    verifier.verify(message)
 
     def test_http_message_signatures_B21(self):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
