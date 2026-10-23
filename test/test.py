@@ -82,7 +82,15 @@ def set_test_signature(message, signature_params, covered_lines):
 
 
 class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
-    known_pem_keys: ClassVar[set[str]] = {"test-key-rsa", "test-key-rsa-pss", "test-key-ecc-p256", "test-key-ed25519", "test-key-mldsa44", "test-key-mldsa65", "test-key-mldsa87"}
+    known_pem_keys: ClassVar[set[str]] = {
+        "test-key-rsa",
+        "test-key-rsa-pss",
+        "test-key-ecc-p256",
+        "test-key-ed25519",
+        "test-key-mldsa44",
+        "test-key-mldsa65",
+        "test-key-mldsa87",
+    }
 
     def resolve_public_key(self, key_id: str):
         if key_id == "test-shared-secret":
