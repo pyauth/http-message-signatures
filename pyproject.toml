@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "cryptography >= 36.0.2",
+    "cryptography >= 47.0.0",
     "http-sf >= 1.4.0",
 ]
 
