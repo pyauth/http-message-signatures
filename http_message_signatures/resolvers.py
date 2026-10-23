@@ -1,13 +1,14 @@
 import urllib.parse
 from collections.abc import Callable
+from functools import cached_property
 from typing import ClassVar
 
 import http_sf
-from http_sf.compat import Dictionary, Item
+from http_sf.compat import Dictionary, Item, List
 
 from ._url import parse_url
 from .exceptions import HTTPMessageSignaturesException
-from .structures import get_header_fields
+from .structures import CaseInsensitiveDict, get_header_field_lines
 
 
 class HTTPSignatureComponentResolver:
@@ -20,10 +21,15 @@ class HTTPSignatureComponentResolver:
     The presence of ``status_code`` identifies a response; its ``request``
     supplies components qualified with ``req``. An associated request must
     also have an uppercase method. The response's own ``url`` is not used.
+    Parsed fields and queries are cached for the lifetime of the resolver;
+    keep the message and its associated request stable while resolving components.
+    Create a new resolver after changing either message.
 
     ``headers.items()`` must expose string names and values for all field lines
     in order, or values already combined in that order. Signing additionally
     requires iteration over names, membership testing, assignment, and deletion.
+    Binary wrapping (``bs``) requires separate field lines; strings represent
+    their original bytes decoded as Latin-1.
 
     A request may provide ``request_target`` for an HTTP/1.1 target that cannot
     be inferred from ``url``, such as an absolute-form proxy target or ``*``.
@@ -36,7 +42,7 @@ class HTTPSignatureComponentResolver:
 
     # RFC 9421 section 2.1 parameters a covered HTTP field may carry.
     # "sf" supports whole fields and dictionary member selection with "key".
-    # "bs" and "tr" are refused instead of resolving to the wrong value.
+    # "bs" wraps each field line separately. Trailers ("tr") are unsupported.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
     #: Callables receive the resolver instance followed by component parameters.
     #: Subclasses can copy and extend this mapping to support additional components.
@@ -62,7 +68,19 @@ class HTTPSignatureComponentResolver:
             self.url_parts = parse_url(str(message.url))
         elif hasattr(message, "request") and message.request is not None:
             self._validate_method(message.request.method)
-        self.headers = get_header_fields(message.headers)
+        self.header_field_lines = get_header_field_lines(message.headers)
+        self.headers = CaseInsensitiveDict(
+            (name, ", ".join(values)) for name, values in self.header_field_lines.items()
+        )
+        self._parsed_dictionaries: dict[str, Dictionary] = {}
+
+    @cached_property
+    def _request_resolver(self):
+        return self.__class__(self.message.request)
+
+    @cached_property
+    def _query_params(self):
+        return urllib.parse.parse_qs(self.url_parts.query or "", keep_blank_values=True)
 
     @staticmethod
     def _validate_method(method):
@@ -81,7 +99,7 @@ class HTTPSignatureComponentResolver:
                 raise HTTPMessageSignaturesException('The "req" parameter is only valid in a response signature')
             request_node = Item(component_node.value)
             request_node.params.update(params)
-            return self.__class__(self.message.request).resolve(request_node)
+            return self._request_resolver.resolve(request_node)
         if component_id.startswith("@"):  # derived component
             if component_id not in self.derived_component_resolvers:
                 raise HTTPMessageSignaturesException(f"Unknown covered derived component name {component_id}")
@@ -98,6 +116,8 @@ class HTTPSignatureComponentResolver:
             raise HTTPMessageSignaturesException(
                 f'Unknown parameter(s) {sorted(unknown)} on covered field "{component_id}"'
             )
+        if component_id == "set-cookie" and len(self.header_field_lines[component_id]) > 1 and "bs" not in params:
+            raise HTTPMessageSignaturesException('Multiple Set-Cookie field values require the "bs" parameter')
         if "key" in params:
             return self.get_dictionary_member(component_id, field_value, params)
         if set(params) == {"sf"}:
@@ -113,6 +133,16 @@ class HTTPSignatureComponentResolver:
             except (ValueError, TypeError) as e:
                 raise HTTPMessageSignaturesException(
                     f'Covered field "{component_id}" is not valid for its registered Structured Field type'
+                ) from e
+        if set(params) == {"bs"}:
+            if params["bs"] is not True:
+                raise HTTPMessageSignaturesException('The "bs" parameter must be a Boolean flag')
+            values = self.header_field_lines[component_id]
+            try:
+                return str(List(value.encode("latin-1") for value in values))
+            except UnicodeEncodeError as e:
+                raise HTTPMessageSignaturesException(
+                    f'Binary-wrapped field "{component_id}" must contain Latin-1 encoded bytes'
                 ) from e
         if params:
             raise HTTPMessageSignaturesException(
@@ -134,13 +164,16 @@ class HTTPSignatureComponentResolver:
             raise HTTPMessageSignaturesException(
                 f'The "key" parameter on covered field "{component_id}" must be a string'
             )
-        dictionary = Dictionary()
-        try:
-            dictionary.parse(field_value.encode())
-        except Exception as e:
-            raise HTTPMessageSignaturesException(
-                f'Covered field "{component_id}" is not a Dictionary Structured Field'
-            ) from e
+        if field_value not in self._parsed_dictionaries:
+            dictionary = Dictionary()
+            try:
+                dictionary.parse(field_value.encode())
+            except Exception as e:
+                raise HTTPMessageSignaturesException(
+                    f'Covered field "{component_id}" is not a Dictionary Structured Field'
+                ) from e
+            self._parsed_dictionaries[field_value] = dictionary
+        dictionary = self._parsed_dictionaries[field_value]
         if key not in dictionary:
             raise HTTPMessageSignaturesException(f'Covered field "{component_id}" has no member "{key}"')
         return str(dictionary[key])
@@ -184,7 +217,7 @@ class HTTPSignatureComponentResolver:
     def get_query_params(self, *, name: str):
         if not isinstance(name, str):
             raise HTTPMessageSignaturesException('The query parameter "name" must be a string')
-        query = urllib.parse.parse_qs(self.url_parts.query or "", keep_blank_values=True)
+        query = self._query_params
         name = urllib.parse.unquote(name)
         if name not in query:
             raise HTTPMessageSignaturesException(f'Query parameter "{name}" not found in the message URL')
