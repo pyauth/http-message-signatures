@@ -229,8 +229,9 @@ Pre-verification processing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Untrusted signature headers are parsed with ``http_sf``. Repeated header lines are accumulated and joined once,
-and query strings and Dictionary fields are parsed once per resolver. Response components marked ``req`` reuse
-the associated request's resolver. A ``verify()`` call shares these parsed values across selected signatures;
+and unfolding is skipped for values without CRLF. Query strings and Dictionary fields are parsed once per resolver,
+which also caches whole-field ``sf`` serialization. Response components marked ``req`` reuse
+the associated request's resolver. A ``verify()`` call shares these cached values across selected signatures;
 later calls create fresh resolvers so message changes are observed. Keep the message and associated request
 stable during signing or verification. Users resolving components directly should create a new resolver after
 changing either message.
