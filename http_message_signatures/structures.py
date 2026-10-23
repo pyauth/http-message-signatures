@@ -105,6 +105,18 @@ class CaseInsensitiveDict(MutableMapping):
         return str(dict(self.items()))
 
 
+def get_header_field_lines(headers):
+    """Group normalized field lines without losing their boundaries or wire order."""
+    fields = CaseInsensitiveDict()
+    for name, value in headers.items():
+        value = normalize_header_value(value)
+        if name in fields:
+            fields[name].append(value)
+        else:
+            fields[name] = [value]
+    return fields
+
+
 def get_header_fields(headers):
     """Combine all field lines exposed by items(), preserving their wire order."""
     fields = CaseInsensitiveDict()

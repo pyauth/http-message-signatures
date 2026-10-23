@@ -183,7 +183,27 @@ must still validate header values: successful signature verification does not es
 
 Repeated field lines are combined before parsing. In a response signature, ``'"priority";req;sf'`` uses
 the associated request's field. Dictionary-member selection with ``key`` continues to work without a registry
-entry and may include the redundant ``sf`` flag. The ``bs`` and ``tr`` parameters remain unsupported.
+entry and may include the redundant ``sf`` flag. The ``tr`` parameter remains unsupported.
+
+Binary wrapping and Set-Cookie
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``covered_component_ids=('"set-cookie";bs',)`` to cover each field line as a separate Structured Field
+Byte Sequence, following `RFC 9421 section 2.1.3 <https://www.rfc-editor.org/rfc/rfc9421.html#section-2.1.3>`_.
+The ``bs`` flag works with any header field, including request fields selected with ``req``. It cannot be
+combined with ``sf`` or ``key``. Leading and trailing spaces and tabs are trimmed and obsolete line folding is
+removed before encoding each line. Header strings represent the original field bytes decoded as Latin-1.
+
+When Set-Cookie is covered and multiple field lines are present, ``sign()`` and ``prepare()`` automatically
+add ``bs``. Verification rejects signatures that cover multiple Set-Cookie lines without ``bs``. Uncovered
+Set-Cookie fields remain outside this check, and a single field line can still be covered without ``bs``.
+This preserves field boundaries that comma joining would erase, as discussed in
+`RFC 9421 section 7.5.6 <https://www.rfc-editor.org/rfc/rfc9421.html#section-7.5.6>`_.
+
+For binary wrapping, ``headers.items()`` must expose each original field line separately and in order.
+The library cannot recover boundaries from values already combined by an HTTP client. A comma inside one
+Set-Cookie value, such as an Expires date, does not indicate multiple field lines. Cookie syntax and other
+application-level content validation remain the caller's responsibility.
 
 URL components
 ~~~~~~~~~~~~~~

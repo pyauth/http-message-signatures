@@ -3,11 +3,11 @@ from collections.abc import Callable
 from typing import ClassVar
 
 import http_sf
-from http_sf.compat import Dictionary, Item
+from http_sf.compat import Dictionary, Item, List
 
 from ._url import parse_url
 from .exceptions import HTTPMessageSignaturesException
-from .structures import get_header_fields
+from .structures import CaseInsensitiveDict, get_header_field_lines
 
 
 class HTTPSignatureComponentResolver:
@@ -24,6 +24,8 @@ class HTTPSignatureComponentResolver:
     ``headers.items()`` must expose string names and values for all field lines
     in order, or values already combined in that order. Signing additionally
     requires iteration over names, membership testing, assignment, and deletion.
+    Binary wrapping (``bs``) requires separate field lines; strings represent
+    their original bytes decoded as Latin-1.
 
     A request may provide ``request_target`` for an HTTP/1.1 target that cannot
     be inferred from ``url``, such as an absolute-form proxy target or ``*``.
@@ -36,7 +38,7 @@ class HTTPSignatureComponentResolver:
 
     # RFC 9421 section 2.1 parameters a covered HTTP field may carry.
     # "sf" supports whole fields and dictionary member selection with "key".
-    # "bs" and "tr" are refused instead of resolving to the wrong value.
+    # "bs" wraps each field line separately. Trailers ("tr") are unsupported.
     field_component_parameters = frozenset({"key", "sf", "bs", "tr"})
     #: Callables receive the resolver instance followed by component parameters.
     #: Subclasses can copy and extend this mapping to support additional components.
@@ -62,7 +64,10 @@ class HTTPSignatureComponentResolver:
             self.url_parts = parse_url(str(message.url))
         elif hasattr(message, "request") and message.request is not None:
             self._validate_method(message.request.method)
-        self.headers = get_header_fields(message.headers)
+        self.header_field_lines = get_header_field_lines(message.headers)
+        self.headers = CaseInsensitiveDict(
+            (name, ", ".join(values)) for name, values in self.header_field_lines.items()
+        )
 
     @staticmethod
     def _validate_method(method):
@@ -98,6 +103,8 @@ class HTTPSignatureComponentResolver:
             raise HTTPMessageSignaturesException(
                 f'Unknown parameter(s) {sorted(unknown)} on covered field "{component_id}"'
             )
+        if component_id == "set-cookie" and len(self.header_field_lines[component_id]) > 1 and "bs" not in params:
+            raise HTTPMessageSignaturesException('Multiple Set-Cookie field values require the "bs" parameter')
         if "key" in params:
             return self.get_dictionary_member(component_id, field_value, params)
         if set(params) == {"sf"}:
@@ -113,6 +120,16 @@ class HTTPSignatureComponentResolver:
             except (ValueError, TypeError) as e:
                 raise HTTPMessageSignaturesException(
                     f'Covered field "{component_id}" is not valid for its registered Structured Field type'
+                ) from e
+        if set(params) == {"bs"}:
+            if params["bs"] is not True:
+                raise HTTPMessageSignaturesException('The "bs" parameter must be a Boolean flag')
+            values = self.header_field_lines[component_id]
+            try:
+                return str(List(value.encode("latin-1") for value in values))
+            except UnicodeEncodeError as e:
+                raise HTTPMessageSignaturesException(
+                    f'Binary-wrapped field "{component_id}" must contain Latin-1 encoded bytes'
                 ) from e
         if params:
             raise HTTPMessageSignaturesException(

@@ -11,7 +11,7 @@ from http_sf.compat import Dictionary, InnerList, Item
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import PreparedSignature, VerifyResult, get_header_fields
+from .structures import PreparedSignature, VerifyResult, get_header_field_lines, get_header_fields
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,18 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             covered_component_nodes.append(component_name_node)
         return covered_component_nodes
 
+    def _armor_set_cookie(self, message, covered_component_nodes):
+        field_lines = {}
+        for component in covered_component_nodes:
+            if component.value != "set-cookie" or "bs" in component.params:
+                continue
+            use_request = component.params.get("req") is True
+            if use_request not in field_lines:
+                source = message.request if use_request and hasattr(message, "status_code") else message
+                field_lines[use_request] = get_header_field_lines(source.headers)
+            if len(field_lines[use_request].get("set-cookie", [])) > 1:
+                component.params["bs"] = True
+
     def sign(
         self,
         message,
@@ -217,6 +229,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             ``('\"@query-param\";name="Pet"',)``. A scalar string is rejected.
             Defaults cover request method, authority, and target URL. Responses
             require an explicit list such as ``("@status", "content-type")``.
+            Use ``('\"set-cookie\";bs',)`` to wrap individual field values as
+            Byte Sequences. Covered Set-Cookie fields with multiple values
+            automatically receive ``bs``; explicit invalid flags are rejected.
         :param append_if_signature_exists: Preserve existing signatures and add a
             new label. Otherwise replace existing signature headers.
         :raises HTTPMessageSignaturesException: A component or signature parameter
@@ -284,6 +299,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
+        self._armor_set_cookie(message, covered_component_nodes)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
