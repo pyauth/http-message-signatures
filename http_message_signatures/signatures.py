@@ -2,6 +2,7 @@ import collections
 import datetime
 import logging
 from collections.abc import Sequence
+from functools import cache
 from typing import Any, ClassVar, cast
 from warnings import warn
 
@@ -11,7 +12,7 @@ from http_sf.compat import Dictionary, InnerList, Item
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import PreparedSignature, VerifyResult, get_header_fields
+from .structures import PreparedSignature, VerifyResult, get_header_field_lines, get_header_fields
 
 logger = logging.getLogger(__name__)
 
@@ -74,17 +75,26 @@ class HTTPSignatureHandler:
         return result
 
     def _build_signature_base(
-        self, message, *, covered_component_ids: list[Any], signature_params: dict[str, Any]
+        self, message, *, covered_component_ids: list[Any], signature_params: dict[str, Any], component_resolver=None
     ) -> tuple:
         self._validate_signature_param_types(signature_params)
         assert "@signature-params" not in covered_component_ids
         sig_elements = collections.OrderedDict()
         seen_components = set()
-        component_resolver = self.component_resolver_class(message)
+        if component_resolver is None:
+            component_resolver = self.component_resolver_class(message)
         for component_id in covered_component_ids:
             if not isinstance(component_id, Item) or not isinstance(component_id.value, str):
                 raise HTTPMessageSignaturesException("Component names must be Structured Field Strings")
             component_key = str(component_id)
+            # Reject repeated identities before resolving potentially large values.
+            # Component identity ignores parameter order (RFC 9421 section 2).
+            component_identity = (component_id.value, frozenset(component_id.params.items()))
+            if component_identity in seen_components:
+                raise HTTPMessageSignaturesException(
+                    f'Component ID "{component_key}" appeared multiple times in signature input'
+                )
+            seen_components.add(component_identity)
             component_value = component_resolver.resolve(component_id)
             if not isinstance(component_value, str):
                 raise HTTPMessageSignaturesException(f'Component value for "{component_key}" must be a string')
@@ -119,13 +129,6 @@ class HTTPSignatureHandler:
                 raise HTTPMessageSignaturesException(
                     f'Derived component "{component_key}" must be printable with no surrounding whitespace'
                 )
-            # Component identity ignores parameter order (RFC 9421 section 2).
-            component_identity = (component_id.value, frozenset(component_id.params.items()))
-            if component_identity in seen_components:
-                raise HTTPMessageSignaturesException(
-                    f'Component ID "{component_key}" appeared multiple times in signature input'
-                )
-            seen_components.add(component_identity)
             sig_elements[component_key] = component_value
         sig_params_node = InnerList(covered_component_ids)
         sig_params_node.params.update(signature_params)
@@ -185,6 +188,18 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             covered_component_nodes.append(component_name_node)
         return covered_component_nodes
 
+    def _armor_set_cookie(self, message, covered_component_nodes):
+        field_lines = {}
+        for component in covered_component_nodes:
+            if component.value != "set-cookie" or "bs" in component.params:
+                continue
+            use_request = component.params.get("req") is True
+            if use_request not in field_lines:
+                source = message.request if use_request and hasattr(message, "status_code") else message
+                field_lines[use_request] = get_header_field_lines(source.headers)
+            if len(field_lines[use_request].get("set-cookie", [])) > 1:
+                component.params["bs"] = True
+
     def sign(
         self,
         message,
@@ -217,6 +232,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             ``('\"@query-param\";name="Pet"',)``. A scalar string is rejected.
             Defaults cover request method, authority, and target URL. Responses
             require an explicit list such as ``("@status", "content-type")``.
+            Use ``('\"set-cookie\";bs',)`` to wrap individual field values as
+            Byte Sequences. Covered Set-Cookie fields with multiple values
+            automatically receive ``bs``; explicit invalid flags are rejected.
         :param append_if_signature_exists: Preserve existing signatures and add a
             new label. Otherwise replace existing signature headers.
         :raises HTTPMessageSignaturesException: A component or signature parameter
@@ -284,6 +302,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
+        self._armor_set_cookie(message, covered_component_nodes)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
         )
@@ -466,7 +485,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         if n_sigs == 0:
             raise InvalidSignature("No signatures found matching the expected tag or label")
 
-    def _verify_one(self, *, label, sig_input, signature, message, max_age):
+    def _verify_one(self, *, label, sig_input, signature, message, max_age, component_resolver_factory=None):
         self.validate_created_and_expires(sig_input, max_age=max_age)
         if "alg" in sig_input.params and sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
             raise InvalidSignature("Unexpected algorithm specified in the signature")
@@ -483,7 +502,10 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 raise InvalidSignature("Unable to resolve verification key")
             verifier = self.signature_algorithm(public_key=key)
             sig_base, sig_params_node, sig_elements = self._build_signature_base(
-                message, covered_component_ids=list(sig_input), signature_params=sig_input.params
+                message,
+                covered_component_ids=list(sig_input),
+                signature_params=sig_input.params,
+                component_resolver=component_resolver_factory() if component_resolver_factory is not None else None,
             )
             verifier.verify(signature=signature.value, message=sig_base.encode())
         except InvalidSignature:
@@ -536,12 +558,24 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 )
             else:
                 raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
+
+        # Share parsed message data across selected signatures, but never across
+        # verify() calls: callers may mutate or reuse a message between calls.
+        @cache
+        def component_resolver_factory():
+            return self.component_resolver_class(message)
+
         verify_results = []
         for label, sig_input, signature in self._get_sig_inputs_and_signatures(
             message, expect_tag=expect_tag, expect_label=expect_label
         ):
             verify_result = self._verify_one(
-                label=label, sig_input=sig_input, signature=signature, message=message, max_age=max_age
+                label=label,
+                sig_input=sig_input,
+                signature=signature,
+                message=message,
+                max_age=max_age,
+                component_resolver_factory=component_resolver_factory,
             )
             verify_results.append(verify_result)
         return verify_results

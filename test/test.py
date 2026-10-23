@@ -13,6 +13,7 @@ import sys
 import textwrap
 import time
 import unittest
+import urllib.parse
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
@@ -1363,15 +1364,17 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_created_expires(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1))
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1, timezone.utc))
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.verify(verifier, self.test_request)
         with self.assertRaisesRegex(InvalidSignature, "Signature age exceeds maximum allowable age"):
             verifier.verify(self.test_request)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now() + self.max_age)
+        signer.sign(
+            self.test_request, key_id="test-shared-secret", created=datetime.now(timezone.utc) + timedelta(days=1)
+        )
         with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
             verifier.verify(self.test_request)
-        signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1))
+        signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1, timezone.utc))
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             verifier.verify(self.test_request)
 
@@ -1470,6 +1473,103 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         )
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=5, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_many_repeated_header_lines(self):
+        # Exercise the unsigned input path. Repeated concatenation used to copy
+        # the growing combined value for each field line (quadratic work).
+        script = textwrap.dedent(
+            """
+            from types import SimpleNamespace
+            from http_message_signatures import HTTPMessageVerifier, HTTPSignatureKeyResolver, InvalidSignature
+            from http_message_signatures.algorithms import HMAC_SHA256
+            from http_message_signatures.structures import get_header_fields
+
+            count = 131072
+            value = "a" * 64
+            headers = SimpleNamespace(items=lambda: iter([("X-Padding", value)] * count))
+            assert get_header_fields(headers)["x-padding"] == ", ".join([value] * count)
+            message = SimpleNamespace(method="GET", url="https://example.com/", headers=headers)
+            verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=HTTPSignatureKeyResolver())
+            try:
+                verifier.verify(message)
+            except InvalidSignature as error:
+                assert 'Expected "Signature-Input"' in str(error)
+            else:
+                raise AssertionError("Unsigned request was accepted")
+            """
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_verification_reuses_parsed_queries_and_dictionaries(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for use_request in (False, True):
+            with self.subTest(use_request=use_request):
+                request = copy.deepcopy(self.test_request)
+                request.url = "https://example.com/?" + urlencode({f"p{i}": str(i) for i in range(128)})
+                request.headers["Example-Dict"] = ", ".join(f"p{i}={i}" for i in range(128))
+                message = copy.deepcopy(self.test_response) if use_request else request
+                if use_request:
+                    message.request = request
+                suffix = ";req" if use_request else ""
+                components = tuple(
+                    component + suffix
+                    for i in range(128)
+                    for component in (f'"@query-param";name="p{i}"', f'"example-dict";key="p{i}"')
+                )
+                for label in ("first", "second"):
+                    signer.sign(
+                        message,
+                        key_id="test-shared-secret",
+                        covered_component_ids=components,
+                        label=label,
+                        tag="shared",
+                        append_if_signature_exists=label == "second",
+                    )
+                with (
+                    patch(
+                        "http_message_signatures.resolvers.urllib.parse.parse_qs", wraps=urllib.parse.parse_qs
+                    ) as query,
+                    patch.object(Dictionary, "parse", autospec=True, side_effect=Dictionary.parse) as dictionary,
+                    patch("http_message_signatures.resolvers.parse_url", wraps=parse_url) as url,
+                ):
+                    results = verifier.verify(message, expect_tag="shared")
+                    self.assertEqual(len(results), 2)
+                    for result in results:
+                        for i in range(128):
+                            self.assertEqual(result.covered_components[f'"@query-param";name="p{i}"{suffix}'], str(i))
+                            self.assertEqual(result.covered_components[f'"example-dict";key="p{i}"{suffix}'], str(i))
+                    self.assertEqual(query.call_count, 1)
+                    self.assertEqual(dictionary.call_count, 1)
+                    self.assertEqual(url.call_count, 1)
+                # A later verification must read the changed message, even when
+                # the verifier and message objects are reused.
+                request.url += "&p0=changed"
+                with self.assertRaisesRegex(InvalidSignature, "multiple values"):
+                    verifier.verify(message, expect_tag="shared")
+                request.url = request.url.removesuffix("&p0=changed")
+                request.headers["Example-Dict"] += ", p0=999"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message, expect_tag="shared")
+
+    def test_dictionary_cache_tracks_field_values(self):
+        resolver = HTTPSignatureComponentResolver(self.test_request)
+        self.assertEqual(resolver.get_dictionary_member("example", "a=1", {"key": "a"}), "1")
+        self.assertEqual(resolver.get_dictionary_member("example", "a=2", {"key": "a"}), "2")
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "not a Dictionary"):
+            resolver.get_dictionary_member("example", "a=", {"key": "a"})
+
+    def test_duplicate_components_fail_before_repeated_resolution(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        params = '("@method" "@method");created=1618884473;keyid="test-shared-secret"'
+        set_test_signature(self.test_request, params, ['"@method": POST', '"@method": POST'])
+        with patch.object(
+            HTTPSignatureComponentResolver, "resolve", autospec=True, side_effect=HTTPSignatureComponentResolver.resolve
+        ) as resolve:
+            with self.assertRaisesRegex(InvalidSignature, "appeared multiple times"):
+                verifier.verify(self.test_request, max_age=self.max_age)
+            self.assertEqual(resolve.call_count, 1)
 
     def test_adjacent_obsolete_folds(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -1866,7 +1966,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1))
+        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1, timezone.utc))
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now() + timedelta(seconds=9))
         verifier.max_clock_skew = timedelta(seconds=10)
@@ -1908,14 +2008,153 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             resolve('"example-dict";key="e"')
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "not a Dictionary"):
             resolve('"date";key="a"')
-        for flag in ("bs", "tr"):
-            with self.assertRaisesRegex(HTTPMessageSignaturesException, "not supported"):
-                resolve(f'"example-dict";{flag}')
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "not supported"):
+            resolve('"example-dict";tr')
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown parameter"):
             resolve('"example-dict";foo="bar"')
         for key in ("a", "1", "?1"):  # Token, Integer, Boolean: the key must be a String
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a string"):
                 resolve(f'"example-dict";key={key}')
+
+    def test_binary_wrapped_field_signature_fixtures(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        # RFC 9421 section 2.1.3: the same comma-joined value has distinct bases.
+        cases = (
+            (("value, with, lots", "of, commas"), ":dmFsdWUsIHdpdGgsIGxvdHM=:, :b2YsIGNvbW1hcw==:"),
+            (("value, with, lots, of, commas",), ":dmFsdWUsIHdpdGgsIGxvdHMsIG9mLCBjb21tYXM=:"),
+            ((" \tvalue,\r\n\t with, lots\t", " of, commas "), ":dmFsdWUsIHdpdGgsIGxvdHM=:, :b2YsIGNvbW1hcw==:"),
+            (("", "\t "), "::, ::"),
+            (("caf\u00e9",), ":Y2Fm6Q==:"),
+            (("\x00\n\r\x7f\x80\xff",), ":AAoNf4D/:"),
+        )
+        for values, expected in cases:
+            with self.subTest(values=values):
+                message = copy.deepcopy(self.test_request)
+                message.headers = HTTPMessage()
+                for value in values:
+                    message.headers["Example-Header"] = value
+                component = '"example-header";bs'
+                params = f'({component});created=1618884473;keyid="test-shared-secret";alg="hmac-sha256"'
+                set_test_signature(message, params, [f"{component}: {expected}"])
+                expected_signature = message.headers["Signature"]
+                self.assertEqual(
+                    verifier.verify(message, max_age=self.max_age)[0].covered_components[component], expected
+                )
+                signer.sign(
+                    message,
+                    key_id="test-shared-secret",
+                    covered_component_ids=(component,),
+                    created=datetime.fromtimestamp(1618884473, timezone.utc),
+                )
+                self.assertEqual(message.headers["Signature-Input"], "pyhms=" + params)
+                self.assertEqual(message.headers["Signature"], expected_signature)
+
+    def test_set_cookie_automatic_binary_wrapping(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for header_type in (dict, HTTPMessage):
+            for component in ("set-cookie", '"set-cookie";bs'):
+                with self.subTest(header_type=header_type, component=component):
+                    message = copy.deepcopy(self.test_response)
+                    message.headers = header_type()
+                    message.headers["Set-Cookie"] = "a=1"
+                    message.headers["sEt-CoOkIe"] = "b=2"
+                    signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                    self.assertIn('("set-cookie";bs)', message.headers["Signature-Input"])
+                    self.assertEqual(
+                        verifier.verify(message)[0].covered_components['"set-cookie";bs'], ":YT0x:, :Yj0y:"
+                    )
+
+    def test_set_cookie_field_boundaries_are_signed(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        message = self.test_response
+        message.headers = HTTPMessage()
+        message.headers["Set-Cookie"] = "a=1"
+        message.headers["Set-Cookie"] = "b=2"
+        signer.sign(message, key_id="test-shared-secret", covered_component_ids=("set-cookie",))
+        for values in (("a=1, b=2",), ("b=2", "a=1"), ("a=1", "b=3"), ("a=1", "b=2", "")):
+            with self.subTest(values=values):
+                del message.headers["Set-Cookie"]
+                for value in values:
+                    message.headers["Set-Cookie"] = value
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message)
+
+    def test_set_cookie_without_binary_wrapping_is_rejected(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for use_request in (False, True):
+            with self.subTest(use_request=use_request):
+                message = copy.deepcopy(self.test_response)
+                source = message.request if use_request else message
+                source.headers = HTTPMessage()
+                source.headers["Set-Cookie"] = "a=1"
+                source.headers["Set-Cookie"] = "b=2"
+                component = '"set-cookie"' + (";req" if use_request else "")
+                params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                set_test_signature(message, params, [f"{component}: a=1, b=2"])
+                with self.assertRaisesRegex(InvalidSignature, 'require the "bs" parameter'):
+                    verifier.verify(message, max_age=self.max_age)
+
+    def test_set_cookie_single_and_uncovered_values(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        message = self.test_response
+        message.headers = HTTPMessage()
+        value = "a=1; Expires=Wed, 21 Oct 2015 07:28:00 GMT"
+        message.headers["Set-Cookie"] = value
+        signer.sign(message, key_id="test-shared-secret", covered_component_ids=("set-cookie",))
+        self.assertEqual(verifier.verify(message)[0].covered_components['"set-cookie"'], value)
+        message.headers["Set-Cookie"] = "b=2"
+        signer.sign(message, key_id="test-shared-secret", covered_component_ids=("@status",))
+        self.assertNotIn('"set-cookie";bs', verifier.verify(message)[0].covered_components)
+
+    def test_set_cookie_request_context_and_remote_signing(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        message = self.test_response
+        message.headers["Set-Cookie"] = "response=1"
+        message.request.headers = HTTPMessage()
+        message.request.headers["Set-Cookie"] = "a=1"
+        message.request.headers["Set-Cookie"] = "b=2"
+        prepared = signer.prepare(
+            message, key_id="test-shared-secret", covered_component_ids=("set-cookie", '"set-cookie";req')
+        )
+        signature = HMAC_SHA256(private_key=test_shared_secret).sign(prepared.signature_base)
+        signer.apply(message, prepared, signature)
+        covered = verifier.verify(message)[0].covered_components
+        self.assertEqual(covered['"set-cookie"'], "response=1")
+        self.assertEqual(covered['"set-cookie";req;bs'], ":YT0x:, :Yj0y:")
+        del message.request.headers["Set-Cookie"]
+        message.request.headers["Set-Cookie"] = "a=1, b=2"
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "changed after prepare"):
+            signer.apply(message, prepared, signature)
+
+    def test_binary_wrapping_rejects_invalid_parameters(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for values in (("a=1",), ("a=1", "b=2")):
+            for parameters, error in (
+                ("bs=?0", "must be a Boolean flag"),
+                ("bs=1", "must be a Boolean flag"),
+                ('bs="yes"', "must be a Boolean flag"),
+                ("bs;sf", "not supported"),
+                ("bs;tr", "not supported"),
+                ('bs;key="a"', "cannot be combined"),
+            ):
+                with self.subTest(values=values, parameters=parameters):
+                    message = self.test_response
+                    message.headers = HTTPMessage()
+                    for value in values:
+                        message.headers["Set-Cookie"] = value
+                    component = f'"set-cookie";{parameters}'
+                    params = f'({component});created=1618884473;keyid="test-shared-secret"'
+                    set_test_signature(message, params, [f"{component}: :YT0x:"])
+                    with self.assertRaisesRegex(InvalidSignature, error):
+                        verifier.verify(message, max_age=self.max_age)
+                    with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
+                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
 
     def test_whole_structured_field_signature_fixtures(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -2484,13 +2723,13 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_req_parameter_binds_request_components_to_a_response(self):
         # RFC 9421 section 2.4: "@authority";req in a response signature is the request's authority.
+        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
         resolver = HTTPSignatureComponentResolver(self.test_response)
         node = Item()
         node.parse(b'"@authority";req')
         self.assertEqual(resolver.resolve(node), "example.com")
         node.parse(b'"content-digest";req')
         self.assertEqual(resolver.resolve(node), self.test_request.headers["Content-Digest"])
-        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
         node.parse(b'"example-dict";req;key="b"')  # section 2.4: req combines with key
         self.assertEqual(resolver.resolve(node), "2;x=1;y=2")
         node.parse(b'"@query-param";name="Pet";req')
