@@ -1,5 +1,13 @@
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.mldsa import (
+    MLDSA44PrivateKey,
+    MLDSA44PublicKey,
+    MLDSA65PrivateKey,
+    MLDSA65PublicKey,
+    MLDSA87PrivateKey,
+    MLDSA87PublicKey,
+)
 from cryptography.hazmat.primitives.asymmetric.utils import (
     decode_dss_signature,
     encode_dss_signature,
@@ -173,6 +181,72 @@ class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
         if self.public_key and not isinstance(self.public_key, ed25519.Ed25519PublicKey):
             raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, ed25519.Ed25519PrivateKey):
+            raise HTTPMessageSignaturesException("Unexpected private key type")
+
+    def sign(self, message: bytes):
+        return self.private_key.sign(message)
+
+    def verify(self, signature: bytes, message: bytes):
+        self.public_key.verify(signature=signature, data=message)
+
+
+class MLDSA44(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-44 using PEM bytes or cryptography MLDSA44 key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
+    algorithm_id = "ml-dsa-44"
+
+    def __init__(self, public_key=None, private_key=None, password=None):
+        self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
+        if self.public_key and not isinstance(self.public_key, MLDSA44PublicKey):
+            raise HTTPMessageSignaturesException("Unexpected public key type")
+        if self.private_key and not isinstance(self.private_key, MLDSA44PrivateKey):
+            raise HTTPMessageSignaturesException("Unexpected private key type")
+
+    def sign(self, message: bytes):
+        return self.private_key.sign(message)
+
+    def verify(self, signature: bytes, message: bytes):
+        self.public_key.verify(signature=signature, data=message)
+
+
+class MLDSA65(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-65 using PEM bytes or cryptography MLDSA65 key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
+    algorithm_id = "ml-dsa-65"
+
+    def __init__(self, public_key=None, private_key=None, password=None):
+        self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
+        if self.public_key and not isinstance(self.public_key, MLDSA65PublicKey):
+            raise HTTPMessageSignaturesException("Unexpected public key type")
+        if self.private_key and not isinstance(self.private_key, MLDSA65PrivateKey):
+            raise HTTPMessageSignaturesException("Unexpected private key type")
+
+    def sign(self, message: bytes):
+        return self.private_key.sign(message)
+
+    def verify(self, signature: bytes, message: bytes):
+        self.public_key.verify(signature=signature, data=message)
+
+
+class MLDSA87(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-87 using PEM bytes or cryptography MLDSA87 key objects.
+
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
+    algorithm_id = "ml-dsa-87"
+
+    def __init__(self, public_key=None, private_key=None, password=None):
+        self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
+        if self.public_key and not isinstance(self.public_key, MLDSA87PublicKey):
+            raise HTTPMessageSignaturesException("Unexpected public key type")
+        if self.private_key and not isinstance(self.private_key, MLDSA87PrivateKey):
             raise HTTPMessageSignaturesException("Unexpected private key type")
 
     def sign(self, message: bytes):
