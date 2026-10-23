@@ -13,6 +13,7 @@ import sys
 import textwrap
 import time
 import unittest
+import urllib.parse
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
@@ -1368,7 +1369,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.verify(verifier, self.test_request)
         with self.assertRaisesRegex(InvalidSignature, "Signature age exceeds maximum allowable age"):
             verifier.verify(self.test_request)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now(timezone.utc) + timedelta(days=1))
+        signer.sign(
+            self.test_request, key_id="test-shared-secret", created=datetime.now(timezone.utc) + timedelta(days=1)
+        )
         with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
             verifier.verify(self.test_request)
         signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1, timezone.utc))
@@ -1470,6 +1473,103 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         )
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=5, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_many_repeated_header_lines(self):
+        # Exercise the unsigned input path. Repeated concatenation used to copy
+        # the growing combined value for each field line (quadratic work).
+        script = textwrap.dedent(
+            """
+            from types import SimpleNamespace
+            from http_message_signatures import HTTPMessageVerifier, HTTPSignatureKeyResolver, InvalidSignature
+            from http_message_signatures.algorithms import HMAC_SHA256
+            from http_message_signatures.structures import get_header_fields
+
+            count = 131072
+            value = "a" * 64
+            headers = SimpleNamespace(items=lambda: iter([("X-Padding", value)] * count))
+            assert get_header_fields(headers)["x-padding"] == ", ".join([value] * count)
+            message = SimpleNamespace(method="GET", url="https://example.com/", headers=headers)
+            verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=HTTPSignatureKeyResolver())
+            try:
+                verifier.verify(message)
+            except InvalidSignature as error:
+                assert 'Expected "Signature-Input"' in str(error)
+            else:
+                raise AssertionError("Unsigned request was accepted")
+            """
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_verification_reuses_parsed_queries_and_dictionaries(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for use_request in (False, True):
+            with self.subTest(use_request=use_request):
+                request = copy.deepcopy(self.test_request)
+                request.url = "https://example.com/?" + urlencode({f"p{i}": str(i) for i in range(128)})
+                request.headers["Example-Dict"] = ", ".join(f"p{i}={i}" for i in range(128))
+                message = copy.deepcopy(self.test_response) if use_request else request
+                if use_request:
+                    message.request = request
+                suffix = ";req" if use_request else ""
+                components = tuple(
+                    component + suffix
+                    for i in range(128)
+                    for component in (f'"@query-param";name="p{i}"', f'"example-dict";key="p{i}"')
+                )
+                for label in ("first", "second"):
+                    signer.sign(
+                        message,
+                        key_id="test-shared-secret",
+                        covered_component_ids=components,
+                        label=label,
+                        tag="shared",
+                        append_if_signature_exists=label == "second",
+                    )
+                with (
+                    patch(
+                        "http_message_signatures.resolvers.urllib.parse.parse_qs", wraps=urllib.parse.parse_qs
+                    ) as query,
+                    patch.object(Dictionary, "parse", autospec=True, side_effect=Dictionary.parse) as dictionary,
+                    patch("http_message_signatures.resolvers.parse_url", wraps=parse_url) as url,
+                ):
+                    results = verifier.verify(message, expect_tag="shared")
+                    self.assertEqual(len(results), 2)
+                    for result in results:
+                        for i in range(128):
+                            self.assertEqual(result.covered_components[f'"@query-param";name="p{i}"{suffix}'], str(i))
+                            self.assertEqual(result.covered_components[f'"example-dict";key="p{i}"{suffix}'], str(i))
+                    self.assertEqual(query.call_count, 1)
+                    self.assertEqual(dictionary.call_count, 1)
+                    self.assertEqual(url.call_count, 1)
+                # A later verification must read the changed message, even when
+                # the verifier and message objects are reused.
+                request.url += "&p0=changed"
+                with self.assertRaisesRegex(InvalidSignature, "multiple values"):
+                    verifier.verify(message, expect_tag="shared")
+                request.url = request.url.removesuffix("&p0=changed")
+                request.headers["Example-Dict"] += ", p0=999"
+                with self.assertRaises(InvalidSignature):
+                    verifier.verify(message, expect_tag="shared")
+
+    def test_dictionary_cache_tracks_field_values(self):
+        resolver = HTTPSignatureComponentResolver(self.test_request)
+        self.assertEqual(resolver.get_dictionary_member("example", "a=1", {"key": "a"}), "1")
+        self.assertEqual(resolver.get_dictionary_member("example", "a=2", {"key": "a"}), "2")
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "not a Dictionary"):
+            resolver.get_dictionary_member("example", "a=", {"key": "a"})
+
+    def test_duplicate_components_fail_before_repeated_resolution(self):
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        params = '("@method" "@method");created=1618884473;keyid="test-shared-secret"'
+        set_test_signature(self.test_request, params, ['"@method": POST', '"@method": POST'])
+        with patch.object(
+            HTTPSignatureComponentResolver, "resolve", autospec=True, side_effect=HTTPSignatureComponentResolver.resolve
+        ) as resolve:
+            with self.assertRaisesRegex(InvalidSignature, "appeared multiple times"):
+                verifier.verify(self.test_request, max_age=self.max_age)
+            self.assertEqual(resolve.call_count, 1)
 
     def test_adjacent_obsolete_folds(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -2623,13 +2723,13 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_req_parameter_binds_request_components_to_a_response(self):
         # RFC 9421 section 2.4: "@authority";req in a response signature is the request's authority.
+        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
         resolver = HTTPSignatureComponentResolver(self.test_response)
         node = Item()
         node.parse(b'"@authority";req')
         self.assertEqual(resolver.resolve(node), "example.com")
         node.parse(b'"content-digest";req')
         self.assertEqual(resolver.resolve(node), self.test_request.headers["Content-Digest"])
-        self.test_request.headers["Example-Dict"] = "a=1, b=2;x=1;y=2"
         node.parse(b'"example-dict";req;key="b"')  # section 2.4: req combines with key
         self.assertEqual(resolver.resolve(node), "2;x=1;y=2")
         node.parse(b'"@query-param";name="Pet";req')

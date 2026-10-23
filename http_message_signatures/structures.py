@@ -119,11 +119,4 @@ def get_header_field_lines(headers):
 
 def get_header_fields(headers):
     """Combine all field lines exposed by items(), preserving their wire order."""
-    fields = CaseInsensitiveDict()
-    for name, value in headers.items():
-        value = normalize_header_value(value)
-        if name in fields:
-            fields[name] += ", " + value
-        else:
-            fields[name] = value
-    return fields
+    return CaseInsensitiveDict((name, ", ".join(values)) for name, values in get_header_field_lines(headers).items())
