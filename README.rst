@@ -110,11 +110,12 @@ Pass ``prepared.signature_base`` to the signing algorithm as bytes, without base
 component list and signed metadata. Do not rebuild either value yourself. The selected algorithm applies to the remote
 signer even when ``include_alg=False``; omitting the parameter does not negotiate an algorithm.
 
-Remote clients differ in their accepted input and output formats. Configure the algorithm as specified in
+External signing services differ in their accepted input and output formats. When calling a signing service, configure
+its signing operation according to
 `RFC 9421 section 3.3 <https://www.rfc-editor.org/rfc/rfc9421.html#section-3.3>`_. Ed25519 signs the base without prehashing.
-For RSA and ECDSA, a client that accepts raw messages must perform the specified hashing; a client that accepts a digest
-must receive that digest and be configured to avoid hashing it a second time. The RSA-PSS profile uses SHA-512,
-MGF1 with SHA-512, and a 64-byte salt.
+For RSA and ECDSA, an API that accepts raw messages must perform the specified hashing. If the API accepts a digest,
+hash the signature base before calling it and select a mode that does not hash the digest again. The RSA-PSS profile
+uses SHA-512, MGF1 with SHA-512, and a 64-byte salt.
 
 ``apply()`` expects raw signature bytes and performs the Structured Field base64 encoding. Decode base64 responses
 from a service before calling it. ECDSA P-256 clients often return DER, while RFC 9421 requires a 64-byte concatenation
