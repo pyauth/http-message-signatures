@@ -1,3 +1,13 @@
+Changes for v2.2.0 (2026-10-22)
+===============================
+
+-  Support bs field wrapping and reduce pre-verification parsing work
+   (#40)
+
+-  Support whole-field Structured Fields serialization (#38)
+
+-  Documentation improvements
+
 Changes for v2.1.0 (2026-10-18)
 ===============================
 
