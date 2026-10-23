@@ -22,6 +22,7 @@ from typing import ClassVar, get_type_hints
 from unittest.mock import patch
 from urllib.parse import urlencode
 
+import http_sf
 import requests
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -2192,6 +2193,64 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 message.headers[name] = changed
                 with self.assertRaises(InvalidSignature):
                     verifier.verify(message, max_age=self.max_age)
+
+    def test_verification_reuses_whole_structured_fields(self):
+        signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        for response in (False, True):
+            with self.subTest(response=response):
+                request = copy.deepcopy(self.test_request)
+                request.headers.update({"Priority": "foo, foo", "Accept-CH": "foo, foo"})
+                message = copy.deepcopy(self.test_response) if response else request
+                expected = {'"priority";sf': "foo", '"accept-ch";sf': "foo, foo"}
+                if response:
+                    message.request = request
+                    message.headers.update({"Priority": "bar, bar", "Accept-CH": "bar, bar"})
+                    expected = {
+                        '"priority";sf': "bar",
+                        '"accept-ch";sf': "bar, bar",
+                        **{component + ";req": value for component, value in expected.items()},
+                    }
+                for label in ("first", "second"):
+                    signer.sign(
+                        message,
+                        key_id="test-shared-secret",
+                        covered_component_ids=tuple(expected),
+                        label=label,
+                        tag="shared",
+                        append_if_signature_exists=label == "second",
+                    )
+                with patch("http_message_signatures.resolvers.http_sf", wraps=http_sf) as sf:
+                    results = verifier.verify(message, expect_tag="shared")
+                    self.assertEqual(len(results), 2)
+                    for result in results:
+                        for component, value in expected.items():
+                            self.assertEqual(result.covered_components[component], value)
+                    self.assertEqual(sf.parse.call_count, len(expected))
+                    self.assertEqual(sf.ser.call_count, len(expected))
+                # Cached canonical values must not survive a verification call.
+                for source in (request, message) if response else (request,):
+                    previous = source.headers["Priority"]
+                    source.headers["Priority"] = "changed"
+                    with self.assertRaises(InvalidSignature):
+                        verifier.verify(message, expect_tag="shared")
+                    source.headers["Priority"] = previous
+
+    def test_whole_structured_field_cache_preserves_parameter_validation(self):
+        self.test_request.headers["Priority"] = "u=3"
+        resolver = HTTPSignatureComponentResolver(self.test_request)
+        component = Item("priority")
+        component.params["sf"] = True
+        self.assertEqual(resolver.resolve(component), "u=3")
+        for invalid in (False, 1, "yes"):
+            with self.subTest(invalid=invalid):
+                component.params["sf"] = invalid
+                with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a Boolean flag"):
+                    resolver.resolve(component)
+        component.params["sf"] = True
+        component.params["bs"] = True
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "not supported"):
+            resolver.resolve(component)
 
     def test_whole_structured_field_multiple_header_lines(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)

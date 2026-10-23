@@ -52,6 +52,8 @@ class VerifyResult(NamedTuple):
 def normalize_header_value(value: str) -> str:
     # RFC 9421 section 2.1: unfold obsolete HTTP/1.1 line folding and trim OWS.
     # Bare CR/LF are not folds and must remain visible to validation.
+    if "\r\n" not in value:
+        return value.strip(" \t")
     # Only try preceding OWS at the start of a whitespace run, avoiding
     # quadratic retries. CRLF can still match after a previous fold's RWS.
     return re.sub(r"(?:(?<![ \t])[ \t]+)?\r\n[ \t]+", " ", value).strip(" \t")

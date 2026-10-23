@@ -73,6 +73,7 @@ class HTTPSignatureComponentResolver:
             (name, ", ".join(values)) for name, values in self.header_field_lines.items()
         )
         self._parsed_dictionaries: dict[str, Dictionary] = {}
+        self._serialized_structured_fields: dict[tuple[str, str], str] = {}
 
     @cached_property
     def _request_resolver(self):
@@ -123,9 +124,12 @@ class HTTPSignatureComponentResolver:
         if set(params) == {"sf"}:
             if params["sf"] is not True:
                 raise HTTPMessageSignaturesException('The "sf" parameter must be a Boolean flag')
+            cache_key = (component_id, field_value)
+            if cache_key in self._serialized_structured_fields:
+                return self._serialized_structured_fields[cache_key]
             try:
                 parsed = http_sf.parse(field_value.encode(), name=component_id)
-                return http_sf.ser(parsed)
+                serialized = http_sf.ser(parsed)
             except KeyError as e:
                 raise HTTPMessageSignaturesException(
                     f'Unknown Structured Field type for covered field "{component_id}"'
@@ -134,6 +138,8 @@ class HTTPSignatureComponentResolver:
                 raise HTTPMessageSignaturesException(
                     f'Covered field "{component_id}" is not valid for its registered Structured Field type'
                 ) from e
+            self._serialized_structured_fields[cache_key] = serialized
+            return serialized
         if set(params) == {"bs"}:
             if params["bs"] is not True:
                 raise HTTPMessageSignaturesException('The "bs" parameter must be a Boolean flag')

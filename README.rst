@@ -225,21 +225,6 @@ target. This is necessary for absolute-form proxy requests and asterisk-form ``O
 forms cannot be inferred from an absolute URL. Without this attribute, the resolver derives origin form from the
 URL, or authority form for ``CONNECT``. The supplied target and URL must describe the same request.
 
-Pre-verification processing
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Untrusted signature headers are parsed with ``http_sf``. Repeated header lines are accumulated and joined once,
-and query strings and Dictionary fields are parsed once per resolver. Response components marked ``req`` reuse
-the associated request's resolver. A ``verify()`` call shares these parsed values across selected signatures;
-later calls create fresh resolvers so message changes are observed. Keep the message and associated request
-stable during signing or verification. Users resolving components directly should create a new resolver after
-changing either message.
-
-The library does not impose input-size or component-count limits. Signature-base expansion can amplify
-processing work: distinct ``@query-param`` components can use different percent-encoded names that select the
-same large value, and multiple selected signatures can each cover large values. Building and hashing the
-resulting bases requires work proportional to their expanded size, which can exceed the wire input size.
-
 Multiple signatures
 ~~~~~~~~~~~~~~~~~~~
 
