@@ -47,9 +47,10 @@ Synopsis
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request)
 
-Note that verifying the body content-digest is outside the scope of this package's functionality, so it remains the
-caller's responsibility. The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
-builds upon this package to provide integrated signing and validation of the request body.
+The base API reads no body implicitly. Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
+and cover Content-Digest, or to ``verify()`` to validate the signed digest. The HTTPX integration below manages these
+bytes automatically. The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
+provides a Requests integration.
 
 .. admonition:: See what is signed
 
@@ -70,14 +71,180 @@ builds upon this package to provide integrated signing and validation of the req
  * algorithm: (same as signature_algorithm above)
  * covered_components: A mapping of component names to their values, as covered by the signature
  * parameters: A mapping of signature parameters to their values, as covered by the signature
- * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
-   implements returning the body upon successful digest validation).
+ * body: Content bytes before decoding after successful digest validation, or ``None`` when no digest was validated.
+
+HTTPX integration
+~~~~~~~~~~~~~~~~~
+
+Install the optional dependency::
+
+    pip install 'http-message-signatures[httpx]'
+
+``SignatureHooks`` signs prepared requests and verifies responses through HTTPX event hooks. Supply a signing key,
+trusted response keys, and an algorithm directly. PEM bytes and cryptography key objects work for asymmetric algorithms;
+HMAC uses shared secret bytes. The client and server keys need not be the same::
+
+    import httpx
+    from http_message_signatures import algorithms
+    from http_message_signatures.httpx import SignatureHooks
+
+    signatures = SignatureHooks(
+        origin="https://api.example.com",
+        key_id="client-1",
+        signing_key=client_private_key,
+        verification_keys={"server-1": server_public_key},
+        signature_algorithm=algorithms.ED25519,
+        tag="example-api",
+        require_components=("@status", '"@method";req', '"@target-uri";req'),
+    )
+
+    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.post("https://api.example.com/items", json={"hello": "world"})
+        response.raise_for_status()
+        data = response.json()
+        results = response.extensions["http_message_signatures"]
+
+The server must return a signature from one of the configured verification keys, using the selected algorithm and
+application tag. This example explicitly requires status and request method/URL coverage. A nonempty response, or any
+response carrying Content-Digest, also requires a signed digest of the response's content. A digest of request content
+selected using ``;req`` does not satisfy this requirement. Missing signatures, untrusted keys, insufficient configured
+coverage, and body mismatches raise ``InvalidSignature`` before later response hooks or the caller receive the response.
+Normal HTTP status handling remains with the application; signed error responses are verified too.
+
+Use the async hook collection with ``AsyncClient``::
+
+    async with httpx.AsyncClient(event_hooks=signatures.async_event_hooks) as client:
+        response = await client.post("https://api.example.com/items", json={"hello": "world"})
+        data = response.json()
+
+Configuration and defaults
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Keyword options from ``HTTPMessageSigner.sign()`` and ``HTTPMessageVerifier.verify()`` can be supplied directly to
+``SignatureHooks``. For example, ``covered_component_ids``, ``include_alg``, ``label``, ``expires``, and ``nonce`` go to
+signing; ``max_age``, ``expect_tag``, ``expect_label``, and ``require_components`` go to verification. An explicitly
+supplied ``tag`` also supplies ``expect_tag`` unless that option is separately supplied. Unknown options raise
+``TypeError`` during construction.
+The hooks manage ``body`` and forward ``key_id`` to signing.
+
+Unspecified signature options are omitted from base method calls. Their defaults remain owned by the base implementation:
+the hooks do not generate nonces, introduce expiration times, shorten the age limit, alter signature selection, or require
+status/request binding implicitly. In particular, ``require_components`` above is explicit application policy. Add every
+header or derived component your application relies on; unrelated unsigned fields are not authenticated. For example::
+
+    signatures = SignatureHooks(
+        origin="https://api.example.com",
+        key_id="client-1",
+        signing_key=client_private_key,
+        verification_keys={"server-1": server_public_key},
+        signature_algorithm=algorithms.ED25519,
+        covered_component_ids=("@method", "@target-uri", "content-type", "authorization"),
+        require_components=("@status", "content-type", '"@target-uri";req'),
+    )
+
+The named fields must exist. Content-Digest is generated and covered automatically by the base signer's ``body=``
+support, including for empty requests. Each selected response signature must independently satisfy required coverage
+and body validation; coverage is never combined across signatures. Empty content with no digest does not acquire a
+digest requirement. A present digest of empty content is verified. ``Content-Digest`` refers to received content, not
+``Repr-Digest``; this distinction also applies to HEAD and partial responses.
+
+``signer_class`` and ``verifier_class`` can be overridden on a ``SignatureHooks`` subclass to use base subclasses.
+For example, customize ``HTTPMessageVerifier.max_clock_skew`` there. To generate SHA-512 digests, subclass
+``ContentDigest`` with ``algorithm = "sha-512"`` and assign it to the signer's ``content_digest_class``.
+The configured signature algorithm is never selected from untrusted message metadata.
+
+Hook ordering and redirects
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Place signing after any request hooks that modify the message, and verification before response consumers::
+
+    hooks = signatures.event_hooks
+    hooks["request"].insert(0, add_application_headers)
+    hooks["response"].append(log_verified_response)
+
+The hook collections are fresh lists, so modifying one does not change future collections. Async clients require async
+application hooks as well. Do not modify a signed request afterward. Ordinary HTTPX TLS verification remains enabled;
+message signatures do not replace TLS.
+
+HTTPX invokes request hooks for each redirected request. The integration checks the configured origin before consuming
+the request body or sending it, and recalculates the digest and signature for the new method, URL, and content. This
+also removes stale digest values when a POST redirect becomes a bodyless GET. Other origins, including scheme or port
+changes, are rejected; verification keys are scoped to the same origin. Redirect following retains HTTPX's default
+behavior. If you enable redirects, require signed ``location`` coverage as part of your protocol. Other configured
+options retain base semantics: for example, appending a signature with an already present label raises an error.
+Nonce replay detection remains application/server responsibility.
+
+Buffering and content decoding
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Both hook collections buffer entire request and response bodies. Upload files and iterators are consumed before sending.
+Even ``client.stream()`` and ``client.send(..., stream=True)`` wait for response-body validation before returning a response.
+These hooks are unsuitable for unbounded streams and streaming protocols. Budget memory for encoded and decoded response
+content; this integration does not impose a size limit or provide incremental authenticity guarantees.
+
+Response signatures and configured coverage are verified first. The integration then captures bytes before content
+decoding while HTTPX reads the response, and validates the signed digest of those bytes. HTTPX retains its normal
+decompression and text/JSON decoding. ``response.content`` is decoded content; ``VerifyResult.body`` contains the
+authenticated bytes before decoding. ``iter_bytes()`` can iterate buffered decoded content, but the raw network stream
+has been consumed. Failed processing closes the response, including async failures.
+
+Install verification before hooks that read the body. A response already buffered without content encoding can still
+be checked. An already consumed encoded response is rejected because the original bytes are no longer recoverable.
+Custom HTTPX clients and test doubles must expose unread encoded bytes through the public response stream to verify
+compressed responses.
+
+Repeated headers and cookies
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The integration adapts HTTPX's ``headers.raw`` so original field lines, order, and bytes reach the base implementation.
+It does not use HTTPX's comma-joined ``headers.items()`` or alter HTTPX's own header container. This supports binary
+wrapping (``;bs``), multiple Set-Cookie lines, repeated signature fields, and request fields referenced by a response.
+For direct calls to the base API with HTTPX objects, use the same adapter::
+
+    from http_message_signatures.httpx import adapt_message
+
+    results = verifier.verify(adapt_message(response))
+
+This direct call does not capture or verify a body unless you provide its encoded bytes through ``body=``.
+
+.. warning::
+
+ HTTPX updates its client cookie jar before running response hooks. Verification failure does not undo cookie changes,
+ even when Set-Cookie coverage is required. These hooks therefore do not provide authenticated automatic cookie
+ persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX response
+ lifecycle, such as an HTTPX transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
+
+Shared body and key utilities
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The body support is independent of HTTPX and can also serve Requests or server integrations::
+
+    signer.sign(message, key_id="client-1", body=encoded_body)
+    results = verifier.verify(message, body=encoded_body, require_components=("@method",))
+
+``sign()`` and ``prepare()`` replace Content-Digest with the digest of supplied bytes and add digest coverage if needed.
+An explicitly selected digest member is preserved. Without ``body=``, these methods retain their existing header-only
+behavior; ``prepare()`` does not modify the message in that case. For external signing, keep the prepared digest and
+message content unchanged through ``apply()`` and sending. The base API does not check the provenance of supplied bytes.
+
+Clients that authenticate headers before reading content can call ``verify_body(message, results, encoded_body)`` after
+``verify()``. This completes digest validation without repeating cryptographic signature verification. Pass only results
+from verification of that unchanged message and its own encoded content. ``ContentDigest.create()`` and
+``ContentDigest.verify()`` provide the shared SHA-256/SHA-512 field helpers; dictionary-member validation uses ``key=``.
+Malformed, duplicate, unsupported, wrongly typed, and mismatched digests fail validation. ``MappingKeyResolver`` supplies
+a reusable resolver with separate ``public_keys`` and ``private_keys`` mappings, including for HMAC.
+
+A follow-up in `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ can delegate body signing,
+required-component checks, and digest verification to these base methods,
+and replace its fixed-key resolver with ``MappingKeyResolver``. Requests-specific body access, date handling, and auth
+lifecycle stay in that integration; its existing coverage and nonce defaults need not change.
 
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
-``prepare()`` builds the RFC 9421 signature base without reading a private key or modifying the message.
+``prepare()`` builds the RFC 9421 signature base without reading a private key. It leaves the message unchanged unless
+``body=`` is supplied to generate its digest.
 It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
