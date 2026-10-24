@@ -119,6 +119,62 @@ class TestContentDigest(SignatureTestCase):
         with self.assertRaises(InvalidSignature):
             ContentDigest.verify(value, b"other", key="sha-256")
 
+    def test_digest_generation_refuses_existing_fields_without_mutation(self):
+        for header_type in (dict, HTTPMessage):
+            for value in (ContentDigest.create(b"hello"), "stale or malformed", ""):
+                for method in (self.signer.sign, self.signer.prepare):
+                    with self.subTest(header_type=header_type, value=value, method=method.__name__):
+                        headers = header_type()
+                        headers["cOnTeNt-DiGeSt"] = value
+                        message = SimpleNamespace(method="POST", url=ORIGIN, headers=headers)
+                        before = list(headers.items())
+                        with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+                            method(message, key_id="client", body=b"hello")
+                        self.assertEqual(list(headers.items()), before)
+
+    def test_appending_preserves_existing_digest_and_signature(self):
+        class SHA512(ContentDigest):
+            algorithm = "sha-512"
+
+        class FirstSigner(HTTPMessageSigner):
+            content_digest_class = SHA512
+
+        first_signer = FirstSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=self.keys)
+        message = SimpleNamespace(method="POST", url=ORIGIN, headers=HTTPMessage())
+        first_signer.sign(message, key_id="client", body=b"hello", label="first", tag="api")
+        before = list(message.headers.items())
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+            self.signer.sign(
+                message, key_id="client", body=b"hello", label="second", tag="api", append_if_signature_exists=True
+            )
+        self.assertEqual(list(message.headers.items()), before)
+        self.verifier.verify(message, expect_tag="api", body=b"hello")
+        # Reuse an existing digest explicitly, without asking the signer to add one.
+        self.signer.sign(
+            message,
+            key_id="client",
+            covered_component_ids=("content-digest",),
+            label="second",
+            tag="api",
+            append_if_signature_exists=True,
+        )
+        self.assertEqual(len(self.verifier.verify(message, expect_tag="api", body=b"hello")), 2)
+
+    def test_prepare_override_receives_body_keyword(self):
+        received = []
+
+        class Signer(HTTPMessageSigner):
+            def prepare(self, message, *, body, **options):
+                received.append(body)
+                return super().prepare(message, body=body, **options)
+
+        signer = Signer(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=self.keys)
+        for body in (None, b"hello"):
+            request = httpx.Request("POST", ORIGIN, content=b"hello")
+            signer.sign(adapt_message(request), key_id="client", body=body)
+            self.verifier.verify(adapt_message(request), body=body)
+        self.assertEqual(received, [None, b"hello"])
+
     def test_base_body_signing_is_opt_in(self):
         request = httpx.Request("POST", ORIGIN, content=b"hello")
         message = adapt_message(request)
@@ -320,7 +376,7 @@ class TestSignatureHooks(SignatureTestCase):
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].covered_components['"example"'], "one, two")
 
-    def test_redirect_resigns_method_url_and_digest(self):
+    def test_redirect_requires_fresh_request_without_inherited_digest(self):
         hooks = self.hooks()
         requests = []
 
@@ -334,15 +390,17 @@ class TestSignatureHooks(SignatureTestCase):
                 self.signer.sign(
                     adapt_message(response),
                     key_id="server",
-                    covered_component_ids=("@status", "location"),
-                    body=b'{"ok":true}',
+                    covered_component_ids=("@status", "location", "content-digest"),
                 )
             return response
 
         with httpx.Client(
             transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks, follow_redirects=True
         ) as client:
-            client.post(ORIGIN, content=b"original")
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+                client.post(ORIGIN, content=b"original")
+            self.assertEqual(len(requests), 1)
+            client.get(ORIGIN + "/next")
         self.assertEqual(requests, [("POST", ORIGIN, b"original"), ("GET", ORIGIN + "/next", b"")])
 
     def test_origin_is_checked_before_reading_or_sending(self):
@@ -356,7 +414,7 @@ class TestSignatureHooks(SignatureTestCase):
                 hooks.sign_request(httpx.Request("GET", destination))
         hooks.sign_request(httpx.Request("GET", "https://example.com:443/"))
 
-    def test_streamed_upload_can_be_replayed_on_307(self):
+    def test_streamed_upload_redirect_refuses_inherited_digest(self):
         upload = SyncBody(b"streamed upload")
         seen = []
 
@@ -367,15 +425,18 @@ class TestSignatureHooks(SignatureTestCase):
                 response.status_code = 307
                 response.headers["Location"] = "/next"
                 self.signer.sign(
-                    adapt_message(response), key_id="server", covered_component_ids=("@status",), body=b'{"ok":true}'
+                    adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
                 )
             return response
 
-        with httpx.Client(
-            transport=httpx.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
-        ) as client:
+        with (
+            httpx.Client(
+                transport=httpx.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
+            ) as client,
+            self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"),
+        ):
             client.post(ORIGIN, content=upload)
-        self.assertEqual(seen, [b"streamed upload", b"streamed upload"])
+        self.assertEqual(seen, [b"streamed upload"])
         self.assertEqual(upload.reads, 1)
 
     def test_cross_origin_redirect_is_not_sent(self):
@@ -387,7 +448,7 @@ class TestSignatureHooks(SignatureTestCase):
             response.status_code = 302
             response.headers["Location"] = "https://other.example/"
             self.signer.sign(
-                adapt_message(response), key_id="server", covered_component_ids=("@status",), body=b'{"ok":true}'
+                adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
             )
             return response
 
@@ -457,6 +518,42 @@ class TestSignatureHooks(SignatureTestCase):
         with self.assertRaises(InvalidSignature):
             hooks.verify_response(response)
 
+    def test_forwarding_subclasses_accept_base_and_explicit_custom_options(self):
+        observed = []
+
+        class Signer(HTTPMessageSigner):
+            def sign(self, message, *, signing_context=None, **options):
+                observed.append(("sign", signing_context, options))
+                return super().sign(message, **options)
+
+        class Verifier(HTTPMessageVerifier):
+            def verify(self, message, *, verification_context=None, **options):
+                observed.append(("verify", verification_context, options))
+                return super().verify(message, **options)
+
+        class Hooks(SignatureHooks):
+            signer_class = Signer
+            verifier_class = Verifier
+
+        config = {
+            "origin": ORIGIN,
+            "key_id": "client",
+            "signing_key": SECRET,
+            "verification_keys": {"server": SECRET},
+            "signature_algorithm": algorithms.HMAC_SHA256,
+        }
+        hooks = Hooks(**config, include_alg=False, max_age=None, signing_context="out", verification_context="in")
+        request = httpx.Request("GET", ORIGIN)
+        hooks.sign_request(request)
+        hooks.verify_response(self.response(request))
+        self.assertEqual(observed[0], ("sign", "out", {"key_id": "client", "body": b"", "include_alg": False}))
+        self.assertEqual(observed[1], ("verify", "in", {"max_age": None}))
+        defaults = Hooks(**config)
+        self.assertEqual(defaults.signing_options, {})
+        self.assertEqual(defaults.verification_options, {})
+        with self.assertRaisesRegex(TypeError, "Unknown signature option"):
+            Hooks(**config, max_ag=None)
+
     def test_asymmetric_keys_and_untrusted_key_id(self):
         client_key, server_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
         hooks = SignatureHooks(
@@ -514,7 +611,7 @@ class TestSignatureHooks(SignatureTestCase):
                 response = self.response(request, body)
                 response.status_code = status
                 self.signer.sign(
-                    adapt_message(response), key_id="server", covered_component_ids=("@status",), body=body
+                    adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
                 )
                 self.hooks().verify_response(response)
                 self.assertEqual(response.extensions["http_message_signatures"][0].body, body)

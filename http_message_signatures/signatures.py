@@ -10,6 +10,7 @@ import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
 from .algorithms import HTTPSignatureAlgorithm
+from .components import component_map, normalized_component_key, parse_component_ids
 from .digests import ContentDigest, is_content_digest
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
@@ -18,8 +19,6 @@ from .structures import (
     VerifyResult,
     get_header_field_lines,
     get_header_fields,
-    normalized_component_key,
-    parse_component_ids,
 )
 
 logger = logging.getLogger(__name__)
@@ -238,7 +237,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             new label. Otherwise replace existing signature headers.
         :param body: Optional content bytes before decoding. Generate Content-Digest
             and add its coverage when supplied, including for empty content.
-            A supplied digest is replaced with the digest of these bytes.
+            An existing Content-Digest field causes an error without replacement.
         :raises HTTPMessageSignaturesException: A component or signature parameter
             is invalid or an existing signature cannot be appended to.
 
@@ -286,6 +285,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         Supplying ``body`` sets Content-Digest and adds digest coverage. Otherwise
         the message is not modified. Keep the supplied bytes associated with the
         message; this method does not read or validate its body independently.
+        An existing Content-Digest field is rejected when ``body`` is supplied.
+        Subclass overrides must accept ``body`` (or forward keyword arguments):
+        ``sign()`` passes it even when its value is ``None``.
 
         :returns: Immutable signing input for a synchronous or asynchronous signer.
             Sign ``signature_base`` with the configured algorithm and the key
@@ -310,7 +312,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
         if body is not None:
-            message.headers["Content-Digest"] = self.content_digest_class.create(body)
+            self.content_digest_class.add(message.headers, body)
             if not any(is_content_digest(node) for node in covered_component_nodes):
                 covered_component_nodes.append(Item("content-digest"))
         self._armor_set_cookie(message, covered_component_nodes)
@@ -578,9 +580,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             else:
                 raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
 
-        required = [normalized_component_key(node) for node in parse_component_ids(require_components)]
-        if len(required) != len(set(required)):
-            raise HTTPMessageSignaturesException("Duplicate required component identifier")
+        required = component_map(require_components)
 
         # Share parsed message data across selected signatures, but never across
         # verify() calls: callers may mutate or reuse a message between calls.
@@ -600,9 +600,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 max_age=max_age,
                 component_resolver_factory=component_resolver_factory,
             )
-            covered = {
-                normalized_component_key(node) for node in parse_component_ids(tuple(verify_result.covered_components))
-            }
+            covered = component_map(tuple(verify_result.covered_components))
             for component in required:
                 if component not in covered:
                     raise InvalidSignature(f"Required component {component} was not covered by the signature")
@@ -624,12 +622,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         needs_digest = bool(body) or "content-digest" in get_header_fields(message.headers)
         verified = []
         for result in results:
-            digest_verified = False
-            for identifier, value in result.covered_components.items():
-                node = parse_component_ids((identifier,))[0]
-                if is_content_digest(node):
-                    self.content_digest_class.verify(value, body, key=node.params.get("key"))
-                    digest_verified = True
+            digest_verified = self.content_digest_class.verify_components(result.covered_components, body)
             if needs_digest and not digest_verified:
                 raise InvalidSignature("The message body requires a signed Content-Digest")
             verified.append(result._replace(body=body) if digest_verified else result)

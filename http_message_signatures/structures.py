@@ -1,37 +1,10 @@
 import re
 from collections import OrderedDict
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from http_sf.compat import Item
-
 from .algorithms import HTTPSignatureAlgorithm
-from .exceptions import HTTPMessageSignaturesException
-
-
-def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
-    """Parse component names using the signer's Structured Field convention."""
-    if isinstance(component_ids, (str, bytes, bytearray)):
-        raise HTTPMessageSignaturesException(
-            'covered_component_ids must be a sequence of component strings, such as ("date",)'
-        )
-    nodes = []
-    for component_id in component_ids:
-        node = Item()
-        if component_id.startswith('"'):
-            node.parse(component_id.encode())
-        else:
-            node.value = component_id
-        nodes.append(node)
-    return nodes
-
-
-def normalized_component_key(node: Item) -> str:
-    """Compare component identities without changing their signed parameter order."""
-    canonical = Item(node.value)
-    canonical.params.update(sorted(node.params.items()))
-    return str(canonical)
 
 
 @dataclass(frozen=True)

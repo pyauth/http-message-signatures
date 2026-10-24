@@ -3,64 +3,36 @@
 from collections.abc import Awaitable, Callable, Mapping
 from inspect import Parameter, signature
 from io import BytesIO
-from typing import Any
+from typing import Any, overload
 
 import httpx
 
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
+from .messages import HeaderFields, Request, Response
 from .resolvers import MappingKeyResolver, SigningKey, VerificationKey
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
 
 
-class _Headers:
-    def __init__(self, headers: httpx.Headers):
-        self.headers = headers
-
-    def items(self):
-        # Preserve field boundaries and bytes; multi_items() also decodes values.
-        return ((name.decode("ascii"), value.decode("latin-1")) for name, value in self.headers.raw)
-
-    def __iter__(self):
-        return iter(self.headers)
-
-    def __contains__(self, name):
-        return name in self.headers
-
-    def __getitem__(self, name):
-        return self.headers[name]
-
-    def __setitem__(self, name, value):
-        self.headers[name] = value
-
-    def __delitem__(self, name):
-        del self.headers[name]
+@overload
+def adapt_message(message: httpx.Request) -> Request: ...
 
 
-class _Request:
-    def __init__(self, request: httpx.Request):
-        self.headers = _Headers(request.headers)
-        self.method = request.method
-        self.url = request.url
+@overload
+def adapt_message(message: httpx.Response) -> Response: ...
 
 
-class _Response:
-    def __init__(self, response: httpx.Response):
-        self.headers = _Headers(response.headers)
-        self.status_code = response.status_code
-        self.request = _Request(response.request)
-
-
-def adapt_message(message: httpx.Request | httpx.Response) -> _Request | _Response:
+def adapt_message(message: httpx.Request | httpx.Response) -> Request | Response:
     """Expose original header lines to the base signer/verifier.
 
     Header writes reach the original message. Response request components use
     the same adapter. Use this for direct base-API calls on HTTPX objects;
     SignatureHooks applies it automatically. A response must have a request.
     """
+    headers = HeaderFields.from_raw(lambda: message.headers.raw, writable=message.headers)
     if isinstance(message, httpx.Request):
-        return _Request(message)
-    return _Response(message)
+        return Request(method=message.method, url=str(message.url), headers=headers)
+    return Response(status_code=message.status_code, headers=headers, request=adapt_message(message.request))
 
 
 class _SyncCapture(httpx.SyncByteStream):
@@ -110,6 +82,8 @@ class SignatureHooks:
     Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
     Signing belongs after request-mutating hooks; verification belongs before
     response consumers. Requests and responses are buffered, even with stream().
+    Requests with an existing Content-Digest are rejected, including redirected
+    requests that inherit that field. Build a fresh request to follow a redirect.
     Response content is captured before decoding for digest validation; normal
     HTTPX content decoding is preserved. Successful verification results are
     stored in ``response.extensions["http_message_signatures"]``.
@@ -151,8 +125,8 @@ class SignatureHooks:
         self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
         self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
         # Use the base methods' keyword names, never copy their default values.
-        signing_names = self._option_names(self.signer.sign) - {"body", "key_id"}
-        verifying_names = self._option_names(self.verifier.verify) - {"body"}
+        signing_names = self._option_names(self.signer.sign, HTTPMessageSigner.sign) - {"body", "key_id"}
+        verifying_names = self._option_names(self.verifier.verify, HTTPMessageVerifier.verify) - {"body"}
         unknown = options.keys() - (signing_names | verifying_names)
         if unknown:
             raise TypeError(f"Unknown signature option(s): {', '.join(sorted(unknown))}")
@@ -162,10 +136,16 @@ class SignatureHooks:
             self.verification_options["expect_tag"] = options["tag"]
 
     @staticmethod
-    def _option_names(method) -> set[str]:
-        return {
-            name for name, parameter in signature(method).parameters.items() if parameter.kind == Parameter.KEYWORD_ONLY
-        }
+    def _option_names(method: Callable[..., Any], base_method: Callable[..., Any]) -> set[str]:
+        parameters = signature(method).parameters
+        names = {name for name, parameter in parameters.items() if parameter.kind == Parameter.KEYWORD_ONLY}
+        if any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values()):
+            names.update(
+                name
+                for name, parameter in signature(base_method).parameters.items()
+                if parameter.kind == Parameter.KEYWORD_ONLY
+            )
+        return names
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:

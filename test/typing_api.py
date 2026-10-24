@@ -1,5 +1,7 @@
 """Public imports and result fields must retain their types for strict consumers."""
 
+import aiohttp
+import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
 
@@ -26,7 +28,9 @@ from http_message_signatures.algorithms import (
     RSA_PSS_SHA512,
     RSA_V1_5_SHA256,
 )
-from http_message_signatures.httpx import SignatureHooks
+from http_message_signatures.components import component_map
+from http_message_signatures.httpx import SignatureHooks, adapt_message
+from http_message_signatures.messages import HeaderFields, Request, Response
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:
@@ -107,6 +111,32 @@ def configure_httpx_keys(signing_key: SigningKey, verification_key: Verification
         signing_key=signing_key,
         verification_keys={"server": verification_key},
         signature_algorithm=ED25519,
+    )
+
+
+def use_shared_views(request: httpx.Request, response: httpx.Response) -> None:
+    assert_type(adapt_message(request), Request)
+    assert_type(adapt_message(response), Response)
+    fields = HeaderFields.from_raw(lambda: request.headers.raw, writable=request.headers)
+    view = Request(method=request.method, url=str(request.url), headers=fields)
+    ContentDigest.add(view.headers, b"hello")
+    assert_type(ContentDigest.verify_components({}, b"hello"), bool)
+    assert_type(component_map(("content-digest",)), dict[str, str])
+
+
+def use_aiohttp_views(request: aiohttp.ClientRequest, response: aiohttp.ClientResponse) -> Response:
+    request_view = Request(
+        method=request.method,
+        url=str(request.url),
+        headers=HeaderFields.from_raw(
+            lambda: ((name.encode("ascii"), value.encode("utf-8")) for name, value in request.headers.items()),
+            writable=request.headers,
+        ),
+    )
+    return Response(
+        status_code=response.status,
+        headers=HeaderFields.from_raw(lambda: response.raw_headers),
+        request=request_view,
     )
 
 

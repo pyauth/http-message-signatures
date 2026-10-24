@@ -40,6 +40,7 @@ tests = [
     "typing_extensions",
     "requests",
     "httpx >= 0.28.1, < 1",
+    "aiohttp >= 3.12, < 4",
     "ruff",
 ]
 

@@ -2,12 +2,15 @@
 
 import hashlib
 import hmac
+from collections.abc import Mapping
 from typing import ClassVar
 
 import http_sf
 from http_sf.compat import Dictionary, Item
 
+from .components import parse_component_ids
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
+from .messages import Headers
 
 
 def is_content_digest(component: Item) -> bool:
@@ -40,7 +43,14 @@ class ContentDigest:
         return str(Dictionary({cls.algorithm: cls._hashers[cls.algorithm](body).digest()}))
 
     @classmethod
-    def verify(cls, value: str, body: bytes, *, key: str | None = None) -> None:
+    def add(cls, headers: Headers, body: bytes) -> None:
+        """Add a digest, refusing any existing Content-Digest field without mutation."""
+        if any(name.lower() == "content-digest" for name, _ in headers.items()):
+            raise HTTPMessageSignaturesException("Cannot add Content-Digest: the field is already present")
+        headers["Content-Digest"] = cls.create(body)
+
+    @classmethod
+    def verify(cls, value: str | bytes, body: bytes, *, key: str | None = None) -> None:
         """Validate a field or selected member; raise InvalidSignature on failure."""
         cls._check_body(body)
 
@@ -50,7 +60,7 @@ class ContentDigest:
 
         try:
             parsed = http_sf.parse(
-                value.encode("ascii"),
+                value.encode("ascii") if isinstance(value, str) else value,
                 tltype="dictionary" if key is None else "item",
                 on_duplicate_key=reject_duplicate,
             )
@@ -66,3 +76,20 @@ class ContentDigest:
                 raise InvalidSignature(f"Unsupported content digest algorithm {algorithm!r}")
             if not hmac.compare_digest(member[0], cls._hashers[algorithm](body).digest()):
                 raise InvalidSignature("Content-Digest does not match the message body")
+
+    @classmethod
+    def verify_components(cls, covered_components: Mapping[str, str], body: bytes) -> bool:
+        """Validate this message's digest components in an authenticated mapping.
+
+        Pass all of VerifyResult.covered_components, or a subset selected by the
+        caller's coverage policy. Return whether a digest was validated. Request
+        components qualified with ``req`` do not cover a response's body.
+        """
+        cls._check_body(body)
+        verified = False
+        for identifier, value in covered_components.items():
+            node = parse_component_ids((identifier,))[0]
+            if is_content_digest(node):
+                cls.verify(value, body, key=node.params.get("key"))
+                verified = True
+        return verified

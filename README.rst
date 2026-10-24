@@ -167,11 +167,12 @@ application hooks as well. Do not modify a signed request afterward. Ordinary HT
 message signatures do not replace TLS.
 
 HTTPX invokes request hooks for each redirected request. The integration checks the configured origin before consuming
-the request body or sending it, and recalculates the digest and signature for the new method, URL, and content. This
-also removes stale digest values when a POST redirect becomes a bodyless GET. Other origins, including scheme or port
-changes, are rejected; verification keys are scoped to the same origin. Redirect following retains HTTPX's default
-behavior. If you enable redirects, require signed ``location`` coverage as part of your protocol. Other configured
-options retain base semantics: for example, appending a signature with an already present label raises an error.
+the request body or sending it. Other origins, including scheme or port changes, are rejected; verification keys are
+scoped to the same origin. Digest generation refuses an existing Content-Digest, including one inherited by a redirect
+or a reused signed request. Automatic redirect following therefore fails before sending the redirected request.
+Leave ``follow_redirects`` disabled and build a fresh request to follow an authenticated Location; require signed
+``location`` coverage as part of that protocol. Choose its method and body according to the redirect semantics.
+Other configured options retain base semantics: for example, appending a signature with an already present label raises an error.
 Nonce replay detection remains application/server responsibility.
 
 Buffering and content decoding
@@ -214,30 +215,96 @@ This direct call does not capture or verify a body unless you provide its encode
  persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX response
  lifecycle, such as an HTTPX transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
 
-Shared body and key utilities
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Shared integration utilities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The body support is independent of HTTPX and can also serve Requests or server integrations::
+The body support is independent of HTTPX and can also serve Requests, aiohttp, or server integrations::
 
     signer.sign(message, key_id="client-1", body=encoded_body)
     results = verifier.verify(message, body=encoded_body, require_components=("@method",))
 
-``sign()`` and ``prepare()`` replace Content-Digest with the digest of supplied bytes and add digest coverage if needed.
-An explicitly selected digest member is preserved. Without ``body=``, these methods retain their existing header-only
-behavior; ``prepare()`` does not modify the message in that case. For external signing, keep the prepared digest and
-message content unchanged through ``apply()`` and sending. The base API does not check the provenance of supplied bytes.
+``sign()`` and ``prepare()`` add Content-Digest from supplied bytes and add digest coverage if needed. An existing
+Content-Digest, regardless of spelling or value, causes ``HTTPMessageSignaturesException`` before any headers change.
+This avoids invalidating earlier signatures or appending another digest field to containers whose assignment adds lines.
+An explicitly selected digest member is preserved. Without ``body=``, these methods retain their header-only behavior;
+``prepare()`` does not modify the message in that case. To reuse a precomputed digest, validate it against available
+content and sign with explicit digest coverage, omitting ``body=``::
+
+    from http_message_signatures import ContentDigest
+
+    ContentDigest.verify(message.headers["Content-Digest"], encoded_body)
+    signer.sign(message, key_id="client-1", covered_component_ids=("@method", "content-digest"))
+
+For external signing, keep the prepared digest and message content unchanged through ``apply()`` and sending.
+The base API does not check the provenance of supplied bytes. ``sign()`` now always passes the ``body`` keyword to
+``prepare()``, including ``None``. Subclasses overriding ``prepare()`` must accept this keyword or forward ``**kwargs``;
+this is a breaking change to the recently introduced preparation API.
 
 Clients that authenticate headers before reading content can call ``verify_body(message, results, encoded_body)`` after
 ``verify()``. This completes digest validation without repeating cryptographic signature verification. Pass only results
-from verification of that unchanged message and its own encoded content. ``ContentDigest.create()`` and
-``ContentDigest.verify()`` provide the shared SHA-256/SHA-512 field helpers; dictionary-member validation uses ``key=``.
+from verification of that unchanged message and its own encoded content. ``ContentDigest.create()``,
+``ContentDigest.add()``, and ``ContentDigest.verify()`` provide shared SHA-256/SHA-512 field helpers; ``add()`` refuses an
+existing field, and dictionary-member validation uses ``key=``. ``verify()`` accepts string or ASCII byte field values.
 Malformed, duplicate, unsupported, wrongly typed, and mismatched digests fail validation. ``MappingKeyResolver`` supplies
 a reusable resolver with separate ``public_keys`` and ``private_keys`` mappings, including for HMAC.
 
-A follow-up in `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ can delegate body signing,
-required-component checks, and digest verification to these base methods,
-and replace its fixed-key resolver with ``MappingKeyResolver``. Requests-specific body access, date handling, and auth
-lifecycle stay in that integration; its existing coverage and nonce defaults need not change.
+``http_message_signatures.components`` supplies component parsing and normalized identities. ``component_map()`` rejects
+duplicates and maps each normalized identity to its supplied spelling, so parameter order does not affect coverage
+comparisons. ``ContentDigest.verify_components()`` accepts authenticated covered components and returns whether a digest
+was validated. Passing a subset lets an adapter retain its own coverage policy. For example, Requests can validate only
+its required digest member, even if another digest component was also signed::
+
+    from http_message_signatures import ContentDigest
+    from http_message_signatures.components import component_map
+
+    required = ('"content-digest";key="sha-256"',)
+    results = verifier.verify(message, require_components=required)
+    for result in results:
+        covered = component_map(tuple(result.covered_components))
+        selected = {covered[key]: result.covered_components[covered[key]] for key in component_map(required)}
+        ContentDigest.verify_components(selected, encoded_body)
+
+In contrast, ``verify(body=...)`` and ``verify_body()`` validate every covered digest of the message and require signed
+digest coverage when content or a Content-Digest field is present. All helpers use the supplied bytes; they never read,
+rewind, or decode a client stream. A Requests adapter can therefore retain its precomputed-digest streaming path and
+validation of existing digests, while sharing parsing, hashing, coverage comparison, and key resolution. Its body
+normalization, date handling, signature selection, coverage/nonce defaults, and auth lifecycle stay in that integration.
+
+Message and header views
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+``http_message_signatures.messages`` supplies ``Request``, ``Response``, and ``HeaderFields``. These small views expose
+the core's expected attributes without importing a client library. ``HeaderFields`` takes a callable returning all
+field lines in order; ``from_raw()`` accepts byte pairs and preserves field bytes with Latin-1. Supply ``writable=``
+with the underlying header container for signing; its mutations must be reflected by the callable. Without it the view
+is read-only. Method, encoded URL, and status are captured when constructing a view; rebuild it if those change.
+
+HTTPX's ``adapt_message()`` uses these views. For Requests responses, use the original field lines from
+``response.raw.headers.items()`` instead of the combined ``response.headers``. For aiohttp responses, use
+``response.raw_headers`` and map ``status`` to ``status_code``::
+
+    from http_message_signatures.messages import HeaderFields, Response
+
+    message = Response(
+        status_code=response.status,
+        headers=HeaderFields.from_raw(lambda: response.raw_headers),
+        request=prepared_request_view,
+    )
+    results = verifier.verify(message)
+    results = verifier.verify_body(message, results, await response.read())
+
+This aiohttp example requires ``auto_decompress=False`` so ``read()`` yields the encoded content covered by Content-Digest.
+Decode it only after verification. A future aiohttp integration can use client middleware to sign the final prepared
+request and verify the response before returning from the middleware. Preserve the prepared request view for ``;req``
+components. Outgoing aiohttp header strings use UTF-8; an outgoing raw-field callable must encode them accordingly
+before passing them through ``HeaderFields.from_raw()``. Incoming ``raw_headers`` already contain the original bytes.
+
+Body acquisition and compression remain adapter responsibilities: buffer a payload asynchronously, use
+`ClientRequest.update_body() <https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientRequest.update_body>`_
+when replacing it, and sign the bytes that will be sent. Automatic request compression
+occurs later, so prepare any encoded content before hashing and disable subsequent compression. The shared helpers
+provide no incremental body verification. Tests exercise these views with all three libraries, including an aiohttp
+middleware round trip; this release supplies the HTTPX hooks, not a packaged aiohttp middleware.
 
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

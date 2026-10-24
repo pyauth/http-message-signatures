@@ -15,6 +15,15 @@ HTTPX
 .. automodule:: http_message_signatures.httpx
    :members:
 
+Shared integration helpers
+==========================
+
+.. automodule:: http_message_signatures.messages
+   :members:
+
+.. automodule:: http_message_signatures.components
+   :members:
+
 Algorithms
 ==========
 
