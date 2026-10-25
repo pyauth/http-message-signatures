@@ -56,7 +56,7 @@ class TestSharedUtilities(unittest.TestCase):
         request = requests.Request(
             "POST", "https://example.com/", data=b"hello", headers={"Content-Digest": value}
         ).prepare()
-        signer.sign(request, key_id="key", covered_component_ids=(member, "content-digest"))
+        signer.sign(request, key_id="key", allow_existing_digest=True, covered_component_ids=(member, "content-digest"))
         result = verifier.verify(request, require_components=(member,))[0]
         covered = component_map(tuple(result.covered_components))
         required = component_map((member,))

@@ -211,6 +211,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         append_if_signature_exists: bool = False,
         body: bytes | None = None,
+        allow_existing_digest: bool = False,
     ):
         """Sign a message in place; return ``None``.
 
@@ -237,7 +238,12 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             new label. Otherwise replace existing signature headers.
         :param body: Optional content bytes before decoding. Generate Content-Digest
             and add its coverage when supplied, including for empty content.
-            An existing Content-Digest field causes an error without replacement.
+        :param allow_existing_digest: Permit an existing Content-Digest without
+            replacing it. With ``body``, validate it against those bytes and add
+            digest coverage. Without ``body``, check its format and algorithms;
+            body validation remains the caller's responsibility and coverage is
+            controlled by ``covered_component_ids``. If neither a digest nor
+            ``body`` is available, this option raises an error.
         :raises HTTPMessageSignaturesException: A component or signature parameter
             is invalid or an existing signature cannot be appended to.
 
@@ -257,6 +263,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             include_alg=include_alg,
             covered_component_ids=covered_component_ids,
             body=body,
+            allow_existing_digest=allow_existing_digest,
         )
         key = self.key_resolver.resolve_private_key(key_id)
         signer = self.signature_algorithm(private_key=key)
@@ -276,6 +283,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         body: bytes | None = None,
+        allow_existing_digest: bool = False,
     ) -> PreparedSignature:
         """Build the signing input without resolving a key.
 
@@ -285,9 +293,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         Supplying ``body`` sets Content-Digest and adds digest coverage. Otherwise
         the message is not modified. Keep the supplied bytes associated with the
         message; this method does not read or validate its body independently.
-        An existing Content-Digest field is rejected when ``body`` is supplied.
-        Subclass overrides must accept ``body`` (or forward keyword arguments):
-        ``sign()`` passes it even when its value is ``None``.
+        An existing Content-Digest requires ``allow_existing_digest=True``, even
+        when ``body`` is omitted. Without ``body``, it is checked for valid format
+        and algorithms but not checked against content or added to coverage.
 
         :returns: Immutable signing input for a synchronous or asynchronous signer.
             Sign ``signature_base`` with the configured algorithm and the key
@@ -311,10 +319,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
-        if body is not None:
-            self.content_digest_class.add(message.headers, body)
-            if not any(is_content_digest(node) for node in covered_component_nodes):
-                covered_component_nodes.append(Item("content-digest"))
+        self.content_digest_class.prepare(message.headers, body, allow_existing_digest=allow_existing_digest)
+        if body is not None and not any(is_content_digest(node) for node in covered_component_nodes):
+            covered_component_nodes.append(Item("content-digest"))
         self._armor_set_cookie(message, covered_component_nodes)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params

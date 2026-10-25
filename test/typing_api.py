@@ -105,6 +105,7 @@ def configure_httpx2(secret: bytes) -> SignatureHooks:
             "signing_key": secret,
             "tag": "out",
             "include_alg": False,
+            "allow_existing_digest": True,
         },
         verify_options={
             "origin": "https://example.com",
@@ -186,6 +187,7 @@ def reject_invalid_options(secret: bytes) -> None:
     signing["expect_tag"] = "in"  # type: ignore[typeddict-unknown-key]
     verification["tag"] = "out"  # type: ignore[typeddict-unknown-key]
     signing["include_alg"] = "yes"  # type: ignore[typeddict-item]
+    signing["allow_existing_digest"] = "yes"  # type: ignore[typeddict-item]
     verification["max_age"] = 60  # type: ignore[typeddict-item]
     signing["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     verification["body"] = b"managed"  # type: ignore[typeddict-unknown-key]

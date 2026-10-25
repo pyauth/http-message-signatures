@@ -45,6 +45,7 @@ class SigningOptions(_SigningConfiguration, total=False):
     include_alg: bool
     covered_component_ids: Sequence[str]
     append_if_signature_exists: bool
+    allow_existing_digest: bool
 
 
 class _VerificationConfiguration(TypedDict):
@@ -147,8 +148,10 @@ class SignatureHooks:
     Signing belongs after request-mutating hooks; verification belongs before
     response consumers. Signing buffers requests and verification buffers responses,
     even with stream().
-    Signing rejects requests with an existing Content-Digest, including redirected
-    requests that inherit that field. Build a fresh request to follow a redirect.
+    Signing rejects a supplied Content-Digest unless ``allow_existing_digest=True``
+    is configured. Requests previously signed by these hooks may reuse their digest
+    on retries and redirects, unless that option is explicitly False. Reused digests
+    are validated against the current body; changed content requires a new digest.
     Response content is captured before decoding for digest validation; normal
     HTTPX2 content decoding is preserved. Successful verification results are
     stored in ``response.extensions["http_message_signatures"]``.
@@ -192,6 +195,7 @@ class SignatureHooks:
         self._verify_origin: tuple[str, str, int | None] | None = None
         self._sign_kwargs: dict[str, Any] = {}
         self._verify_kwargs: dict[str, Any] = {}
+        self._signing_marker = object()
         if self.sign_options is not None:
             self._configure_signing(**self.sign_options)
         if self.verify_options is not None:
@@ -266,7 +270,7 @@ class SignatureHooks:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request, self._sign_origin)
         body = request.read()
-        self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
+        self._sign(request, body, self.signer)
 
     async def sign_request_async(self, request: httpx2.Request) -> None:
         """Async request hook; await body consumption before signing."""
@@ -274,7 +278,14 @@ class SignatureHooks:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request, self._sign_origin)
         body = await request.aread()
-        self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
+        self._sign(request, body, self.signer)
+
+    def _sign(self, request: httpx2.Request, body: bytes, signer: HTTPMessageSigner) -> None:
+        options = self._sign_kwargs
+        if request.extensions.get("http_message_signatures.signer") is self._signing_marker:
+            options = {"allow_existing_digest": True, **options}
+        signer.sign(adapt_message(request), body=body, **options)
+        request.extensions["http_message_signatures.signer"] = self._signing_marker
 
     def _verify_headers(self, response: httpx2.Response, verifier: HTTPMessageVerifier):
         response.extensions.pop("http_message_signatures", None)

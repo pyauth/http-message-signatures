@@ -42,14 +42,25 @@ Synopsis
     request.headers["Content-Digest"] = str(Dictionary({"sha-256": hashlib.sha256(request.body).digest()}))
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    signer.sign(request, key_id="my-key", covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"))
+    signer.sign(
+        request, key_id="my-key", allow_existing_digest=True,
+        covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
+    )
 
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request)
 
 The base API reads no body implicitly. Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
-and cover Content-Digest, or to ``verify()`` to validate the signed digest. Digest generation refuses an existing
-Content-Digest without modifying headers. The HTTPX2 integration below manages these bytes automatically.
+and cover Content-Digest, or to ``verify()`` to validate the signed digest. The HTTPX2 integration below manages these
+bytes automatically.
+
+Signing a message with an existing Content-Digest requires ``allow_existing_digest=True`` on ``sign()`` or
+``prepare()``. With ``body=`` supplied, the existing digest is validated against those bytes and its coverage is added.
+Without ``body=``, the digest's format and algorithms are checked, but the caller remains responsible for its match
+to the content and must include it in ``covered_component_ids`` to sign it, as above. Existing digest field lines are
+preserved. A malformed digest or a digest that does not match supplied content raises an error without replacement.
+If ``allow_existing_digest=True`` is supplied with neither a digest nor body bytes, signing raises an error.
+
 The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
 provides a Requests integration.
 
@@ -169,6 +180,11 @@ For verification only::
 The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply a ``sign_options`` dictionary
 when signing requests and a ``verify_options`` dictionary when verifying responses. Omit the dictionary for any disabled
 operation.
+
+To accept a supplied request digest, set ``"allow_existing_digest": True`` in ``sign_options``. The hooks always
+validate it against the buffered request body. When retrying a request previously signed by the same hooks, this
+option is injected automatically unless explicitly set to ``False``. Redirects that retain the body can reuse the
+digest; a changed body requires a new digest.
 
 .. warning::
 

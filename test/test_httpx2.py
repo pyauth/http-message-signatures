@@ -162,6 +162,7 @@ class TestContentDigest(SignatureTestCase):
         self.signer.sign(
             message,
             key_id="client",
+            allow_existing_digest=True,
             covered_component_ids=("content-digest",),
             label="second",
             tag="api",
@@ -242,6 +243,7 @@ class TestContentDigest(SignatureTestCase):
         self.signer.sign(
             message,
             key_id="server",
+            allow_existing_digest=True,
             covered_component_ids=("@status",),
             tag="api",
             label="second",
@@ -515,7 +517,7 @@ class TestSignatureHooks(SignatureTestCase):
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].covered_components['"example"'], "one, two")
 
-    def test_redirect_requires_fresh_request_without_inherited_digest(self):
+    def test_redirect_with_changed_body_requires_new_digest(self):
         hooks = self.hooks()
         requests = []
 
@@ -529,6 +531,7 @@ class TestSignatureHooks(SignatureTestCase):
                 self.signer.sign(
                     adapt_message(response),
                     key_id="server",
+                    allow_existing_digest=True,
                     covered_component_ids=("@status", "location", "content-digest"),
                 )
             return response
@@ -536,7 +539,7 @@ class TestSignatureHooks(SignatureTestCase):
         with httpx2.Client(
             transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks, follow_redirects=True
         ) as client:
-            with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+            with self.assertRaisesRegex(InvalidSignature, "does not match"):
                 client.post(ORIGIN, content=b"original")
             self.assertEqual(len(requests), 1)
             client.get(ORIGIN + "/next")
@@ -553,7 +556,7 @@ class TestSignatureHooks(SignatureTestCase):
                 hooks.sign_request(httpx2.Request("GET", destination))
         hooks.sign_request(httpx2.Request("GET", "https://example.com:443/"))
 
-    def test_streamed_upload_redirect_refuses_inherited_digest(self):
+    def test_streamed_upload_redirect_reuses_validated_digest(self):
         upload = SyncBody(b"streamed upload")
         seen = []
 
@@ -564,18 +567,18 @@ class TestSignatureHooks(SignatureTestCase):
                 response.status_code = 307
                 response.headers["Location"] = "/next"
                 self.signer.sign(
-                    adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
+                    adapt_message(response),
+                    key_id="server",
+                    allow_existing_digest=True,
+                    covered_component_ids=("@status", "content-digest"),
                 )
             return response
 
-        with (
-            httpx2.Client(
-                transport=httpx2.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
-            ) as client,
-            self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"),
-        ):
+        with httpx2.Client(
+            transport=httpx2.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
+        ) as client:
             client.post(ORIGIN, content=upload)
-        self.assertEqual(seen, [b"streamed upload"])
+        self.assertEqual(seen, [b"streamed upload", b"streamed upload"])
         self.assertEqual(upload.reads, 1)
 
     def test_cross_origin_redirect_is_not_sent(self):
@@ -587,7 +590,10 @@ class TestSignatureHooks(SignatureTestCase):
             response.status_code = 302
             response.headers["Location"] = "https://other.example/"
             self.signer.sign(
-                adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
+                adapt_message(response),
+                key_id="server",
+                allow_existing_digest=True,
+                covered_component_ids=("@status", "content-digest"),
             )
             return response
 
@@ -881,7 +887,10 @@ class TestSignatureHooks(SignatureTestCase):
                 response = self.response(request, body)
                 response.status_code = status
                 self.signer.sign(
-                    adapt_message(response), key_id="server", covered_component_ids=("@status", "content-digest")
+                    adapt_message(response),
+                    key_id="server",
+                    allow_existing_digest=True,
+                    covered_component_ids=("@status", "content-digest"),
                 )
                 self.hooks().verify_response(response)
                 self.assertEqual(response.extensions["http_message_signatures"][0].body, body)

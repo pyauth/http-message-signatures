@@ -265,6 +265,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         original_headers = dict(self.test_request.headers)
         prepared = signer.prepare(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             created=created,
             expires=created + timedelta(seconds=60),
@@ -311,12 +312,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     ),
                     patch.object(self.key_resolver, "resolve_public_key", side_effect=AssertionError("local key read")),
                 ):
-                    prepared = signer.prepare(message, key_id=key_id, created=created)
+                    prepared = signer.prepare(message, allow_existing_digest=True, key_id=key_id, created=created)
                     signature = algorithm(private_key=key).sign(prepared.signature_base)
                     signer.apply(message, prepared, signature)
                 verifier = HTTPMessageVerifier(signature_algorithm=algorithm, key_resolver=self.key_resolver)
                 self.assertEqual(len(verifier.verify(message)), 1)
-                signer.sign(local_message, key_id=key_id, created=created)
+                signer.sign(local_message, allow_existing_digest=True, key_id=key_id, created=created)
                 self.assertEqual(message.headers["Signature-Input"], local_message.headers["Signature-Input"])
                 if algorithm in (HMAC_SHA256, ED25519, RSA_V1_5_SHA256):
                     self.assertEqual(message.headers["Signature"], local_message.headers["Signature"])
@@ -328,7 +329,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
         async def sign_request():
             signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-            prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+            prepared = signer.prepare(
+                self.test_request, allow_existing_digest=True, key_id="test-shared-secret", include_alg=False
+            )
             signature = await remote_sign(prepared.signature_base)
             signer.apply(self.test_request, prepared, signature)
 
@@ -341,7 +344,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_local_signing_requires_key_resolver(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "key_resolver is required"):
-            signer.sign(self.test_request, key_id="test-shared-secret")
+            signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
 
     def test_prepare_rejects_invalid_label_before_signing(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -351,13 +354,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 patch.object(self.key_resolver, "resolve_private_key", side_effect=AssertionError("local key read")),
                 self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid signature label"),
             ):
-                signer.sign(self.test_request, key_id="test-shared-secret", label=label)
+                signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", label=label)
         self.assertNotIn("Signature", self.test_request.headers)
 
     def test_apply_rejects_changed_covered_values(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
         prepared = signer.prepare(
-            self.test_request, key_id="test-shared-secret", covered_component_ids=("@method", "date")
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("@method", "date"),
         )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         for field, value in (("method", "DELETE"), ("date", "Wed, 21 Apr 2021 02:07:55 GMT")):
@@ -376,7 +382,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_apply_allows_copied_message_and_equivalent_values(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=("date",))
+        prepared = signer.prepare(
+            self.test_request, allow_existing_digest=True, key_id="test-shared-secret", covered_component_ids=("date",)
+        )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         message = copy.deepcopy(self.test_request)
         message.headers["Date"] = "\t" + message.headers["Date"] + " "
@@ -388,7 +396,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_apply_rejects_inconsistent_prepared_input(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        prepared = signer.prepare(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         original_headers = dict(self.test_request.headers)
         for changed in (
@@ -408,14 +416,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_apply_binds_algorithm_when_alg_omitted(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+        prepared = signer.prepare(
+            self.test_request, allow_existing_digest=True, key_id="test-shared-secret", include_alg=False
+        )
         other_signer = HTTPMessageSigner(signature_algorithm=ED25519)
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "different algorithm"):
             other_signer.apply(self.test_request, prepared, b"signature")
 
     def test_apply_requires_raw_nonempty_bytes(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        prepared = signer.prepare(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         for signature in (None, "YWJjZA==", b"", bytearray(b"signature")):
             with self.subTest(signature=signature), self.assertRaisesRegex(HTTPMessageSignaturesException, "raw bytes"):
                 signer.apply(self.test_request, prepared, signature)
@@ -423,7 +433,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_apply_does_not_claim_to_verify_signature(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret")
+        prepared = signer.prepare(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         signer.apply(self.test_request, prepared, bytes(32))
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         with self.assertRaises(InvalidSignature):
@@ -431,10 +441,14 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_remote_signature_append_and_replace(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", label="remote", tag="remote")
+        prepared = signer.prepare(
+            self.test_request, allow_existing_digest=True, key_id="test-shared-secret", label="remote", tag="remote"
+        )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         # Another signature can arrive while the remote signature is pending.
-        signer.sign(self.test_request, key_id="test-shared-secret", label="local", tag="local")
+        signer.sign(
+            self.test_request, allow_existing_digest=True, key_id="test-shared-secret", label="local", tag="local"
+        )
         old_signature = Dictionary()
         old_signature.parse(self.test_request.headers["Signature"].encode())
         signer.apply(self.test_request, prepared, signature, append_if_signature_exists=True)
@@ -457,7 +471,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 return "CUSTOM"
 
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, component_resolver_class=Resolver)
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=("@method",))
+        prepared = signer.prepare(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("@method",),
+        )
         self.assertTrue(prepared.signature_base.startswith(b'"@method": CUSTOM\n'))
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         signer.apply(self.test_request, prepared, signature)
@@ -472,7 +491,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_prepare_response_with_request_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
         prepared = signer.prepare(
-            self.test_response, key_id="test-shared-secret", covered_component_ids=("@status", '"@method";req')
+            self.test_response,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("@status", '"@method";req'),
         )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         self.test_response.request.method = "DELETE"
@@ -488,7 +510,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         created = datetime.now(timezone.utc)
         with patch_time(created):
             prepared = signer.prepare(
-                self.test_request, key_id="test-shared-secret", expires=created + timedelta(seconds=10)
+                self.test_request,
+                allow_existing_digest=True,
+                key_id="test-shared-secret",
+                expires=created + timedelta(seconds=10),
             )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         with patch_time(created + timedelta(minutes=1)):
@@ -500,7 +525,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_ecdsa_remote_der_conversion(self):
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256)
-        prepared = signer.prepare(self.test_request, key_id="test-key-ecc-p256")
+        prepared = signer.prepare(self.test_request, allow_existing_digest=True, key_id="test-key-ecc-p256")
         key = self.key_resolver.resolve_private_key("test-key-ecc-p256")
         der = key.sign(prepared.signature_base, ec.ECDSA(hashes.SHA256()))
         signature = ECDSA_P256_SHA256.signature_from_der(der)
@@ -523,7 +548,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for components in ("date", b"date", bytearray(b"date"), ""):
             with self.subTest(components=components):
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "sequence of component strings"):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=components)
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=components,
+                    )
                 self.assertEqual(dict(self.test_request.headers), original_headers)
 
     def test_single_component_sequences_cover_the_header(self):
@@ -532,7 +562,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for components in (("date",), ["date"]):
             with self.subTest(components=components):
                 message = copy.deepcopy(self.test_request)
-                signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                signer.sign(
+                    message, allow_existing_digest=True, key_id="test-shared-secret", covered_component_ids=components
+                )
                 self.assertEqual(verifier.verify(message)[0].covered_components['"date"'], message.headers["Date"])
                 message.headers["Date"] = "Wed, 21 Apr 2021 02:07:55 GMT"
                 with self.assertRaises(InvalidSignature):
@@ -581,7 +613,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for include_alg in (True, False):
             with self.subTest(include_alg=include_alg):
                 message = copy.deepcopy(self.test_request)
-                signer.sign(message, key_id="test-shared-secret", include_alg=include_alg)
+                signer.sign(message, allow_existing_digest=True, key_id="test-shared-secret", include_alg=include_alg)
                 result = verifier.verify(message)[0]
                 self.assertIs(result.algorithm, CustomHMAC)
                 self.assertEqual("alg" in result.parameters, include_alg)
@@ -596,14 +628,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for signing_algorithm, verifying_algorithm in ((CustomHMAC, HMAC_SHA256), (HMAC_SHA256, CustomHMAC)):
             with self.subTest(algorithm=signing_algorithm.algorithm_id):
                 signer = HTTPMessageSigner(signature_algorithm=signing_algorithm, key_resolver=self.key_resolver)
-                signer.sign(self.test_request, key_id="test-shared-secret")
+                signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
                 verifier = HTTPMessageVerifier(signature_algorithm=verifying_algorithm, key_resolver=self.key_resolver)
                 with (
                     patch.object(self.key_resolver, "resolve_public_key", side_effect=AssertionError("key read")),
                     self.assertRaisesRegex(InvalidSignature, "Unexpected algorithm"),
                 ):
                     verifier.verify(self.test_request)
-                prepared = signer.prepare(self.test_request, key_id="test-shared-secret", include_alg=False)
+                prepared = signer.prepare(
+                    self.test_request, allow_existing_digest=True, key_id="test-shared-secret", include_alg=False
+                )
                 other_signer = HTTPMessageSigner(signature_algorithm=verifying_algorithm)
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "different algorithm"):
                     other_signer.apply(self.test_request, prepared, b"signature")
@@ -657,7 +691,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             (self.test_response, '"@custom";name="example";req'),
         ):
             with self.subTest(component=component):
-                signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                signer.sign(
+                    message, allow_existing_digest=True, key_id="test-shared-secret", covered_component_ids=(component,)
+                )
                 self.assertEqual(verifier.verify(message)[0].covered_components[component], "custom-value")
         self.test_request.headers["Example"] = "changed"
         for message in (self.test_request, self.test_response):
@@ -684,7 +720,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for message in (self.test_request, self.test_response):
             with self.subTest(message=type(message).__name__):
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown covered derived component"):
-                    signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        message,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
                 set_test_signature(message, params, [f"{component}: value"])
                 with self.assertRaisesRegex(InvalidSignature, "Unknown covered derived component"):
                     verifier.verify(message)
@@ -693,6 +734,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-rsa-pss",
             covered_component_ids=(),
             created=datetime.fromtimestamp(1618884473),
@@ -720,6 +762,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-rsa-pss",
             covered_component_ids=("@authority", "content-digest", '"@query-param";name="Pet"'),
             created=datetime.fromtimestamp(1618884473),
@@ -748,6 +791,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-rsa-pss",
             covered_component_ids=(
                 "date",
@@ -787,6 +831,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_response,
+            allow_existing_digest=True,
             key_id="test-key-ecc-p256",
             covered_component_ids=("@status", "content-type", "content-digest", "content-length"),
             created=datetime.fromtimestamp(1618884473),
@@ -813,6 +858,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             covered_component_ids=("date", "@authority", "content-type"),
             created=datetime.fromtimestamp(1618884473),
@@ -833,6 +879,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-ed25519",
             covered_component_ids=("date", "@method", "@path", "@authority", "content-type", "content-length"),
             created=datetime.fromtimestamp(1618884473),
@@ -866,6 +913,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-ed25519",
             covered_component_ids=("date", "@method", "@path", "@authority", "content-type", "content-length"),
             created=datetime.fromtimestamp(1618884473),
@@ -903,6 +951,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=ECDSA_P256_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-key-ecc-p256",
             covered_component_ids=(
                 "@method",
@@ -928,6 +977,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.url = "https://origin.host.internal.example/foo?param=Value&Pet=dog"
         self.test_request.headers["Forwarded"] = "for=192.0.2.123;host=example.com;proto=https"
         signer2_args = {
+            "allow_existing_digest": True,
             "key_id": "test-key-rsa",
             "covered_component_ids": (
                 "@method",
@@ -1279,6 +1329,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     self.assertEqual(result.covered_components[component], method)
                     signer.sign(
                         message,
+                        allow_existing_digest=True,
                         key_id="test-shared-secret",
                         covered_component_ids=(component,),
                         created=datetime.fromtimestamp(1618884473, timezone.utc),
@@ -1296,19 +1347,30 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 for method in ("get", "Get", "Fetch"):
                     with self.subTest(component=component, method=method):
                         self.test_request.method = method.upper()
-                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                        signer.sign(
+                            message,
+                            allow_existing_digest=True,
+                            key_id="test-shared-secret",
+                            covered_component_ids=(component,),
+                        )
                         self.test_request.method = method
                         with self.assertRaisesRegex(InvalidSignature, "method must be an uppercase string"):
                             verifier.verify(message)
                         with self.assertRaisesRegex(
                             HTTPMessageSignaturesException, "method must be an uppercase string"
                         ):
-                            signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                            signer.sign(
+                                message,
+                                allow_existing_digest=True,
+                                key_id="test-shared-secret",
+                                covered_component_ids=(component,),
+                            )
 
     def test_query_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             covered_component_ids=("date", "@authority", "content-type", '"@query-param";name="Pet"'),
             created=datetime.fromtimestamp(1618884473),
@@ -1338,6 +1400,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.assertEqual(result.covered_components[component], "dog")
                 signer.sign(
                     message,
+                    allow_existing_digest=True,
                     key_id="test-shared-secret",
                     covered_component_ids=(component,),
                     created=datetime.fromtimestamp(1618884473, timezone.utc),
@@ -1361,21 +1424,39 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaisesRegex(
             HTTPMessageSignaturesException, "Unknown covered derived component name @query-params"
         ):
-            signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+            signer.sign(
+                self.test_request,
+                allow_existing_digest=True,
+                key_id="test-shared-secret",
+                covered_component_ids=(component,),
+            )
 
     def test_created_expires(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1, timezone.utc))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            created=datetime.fromtimestamp(1, timezone.utc),
+        )
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.verify(verifier, self.test_request)
         with self.assertRaisesRegex(InvalidSignature, "Signature age exceeds maximum allowable age"):
             verifier.verify(self.test_request)
         signer.sign(
-            self.test_request, key_id="test-shared-secret", created=datetime.now(timezone.utc) + timedelta(days=1)
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            created=datetime.now(timezone.utc) + timedelta(days=1),
         )
         with self.assertRaisesRegex(InvalidSignature, 'Signature "created" parameter is set to a time in the future'):
             verifier.verify(self.test_request)
-        signer.sign(self.test_request, key_id="test-shared-secret", expires=datetime.fromtimestamp(1, timezone.utc))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            expires=datetime.fromtimestamp(1, timezone.utc),
+        )
         with self.assertRaisesRegex(InvalidSignature, 'Signature "expires" parameter is set to a time in the past'):
             verifier.verify(self.test_request)
 
@@ -1407,7 +1488,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 original = {"a": "safe" + delimiter + "injected", "b": "tail"}
                 changed = {"a": "safe", "b": "injected" + delimiter + "tail"}
                 self.test_request.url = "https://example.com/?" + urlencode(original)
-                signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                signer.sign(
+                    message, allow_existing_digest=True, key_id="test-shared-secret", covered_component_ids=components
+                )
                 result = verifier.verify(message)[0]
                 self.assertNotIn("\n", result.covered_components[components[0]])
                 self.test_request.url = "https://example.com/?" + urlencode(changed)
@@ -1418,7 +1501,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.headers["Example"] = "Obsolete line folding."
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("example",),
+        )
         self.test_request.headers["Example"] = " \tObsolete\r\n\t  line folding.\t "
         self.assertEqual(
             verifier.verify(self.test_request)[0].covered_components['"example"'], "Obsolete line folding."
@@ -1429,13 +1517,23 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaises(InvalidSignature):
                     verifier.verify(self.test_request)
                 with self.assertRaises(HTTPMessageSignaturesException):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=("example",),
+                    )
 
     def test_obsolete_fold_includes_preceding_whitespace(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.headers["Example"] = "a b"
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("example",),
+        )
         for folded in ("a \t\r\n b", "a  \r\n\t  b", "a\r\n b"):
             with self.subTest(folded=folded):
                 self.test_request.headers["Example"] = folded
@@ -1522,6 +1620,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 for label in ("first", "second"):
                     signer.sign(
                         message,
+                        allow_existing_digest=True,
                         key_id="test-shared-secret",
                         covered_component_ids=components,
                         label=label,
@@ -1576,7 +1675,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.headers["Example"] = "a  b"
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("example",))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("example",),
+        )
         for folded in ("a\r\n \r\n b", "a \t\r\n \t\r\n\t b"):
             with self.subTest(folded=folded):
                 self.test_request.headers["Example"] = folded
@@ -1588,13 +1692,20 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.headers["Example-Dict"] = "a=1,\r\n\t b=2"
         component = '"example-dict";key="b"'
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,), tag="folding")
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=(component,),
+            tag="folding",
+        )
         signature_input = self.test_request.headers["Signature-Input"]
         self.test_request.headers["Signature-Input"] = signature_input.replace(";created", ";\r\n created")
         self.test_request.headers["Signature"] = "\t" + self.test_request.headers["Signature"] + " "
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], "2")
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             label="second",
             tag="folding",
@@ -1637,9 +1748,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_multiple_signature_header_lines(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", label="first", tag="multi")
         signer.sign(
-            self.test_request, key_id="test-shared-secret", label="second", tag="multi", append_if_signature_exists=True
+            self.test_request, allow_existing_digest=True, key_id="test-shared-secret", label="first", tag="multi"
+        )
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            label="second",
+            tag="multi",
+            append_if_signature_exists=True,
         )
         headers = HTTPMessage()
         for name, value in self.test_request.headers.items():
@@ -1661,12 +1779,17 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         with self.assertRaises(InvalidSignature):
             verifier.verify(tampered, expect_tag="multi")
         signer.sign(
-            self.test_request, key_id="test-shared-secret", label="third", tag="multi", append_if_signature_exists=True
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            label="third",
+            tag="multi",
+            append_if_signature_exists=True,
         )
         self.assertEqual(len(verifier.verify(self.test_request, expect_tag="multi")), 3)
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
-        signer.sign(self.test_request, key_id="test-shared-secret", label="single")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", label="single")
         self.assertEqual(verifier.verify(self.test_request)[0].label, "single")
         for name in ("Signature-Input", "Signature"):
             self.assertEqual(len(headers.get_all(name)), 1)
@@ -1717,7 +1840,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         set_test_signature(self.test_request, f'("@method");created={timestamp}', ['"@method": POST'])
         with self.assertRaisesRegex(InvalidSignature, 'missing a required "keyid"'):
             verifier.verify(self.test_request)
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         for error in (KeyError("unknown key"), ValueError("invalid key")):
             with (
                 self.subTest(error=error),
@@ -1732,7 +1855,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         ):
             verifier.verify(self.test_request)
         rsa_verifier = HTTPMessageVerifier(signature_algorithm=RSA_PSS_SHA512, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", include_alg=False)
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", include_alg=False)
         with (
             patch.object(self.key_resolver, "resolve_public_key", return_value=b"invalid PEM"),
             self.assertRaises(InvalidSignature) as caught,
@@ -1795,7 +1918,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_signature_dictionary_member_types(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         for value in ('"text"', "(:AAAA:)", "?1"):
             self.test_request.headers["Signature"] = "pyhms=" + value
             with self.assertRaisesRegex(InvalidSignature, "must be a Byte Sequence"):
@@ -1814,7 +1937,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             with self.subTest(method=method):
                 self.test_request.method = method
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "must be printable"):
-                    signer.sign(self.test_request, key_id="test-shared-secret")
+                    signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
                 set_test_signature(self.test_request, params, [f'"@method": {method}'])
                 with self.assertRaisesRegex(InvalidSignature, "must be printable"):
                     verifier.verify(self.test_request)
@@ -1835,7 +1958,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     with self.assertRaisesRegex(InvalidSignature, "control|newline"):
                         verifier.verify(message)
                     with self.assertRaisesRegex(HTTPMessageSignaturesException, "control|newline"):
-                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                        signer.sign(
+                            message,
+                            allow_existing_digest=True,
+                            key_id="test-shared-secret",
+                            covered_component_ids=(component,),
+                        )
 
     def test_covered_header_internal_tabs(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -1851,6 +1979,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.assertEqual(verifier.verify(message)[0].covered_components[component], value)
                 signer.sign(
                     message,
+                    allow_existing_digest=True,
                     key_id="test-shared-secret",
                     created=created,
                     include_alg=False,
@@ -1865,8 +1994,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.subTest(kwargs=kwargs),
                 self.assertRaisesRegex(HTTPMessageSignaturesException, "must be a Structured Field String"),
             ):
-                signer.sign(self.test_request, **({"key_id": "test-shared-secret"} | kwargs))
-        signer.sign(self.test_request, key_id="test-shared-secret", nonce="", tag="")
+                signer.sign(
+                    self.test_request, allow_existing_digest=True, **({"key_id": "test-shared-secret"} | kwargs)
+                )
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", nonce="", tag="")
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         result = verifier.verify(self.test_request, expect_tag="")[0]
         self.assertEqual(result.nonce, "")
@@ -1875,7 +2006,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_duplicate_signature_labels(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         originals = self.test_request.headers.copy()
         for name, invalid in (("Signature", "pyhms=:AAAA:"), ("Signature-Input", 'pyhms=("@status")')):
             for repeated_lines in (False, True):
@@ -1896,6 +2027,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                         with self.assertRaisesRegex(HTTPMessageSignaturesException, "Duplicate signature label"):
                             signer.sign(
                                 self.test_request,
+                                allow_existing_digest=True,
                                 key_id="test-shared-secret",
                                 label="new",
                                 append_if_signature_exists=True,
@@ -1911,8 +2043,18 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         ):
             with self.subTest(components=components):
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "appeared multiple times"):
-                    signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
-                signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components[:1])
+                    signer.sign(
+                        self.test_response,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=components,
+                    )
+                signer.sign(
+                    self.test_response,
+                    allow_existing_digest=True,
+                    key_id="test-shared-secret",
+                    covered_component_ids=components[:1],
+                )
                 sig_inputs = Dictionary()
                 sig_inputs.parse(self.test_response.headers["Signature-Input"].encode())
                 duplicate = Item()
@@ -1928,7 +2070,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Example-Dict"] = "a=1, b=2"
         self.test_response.headers["Example-Dict"] = "a=3"
         components = ('"example-dict";req;key="a"', '"example-dict";key="b";req', '"example-dict";key="a"')
-        signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
+        signer.sign(
+            self.test_response,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=components,
+        )
         result = verifier.verify(self.test_response)[0]
         for component, value in zip(components, ("1", "2", "3")):
             self.assertEqual(result.covered_components[component], value)
@@ -1952,6 +2099,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     with self.subTest(created=created, expires=expires, now=now):
                         signer.sign(
                             self.test_request,
+                            allow_existing_digest=True,
                             key_id="test-shared-secret",
                             created=datetime(2026, 11, 1, *created, tzinfo=timezone.utc),
                             expires=datetime(2026, 11, 1, *expires, tzinfo=timezone.utc) if expires else None,
@@ -1967,9 +2115,19 @@ class TestHTTPMessageSignatures(unittest.TestCase):
 
     def test_tolerate_clock_skew(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.fromtimestamp(1, timezone.utc))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            created=datetime.fromtimestamp(1, timezone.utc),
+        )
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", created=datetime.now() + timedelta(seconds=9))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            created=datetime.now() + timedelta(seconds=9),
+        )
         verifier.max_clock_skew = timedelta(seconds=10)
         verifier.verify(self.test_request)
         verifier.max_clock_skew = timedelta(seconds=0)
@@ -1979,14 +2137,14 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_has_nonce(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         nonce = "random-nonce"
-        signer.sign(self.test_request, key_id="test-shared-secret", nonce=nonce)
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", nonce=nonce)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         result = verifier.verify(self.test_request)
         self.assertEqual(result[0].nonce, nonce)
 
     def test_has_no_nonce(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret", nonce=None)
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret", nonce=None)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         result = verifier.verify(self.test_request)
         self.assertEqual(result[0].nonce, None)
@@ -2120,7 +2278,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         message.request.headers["Set-Cookie"] = "a=1"
         message.request.headers["Set-Cookie"] = "b=2"
         prepared = signer.prepare(
-            message, key_id="test-shared-secret", covered_component_ids=("set-cookie", '"set-cookie";req')
+            message,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("set-cookie", '"set-cookie";req'),
         )
         signature = HMAC_SHA256(private_key=test_shared_secret).sign(prepared.signature_base)
         signer.apply(message, prepared, signature)
@@ -2181,6 +2342,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 )
                 signer.sign(
                     message,
+                    allow_existing_digest=True,
                     key_id="test-shared-secret",
                     covered_component_ids=(component,),
                     created=datetime.fromtimestamp(1618884473, timezone.utc),
@@ -2214,6 +2376,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 for label in ("first", "second"):
                     signer.sign(
                         message,
+                        allow_existing_digest=True,
                         key_id="test-shared-secret",
                         covered_component_ids=tuple(expected),
                         label=label,
@@ -2279,7 +2442,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         self.test_request.headers["Priority"] = "u=3,   i=?1"
         self.test_response.headers["Priority"] = "u=6"
         components = ('"priority";sf', '"priority";req;sf')
-        signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=components)
+        signer.sign(
+            self.test_response,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=components,
+        )
         result = verifier.verify(self.test_response)[0]
         self.assertEqual(result.covered_components[components[0]], "u=6")
         self.assertEqual(result.covered_components[components[1]], "u=3, i")
@@ -2303,10 +2471,18 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     verifier.verify(self.test_request, max_age=self.max_age)
                 headers = dict(self.test_request.headers)
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, "Unknown Structured Field type"):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
                 self.assertEqual(dict(self.test_request.headers), headers)
                 signer.sign(
-                    self.test_request, key_id="test-shared-secret", covered_component_ids=("example-unregistered",)
+                    self.test_request,
+                    allow_existing_digest=True,
+                    key_id="test-shared-secret",
+                    covered_component_ids=("example-unregistered",),
                 )
                 verifier.verify(self.test_request)
 
@@ -2329,7 +2505,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaisesRegex(
                     HTTPMessageSignaturesException, "not valid for its registered Structured Field type"
                 ):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
 
     def test_whole_structured_field_invalid_parameters(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
@@ -2350,14 +2531,24 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaisesRegex(InvalidSignature, error):
                     verifier.verify(self.test_request, max_age=self.max_age)
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
 
     def test_whole_structured_field_remote_signing(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.headers["Priority"] = "u=3,   i=?1"
         component = '"priority";sf'
-        prepared = signer.prepare(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+        prepared = signer.prepare(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=(component,),
+        )
         signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
         self.test_request.headers["Priority"] = "u=3, i"
         signer.apply(self.test_request, prepared, signature)
@@ -2384,6 +2575,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                         self.assertEqual(result.covered_components[component], value)
                         signer.sign(
                             message,
+                            allow_existing_digest=True,
                             key_id="test-shared-secret",
                             covered_component_ids=(component,),
                             created=datetime.fromtimestamp(1618884473, timezone.utc),
@@ -2415,7 +2607,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 with self.assertRaisesRegex(InvalidSignature, error):
                     verifier.verify(self.test_request, max_age=self.max_age)
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
-                    signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
 
     def test_dictionary_member_key_parameter_round_trip(self):
         # Section 2.1.2: a signature over one member survives a change to another member
@@ -2424,6 +2621,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             covered_component_ids=("@method", "@authority", '"example-dict";key="b"'),
         )
@@ -2452,7 +2650,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             with self.subTest(template=template):
                 field_value = template.format('%"%010"')
                 self.test_request.headers["Example-Dict"] = field_value
-                signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+                signer.sign(
+                    self.test_request,
+                    allow_existing_digest=True,
+                    key_id="test-shared-secret",
+                    covered_component_ids=(component,),
+                )
                 result = verifier.verify(self.test_request)[0]
                 self.assertEqual(result.covered_components[component], field_value.removeprefix("a="))
                 self.test_request.headers["Example-Dict"] = template.format('%"%10"')
@@ -2463,7 +2666,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         # strict serializer, including the boundaries previously left unescaped.
         value = '%"' + "".join(f"%{byte:02x}" for byte in range(32)) + '%7f%22%25%c3%a9"'
         self.test_request.headers["Example-Dict"] = f"a={value}"
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=(component,))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=(component,),
+        )
         self.assertEqual(verifier.verify(self.test_request)[0].covered_components[component], value)
 
     def test_signing_rejects_invalid_urls(self):
@@ -2499,7 +2707,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     self.assertRaisesRegex(HTTPMessageSignaturesException, "Invalid URL"),
                 ):
                     self.test_request.url = url
-                    operation(self.test_request, key_id="test-shared-secret")
+                    operation(self.test_request, key_id="test-shared-secret", allow_existing_digest=True)
                 self.assertEqual(dict(self.test_request.headers), headers)
 
     def test_verification_rejects_url_repair_collisions(self):
@@ -2526,7 +2734,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                             for component in components
                         )
                         self.test_request.url = original
-                        signer.sign(message, key_id="test-shared-secret", covered_component_ids=covered)
+                        signer.sign(
+                            message,
+                            allow_existing_digest=True,
+                            key_id="test-shared-secret",
+                            covered_component_ids=covered,
+                        )
                         verifier.verify(message)
                         self.test_request.url = changed
                         with self.assertRaisesRegex(InvalidSignature, "Invalid URL"):
@@ -2541,7 +2754,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             for message, component in ((self.test_request, "@target-uri"), (self.test_response, '"@target-uri";req')):
                 with self.subTest(url=changed, component=component):
                     self.test_request.url = original
-                    prepared = signer.prepare(message, key_id="test-shared-secret", covered_component_ids=(component,))
+                    prepared = signer.prepare(
+                        message,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
                     signature = HMAC_SHA256(shared_secret=test_shared_secret).sign(prepared.signature_base)
                     signer.apply(message, prepared, signature)
                     headers = dict(message.headers)
@@ -2570,7 +2788,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                 self.test_request.url = url
                 resolver = HTTPSignatureComponentResolver(self.test_request)
                 self.assertEqual(resolver.get_target_uri(), target)
-                signer.sign(self.test_request, key_id="test-shared-secret")
+                signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
                 verifier.verify(self.test_request)
 
     def test_url_formatting_is_specific_to_each_signature_component(self):
@@ -2595,6 +2813,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         signer.sign(
             self.test_request,
+            allow_existing_digest=True,
             key_id="test-shared-secret",
             covered_component_ids=tuple(name for name, value in covered),
             created=created,
@@ -2618,7 +2837,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.url = "https://example.com:/"
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         self.test_request.url = "https://example.com/"
         with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request)
@@ -2628,7 +2847,10 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         del self.test_response.url
         signer.sign(
-            self.test_response, key_id="test-shared-secret", covered_component_ids=("@status", '"@target-uri";req')
+            self.test_response,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("@status", '"@target-uri";req'),
         )
         result = verifier.verify(self.test_response)[0]
         self.assertEqual(result.covered_components['"@target-uri";req'], self.test_request.url)
@@ -2689,7 +2911,13 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     )
                     signature = self.test_request.headers["Signature"]
                     self.assertEqual(verifier.verify(self.test_request)[0].covered_components['"@target-uri"'], url)
-                    signer.sign(self.test_request, key_id="test-shared-secret", created=created, include_alg=False)
+                    signer.sign(
+                        self.test_request,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        created=created,
+                        include_alg=False,
+                    )
                     self.assertEqual(self.test_request.headers["Signature"], signature)
                     self.assertEqual(HTTPSignatureComponentResolver(self.test_request).get_path(), "/")
 
@@ -2703,7 +2931,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
                     self.test_request.url = "https://example.com" + original
                     self.test_request.request_target = original or "*"
                     components = tuple(f'"{name}"{suffix}' for name in ("@method", "@authority", "@target-uri"))
-                    signer.sign(message, key_id="test-shared-secret", covered_component_ids=components)
+                    signer.sign(
+                        message,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=components,
+                    )
                     verifier.verify(message)
                     self.test_request.url = "https://example.com" + changed
                     self.test_request.request_target = changed or "*"
@@ -2714,7 +2947,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.url = "https://example.com/resource"
-        signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("@request-target",))
+        signer.sign(
+            self.test_request,
+            allow_existing_digest=True,
+            key_id="test-shared-secret",
+            covered_component_ids=("@request-target",),
+        )
         self.test_request.url += "?"
         with self.assertRaises(InvalidSignature):
             verifier.verify(self.test_request)
@@ -2727,7 +2965,12 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             with self.subTest(target=target):
                 self.test_request.method = method
                 self.test_request.request_target = target
-                signer.sign(self.test_request, key_id="test-shared-secret", covered_component_ids=("@request-target",))
+                signer.sign(
+                    self.test_request,
+                    allow_existing_digest=True,
+                    key_id="test-shared-secret",
+                    covered_component_ids=("@request-target",),
+                )
                 result = verifier.verify(self.test_request)[0]
                 self.assertEqual(result.covered_components['"@request-target"'], target)
                 self.test_request.request_target += "x"
@@ -2742,7 +2985,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         self.test_request.url = "https://user:pass@example.com/resource?#fragment"
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         self.test_request.url = "https://example.com/resource?"
         verifier.verify(self.test_request)
         self.test_request.url = "https://example.com/resource"
@@ -2752,7 +2995,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_response_requires_req_for_request_components(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
-        signer.sign(self.test_request, key_id="test-shared-secret")
+        signer.sign(self.test_request, allow_existing_digest=True, key_id="test-shared-secret")
         self.test_response.url = self.test_request.url
         self.test_response.headers = self.test_request.headers.copy()
         with self.assertRaisesRegex(InvalidSignature, 'requires "req"'):
@@ -2771,10 +3014,16 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         for component in components:
             with self.subTest(component=component):
                 with self.assertRaisesRegex(HTTPMessageSignaturesException, 'requires "req"'):
-                    signer.sign(self.test_response, key_id="test-shared-secret", covered_component_ids=(component,))
+                    signer.sign(
+                        self.test_response,
+                        allow_existing_digest=True,
+                        key_id="test-shared-secret",
+                        covered_component_ids=(component,),
+                    )
                 qualified = component if component.startswith('"') else f'"{component}"'
                 signer.sign(
                     self.test_response,
+                    allow_existing_digest=True,
                     key_id="test-shared-secret",
                     covered_component_ids=("@status", qualified + ";req"),
                 )
@@ -2802,6 +3051,7 @@ class TestHTTPMessageSignatures(unittest.TestCase):
         signer = HTTPMessageSigner(signature_algorithm=ED25519, key_resolver=self.key_resolver)
         signer.sign(
             self.test_response,
+            allow_existing_digest=True,
             key_id="test-key-ed25519",
             covered_component_ids=("@status", '"@authority";req', "content-digest"),
         )

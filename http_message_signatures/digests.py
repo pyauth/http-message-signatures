@@ -11,6 +11,7 @@ from http_sf.compat import Dictionary, Item
 from .components import parse_component_ids
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .messages import Headers
+from .structures import get_header_fields
 
 
 def is_content_digest(component: Item) -> bool:
@@ -50,9 +51,31 @@ class ContentDigest:
         headers["Content-Digest"] = cls.create(body)
 
     @classmethod
-    def verify(cls, value: str | bytes, body: bytes, *, key: str | None = None) -> None:
-        """Validate a field or selected member; raise InvalidSignature on failure."""
-        cls._check_body(body)
+    def prepare(cls, headers: Headers, body: bytes | None, *, allow_existing_digest: bool) -> None:
+        """Prepare or explicitly reuse a digest, leaving existing field lines intact."""
+        if not isinstance(allow_existing_digest, bool):
+            raise TypeError("allow_existing_digest must be True or False")
+        if body is not None:
+            cls._check_body(body)
+        fields = get_header_fields(headers)
+        if "content-digest" in fields:
+            if not allow_existing_digest:
+                raise HTTPMessageSignaturesException(
+                    "Content-Digest is already present; pass allow_existing_digest=True to reuse it"
+                )
+            if body is None:
+                cls._parse(fields["content-digest"])
+            else:
+                cls.verify(fields["content-digest"], body)
+        elif body is not None:
+            cls.add(headers, body)
+        elif allow_existing_digest:
+            raise HTTPMessageSignaturesException(
+                "allow_existing_digest=True requires an existing Content-Digest or body bytes to generate one"
+            )
+
+    @classmethod
+    def _parse(cls, value: str | bytes, *, key: str | None = None) -> dict[str, bytes]:
 
         def reject_duplicate(name: str, context: str) -> None:
             if context == "dictionary":
@@ -69,12 +92,23 @@ class ContentDigest:
         members = parsed if key is None else {key: parsed}
         if not isinstance(members, dict) or not members:
             raise InvalidSignature("Content-Digest must contain at least one digest")
+        digests = {}
         for algorithm, member in members.items():
             if not isinstance(member, tuple) or not isinstance(member[0], bytes):
                 raise InvalidSignature("Content digest values must be Structured Field byte sequences")
             if algorithm not in cls._hashers:
                 raise InvalidSignature(f"Unsupported content digest algorithm {algorithm!r}")
-            if not hmac.compare_digest(member[0], cls._hashers[algorithm](body).digest()):
+            if len(member[0]) != cls._hashers[algorithm]().digest_size:
+                raise InvalidSignature(f"Invalid {algorithm} digest length")
+            digests[algorithm] = member[0]
+        return digests
+
+    @classmethod
+    def verify(cls, value: str | bytes, body: bytes, *, key: str | None = None) -> None:
+        """Validate a field or selected member; raise InvalidSignature on failure."""
+        cls._check_body(body)
+        for algorithm, digest in cls._parse(value, key=key).items():
+            if not hmac.compare_digest(digest, cls._hashers[algorithm](body).digest()):
                 raise InvalidSignature("Content-Digest does not match the message body")
 
     @classmethod
