@@ -50,7 +50,8 @@ Synopsis
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request)
 
-The base API reads no body implicitly. Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
+Signing Content-Digest and checking it against the body protects the body against tampering.
+Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
 and cover Content-Digest, or to ``verify()`` to validate the signed digest. The HTTPX2 integration below manages these
 bytes automatically.
 
