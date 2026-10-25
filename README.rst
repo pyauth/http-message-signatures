@@ -48,12 +48,12 @@ Supply content bytes before decoding as ``body=``. With this argument, ``sign()`
 and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
 The HTTPX2 hooks below read and supply these bytes automatically.
 
-Signing a message with an existing Content-Digest requires ``allow_existing_digest=True`` on ``sign()`` or
+Signing a message with an existing Content-Digest requires ``use_existing_digest=True`` on ``sign()`` or
 ``prepare()``. With ``body=`` supplied, these methods validate the existing digest against those bytes and add digest
 coverage to the signature. Without ``body=``, they check only the digest's format and algorithms; you must ensure
 the digest matches the content and include it in ``covered_component_ids`` to sign it. Both methods preserve existing
 digest field lines and raise an error if the digest is malformed or does not match supplied content.
-They also raise an error if you supply ``allow_existing_digest=True`` with neither a digest nor body bytes.
+They also raise an error if you supply ``use_existing_digest=True`` with neither a digest nor body bytes.
 
 The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
 provides a Requests integration.
@@ -188,7 +188,7 @@ The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)
 when signing requests and a ``verify_options`` dictionary when verifying responses. Omit the dictionary for any disabled
 operation.
 
-To accept a supplied request digest, set ``"allow_existing_digest": True`` in ``sign_options``. The hooks always
+To accept a supplied request digest, set ``"use_existing_digest": True`` in ``sign_options``. The hooks always
 validate it against the buffered request body. When retrying a request previously signed by the same hooks, the
 hooks inject this option automatically unless you explicitly set it to ``False``. The hooks also allow digest reuse on
 redirects that retain the body. If you change the body, remove or replace its existing digest before signing again.

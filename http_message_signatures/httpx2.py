@@ -48,7 +48,7 @@ class SigningOptions(_SigningConfiguration, total=False):
     include_alg: bool
     covered_component_ids: Sequence[str]
     append_if_signature_exists: bool
-    allow_existing_digest: bool
+    use_existing_digest: bool
 
 
 class _VerificationConfiguration(TypedDict):
@@ -162,7 +162,7 @@ class SignatureHooks:
     hook before hooks that consume responses. The signing hook buffers requests;
     the verification hook buffers responses, even when you use ``stream()``.
     The signing hook rejects a supplied Content-Digest unless you configure
-    ``allow_existing_digest=True``. It allows digest reuse on retries and redirects
+    ``use_existing_digest=True``. It allows digest reuse on retries and redirects
     for requests previously signed by the same hooks, unless you explicitly set
     that option to ``False``. It validates reused digests against the current body.
     If you change the body, remove or replace its existing digest before signing again.
@@ -298,7 +298,7 @@ class SignatureHooks:
     def _sign(self, request: httpx2.Request, body: bytes, signer: HTTPMessageSigner) -> None:
         options = self._sign_kwargs
         if request.extensions.get("http_message_signatures.signer") is self._signing_marker:
-            options = {"allow_existing_digest": True, **options}
+            options = {"use_existing_digest": True, **options}
         signer.sign(adapt_message(request), body=body, **options)
         request.extensions["http_message_signatures.signer"] = self._signing_marker
 

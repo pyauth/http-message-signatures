@@ -169,7 +169,7 @@ class TestContentDigest(SignatureTestCase):
         self.signer.sign(
             message,
             key_id="client",
-            allow_existing_digest=True,
+            use_existing_digest=True,
             covered_component_ids=("content-digest",),
             label="second",
             tag="api",
@@ -250,7 +250,7 @@ class TestContentDigest(SignatureTestCase):
         self.signer.sign(
             message,
             key_id="server",
-            allow_existing_digest=True,
+            use_existing_digest=True,
             covered_component_ids=("@status",),
             tag="api",
             label="second",
@@ -462,7 +462,7 @@ class TestSignatureHooks(SignatureTestCase):
         self.signer.sign(
             adapt_message(response),
             key_id="client",
-            allow_existing_digest=True,
+            use_existing_digest=True,
             covered_component_ids=("@status", "content-digest"),
         )
         with self.assertRaisesRegex(InvalidSignature, "Unable to resolve verification key"):
@@ -743,7 +743,7 @@ class TestSignatureHooks(SignatureTestCase):
                 self.signer.sign(
                     adapt_message(response),
                     key_id="server",
-                    allow_existing_digest=True,
+                    use_existing_digest=True,
                     covered_component_ids=("@status", "location", "content-digest"),
                 )
             return response
@@ -781,7 +781,7 @@ class TestSignatureHooks(SignatureTestCase):
                 self.signer.sign(
                     adapt_message(response),
                     key_id="server",
-                    allow_existing_digest=True,
+                    use_existing_digest=True,
                     covered_component_ids=("@status", "content-digest"),
                 )
             return response
@@ -804,7 +804,7 @@ class TestSignatureHooks(SignatureTestCase):
             self.signer.sign(
                 adapt_message(response),
                 key_id="server",
-                allow_existing_digest=True,
+                use_existing_digest=True,
                 covered_component_ids=("@status", "content-digest"),
             )
             return response
@@ -1058,7 +1058,7 @@ class TestSignatureHooks(SignatureTestCase):
                 self.signer.sign(
                     adapt_message(response),
                     key_id="server",
-                    allow_existing_digest=True,
+                    use_existing_digest=True,
                     covered_component_ids=("@status", "content-digest"),
                 )
                 self.hooks().verify_response(response)

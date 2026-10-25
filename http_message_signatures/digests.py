@@ -54,17 +54,17 @@ class ContentDigest:
         headers["Content-Digest"] = cls.create(body)
 
     @classmethod
-    def prepare(cls, headers: Headers, body: bytes | None, *, allow_existing_digest: bool) -> None:
+    def prepare(cls, headers: Headers, body: bytes | None, *, use_existing_digest: bool) -> None:
         """This method generates or validates a digest, preserving existing field lines."""
-        if not isinstance(allow_existing_digest, bool):
-            raise TypeError("allow_existing_digest must be True or False")
+        if not isinstance(use_existing_digest, bool):
+            raise TypeError("use_existing_digest must be True or False")
         if body is not None:
             cls._check_body(body)
         fields = get_header_fields(headers)
         if "content-digest" in fields:
-            if not allow_existing_digest:
+            if not use_existing_digest:
                 raise HTTPMessageSignaturesException(
-                    "Content-Digest is already present; pass allow_existing_digest=True to reuse it"
+                    "Content-Digest is already present; pass use_existing_digest=True to reuse it"
                 )
             if body is None:
                 cls._parse(fields["content-digest"])
@@ -72,9 +72,9 @@ class ContentDigest:
                 cls.verify(fields["content-digest"], body)
         elif body is not None:
             cls.add(headers, body)
-        elif allow_existing_digest:
+        elif use_existing_digest:
             raise HTTPMessageSignaturesException(
-                "allow_existing_digest=True requires an existing Content-Digest or body bytes to generate one"
+                "use_existing_digest=True requires an existing Content-Digest or body bytes to generate one"
             )
 
     @classmethod

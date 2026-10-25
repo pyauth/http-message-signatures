@@ -16,7 +16,7 @@ class TestDigestReuse(SignatureTestCase):
         for method in (self.signer.sign, self.signer.prepare):
             for body in (None, b"", b"hello"):
                 for existing in (False, True):
-                    for options in ({}, {"allow_existing_digest": False}, {"allow_existing_digest": True}):
+                    for options in ({}, {"use_existing_digest": False}, {"use_existing_digest": True}):
                         with self.subTest(method=method.__name__, body=body, existing=existing, options=options):
                             content = b"hello" if body is None else body
                             headers = {"Content-Digest": ContentDigest.create(content)} if existing else {}
@@ -25,9 +25,9 @@ class TestDigestReuse(SignatureTestCase):
                             kwargs = {"key_id": "client", **options}
                             if body is not None:
                                 kwargs["body"] = body
-                            allowed = options.get("allow_existing_digest", False)
+                            allowed = options.get("use_existing_digest", False)
                             if existing and not allowed:
-                                error = "already present; pass allow_existing_digest=True"
+                                error = "already present; pass use_existing_digest=True"
                             elif allowed and not existing and body is None:
                                 error = "requires an existing Content-Digest or body bytes"
                             else:
@@ -61,9 +61,7 @@ class TestDigestReuse(SignatureTestCase):
                 raise AssertionError("Signing must not read content implicitly")
 
         message = Message()
-        self.signer.sign(
-            message, key_id="client", allow_existing_digest=True, covered_component_ids=("content-digest",)
-        )
+        self.signer.sign(message, key_id="client", use_existing_digest=True, covered_component_ids=("content-digest",))
         self.assertEqual(self.verifier.verify(message, body=b"hello")[0].body, b"hello")
         with self.assertRaisesRegex(InvalidSignature, "does not match"):
             self.verifier.verify(message, body=b"different")
@@ -80,7 +78,7 @@ class TestDigestReuse(SignatureTestCase):
                     message,
                     key_id="client",
                     body=body,
-                    allow_existing_digest=True,
+                    use_existing_digest=True,
                     covered_component_ids=('"content-digest";sf;key="sha-512"',),
                 )
                 self.assertEqual(list(headers.items())[:2], before)
@@ -106,7 +104,7 @@ class TestDigestReuse(SignatureTestCase):
                         message = SimpleNamespace(method="POST", url=ORIGIN, headers=headers)
                         before = headers.copy()
                         with self.assertRaisesRegex(InvalidSignature, error):
-                            method(message, key_id="client", body=body, allow_existing_digest=True)
+                            method(message, key_id="client", body=body, use_existing_digest=True)
                         self.assertEqual(headers, before)
 
     def test_reuse_validates_all_existing_members(self):
@@ -125,7 +123,7 @@ class TestDigestReuse(SignatureTestCase):
                     message,
                     key_id="client",
                     body=b"hello",
-                    allow_existing_digest=True,
+                    use_existing_digest=True,
                     covered_component_ids=('"content-digest";key="sha-256"',),
                 )
             self.assertEqual(list(headers.items()), before)
@@ -136,9 +134,9 @@ class TestDigestReuse(SignatureTestCase):
                 message = SimpleNamespace(method="POST", url=ORIGIN, headers={})
                 with (
                     self.subTest(flag=flag),
-                    self.assertRaisesRegex(TypeError, "allow_existing_digest must be True or False"),
+                    self.assertRaisesRegex(TypeError, "use_existing_digest must be True or False"),
                 ):
-                    method(message, key_id="client", body=b"hello", allow_existing_digest=flag)
+                    method(message, key_id="client", body=b"hello", use_existing_digest=flag)
                 self.assertEqual(message.headers, {})
             for body in ("hello", bytearray(b"hello")):
                 message = SimpleNamespace(method="POST", url=ORIGIN, headers={})
@@ -146,7 +144,7 @@ class TestDigestReuse(SignatureTestCase):
                     self.subTest(body=body),
                     self.assertRaisesRegex(HTTPMessageSignaturesException, "body must contain bytes"),
                 ):
-                    method(message, key_id="client", body=body, allow_existing_digest=True)
+                    method(message, key_id="client", body=body, use_existing_digest=True)
                 self.assertEqual(message.headers, {})
 
 
@@ -189,26 +187,26 @@ class TestDigestRetries(SignatureTestCase):
         request = httpx2.Request(
             "POST", ORIGIN, content=b"hello", headers={"Content-Digest": ContentDigest.create(b"hello")}
         )
-        with self.assertRaisesRegex(HTTPMessageSignaturesException, "allow_existing_digest=True"):
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "use_existing_digest=True"):
             self.hooks().sign_request(request)
         self.assertNotIn("http_message_signatures.signer", request.extensions)
-        hooks = self.hooks(sign_options={"allow_existing_digest": True})
+        hooks = self.hooks(sign_options={"use_existing_digest": True})
         hooks.sign_request(request)
         self.assertEqual(self.verifier.verify(adapt_message(request), body=b"hello")[0].body, b"hello")
 
     def test_explicit_false_rejects_reuse(self):
-        hooks = self.hooks(sign_options={"allow_existing_digest": False})
+        hooks = self.hooks(sign_options={"use_existing_digest": False})
         request = httpx2.Request("POST", ORIGIN, content=b"hello")
         hooks.sign_request(request)
         before = request.headers.raw
-        with self.assertRaisesRegex(HTTPMessageSignaturesException, "allow_existing_digest=True"):
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "use_existing_digest=True"):
             hooks.sign_request(request)
         self.assertEqual(request.headers.raw, before)
 
     def test_retry_permission_is_scoped_to_its_hooks(self):
         request = httpx2.Request("POST", ORIGIN, content=b"hello")
         self.hooks().sign_request(request)
-        with self.assertRaisesRegex(HTTPMessageSignaturesException, "allow_existing_digest=True"):
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "use_existing_digest=True"):
             self.hooks().sign_request(request)
 
     def test_failed_signing_does_not_grant_retry_permission(self):
@@ -224,7 +222,7 @@ class TestDigestRetries(SignatureTestCase):
         with self.assertRaisesRegex(RuntimeError, "Signing failed"):
             hooks.sign_request(request)
         self.assertNotIn("http_message_signatures.signer", request.extensions)
-        with self.assertRaisesRegex(HTTPMessageSignaturesException, "allow_existing_digest=True"):
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "use_existing_digest=True"):
             hooks.sign_request(request)
 
     def test_retry_does_not_trust_changed_body_or_digest(self):
@@ -257,5 +255,5 @@ class TestDigestRetries(SignatureTestCase):
         request = httpx2.Request("POST", ORIGIN, content=b"hello")
         hooks.sign_request(request)
         hooks.sign_request(request)
-        self.assertNotIn("allow_existing_digest", calls[0])
-        self.assertIs(calls[1]["allow_existing_digest"], True)
+        self.assertNotIn("use_existing_digest", calls[0])
+        self.assertIs(calls[1]["use_existing_digest"], True)

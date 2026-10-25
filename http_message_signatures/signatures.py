@@ -211,7 +211,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         append_if_signature_exists: bool = False,
         body: bytes | None = None,
-        allow_existing_digest: bool = False,
+        use_existing_digest: bool = False,
     ):
         """Sign a message in place; return ``None``.
 
@@ -239,7 +239,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         :param body: Optional content bytes before decoding. When supplied,
             ``sign()`` generates Content-Digest if absent and adds digest coverage
             to the signature, including when ``body=b""``.
-        :param allow_existing_digest: Whether ``sign()`` may reuse an existing
+        :param use_existing_digest: Whether ``sign()`` may reuse an existing
             Content-Digest. When true, ``sign()`` preserves the field and validates
             it against ``body`` if supplied. Without ``body``, ``sign()`` checks
             only the digest's format and algorithms; you must ensure it matches
@@ -265,7 +265,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             include_alg=include_alg,
             covered_component_ids=covered_component_ids,
             body=body,
-            allow_existing_digest=allow_existing_digest,
+            use_existing_digest=use_existing_digest,
         )
         key = self.key_resolver.resolve_private_key(key_id)
         signer = self.signature_algorithm(private_key=key)
@@ -285,14 +285,14 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         body: bytes | None = None,
-        allow_existing_digest: bool = False,
+        use_existing_digest: bool = False,
     ) -> PreparedSignature:
         """Build the signing input without resolving a key.
 
         Arguments have the same meaning and defaults as in ``sign()``. Creation
         time is captured here, before any remote signing delay. Header append or
         replacement policy is selected later in ``apply()``.
-        ``prepare()`` handles ``body`` and ``allow_existing_digest`` as documented
+        ``prepare()`` handles ``body`` and ``use_existing_digest`` as documented
         for ``sign()``. It changes the message only when it generates a digest.
         Supply bytes that match the message's content; ``prepare()`` does not read
         the message's body to check that you supplied the correct bytes.
@@ -319,7 +319,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
-        self.content_digest_class.prepare(message.headers, body, allow_existing_digest=allow_existing_digest)
+        self.content_digest_class.prepare(message.headers, body, use_existing_digest=use_existing_digest)
         if body is not None and not any(is_content_digest(node) for node in covered_component_nodes):
             covered_component_nodes.append(Item("content-digest"))
         self._armor_set_cookie(message, covered_component_nodes)
