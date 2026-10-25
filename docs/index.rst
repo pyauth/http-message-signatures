@@ -9,6 +9,12 @@ API documentation
    :undoc-members:
    :inherited-members:
 
+HTTPX2
+======
+
+.. automodule:: http_message_signatures.httpx2
+   :members:
+
 Algorithms
 ==========
 

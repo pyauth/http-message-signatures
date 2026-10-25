@@ -1,14 +1,18 @@
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cached_property
-from typing import ClassVar
+from typing import ClassVar, TypeAlias
 
 import http_sf
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from http_sf.compat import Dictionary, Item, List
 
 from ._url import parse_url
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict, get_header_field_lines
+
+SigningKey: TypeAlias = bytes | rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey | ed25519.Ed25519PrivateKey
+VerificationKey: TypeAlias = bytes | rsa.RSAPublicKey | ec.EllipticCurvePublicKey | ed25519.Ed25519PublicKey
 
 
 class HTTPSignatureComponentResolver:
@@ -253,3 +257,25 @@ class HTTPSignatureKeyResolver:
     def resolve_private_key(self, key_id: str):
         """Return the signing key for ``key_id`` or raise if it is unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")
+
+
+class MappingKeyResolver(HTTPSignatureKeyResolver):
+    """Resolve locally configured keys without a custom resolver subclass.
+
+    Public and private mappings are separate, including for HMAC. For unknown key IDs,
+    ``resolve_public_key()`` returns ``None`` and ``resolve_private_key()`` raises
+    ``KeyError``. Keys may be PEM
+    bytes, cryptography key objects, or shared secret bytes, as for the base resolver.
+    The constructor copies the mappings, so changes to the supplied mappings do not
+    affect which keys this resolver trusts.
+    """
+
+    def __init__(self, *, public_keys: Mapping[str, VerificationKey], private_keys: Mapping[str, SigningKey]) -> None:
+        self.public_keys = dict(public_keys)
+        self.private_keys = dict(private_keys)
+
+    def resolve_public_key(self, key_id: str) -> VerificationKey | None:
+        return self.public_keys.get(key_id)
+
+    def resolve_private_key(self, key_id: str) -> SigningKey:
+        return self.private_keys[key_id]
