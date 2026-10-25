@@ -164,7 +164,7 @@ class SignatureMiddleware(_SignatureAdapter):
     To authenticate cookie fields, require ``'"set-cookie";bs'`` coverage as well.
 
     Restoring decoded response streams uses aiohttp's internal payload parser and stream
-    construction APIs. This adapter does not patch aiohttp or require an upstream change.
+    construction APIs.
     """
 
     def __init__(
