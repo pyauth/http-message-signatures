@@ -123,8 +123,9 @@ Configuration and defaults
 Keyword options from ``HTTPMessageSigner.sign()`` and ``HTTPMessageVerifier.verify()`` can be supplied directly to
 ``SignatureHooks``. For example, ``covered_component_ids``, ``include_alg``, ``label``, ``expires``, and ``nonce`` go to
 signing; ``max_age``, ``expect_tag``, ``expect_label``, and ``require_components`` go to verification. An explicitly
-supplied ``tag`` also supplies ``expect_tag`` unless that option is separately supplied. Unknown options raise
-``TypeError`` during construction.
+supplied ``tag`` also supplies ``expect_tag`` unless that option is separately supplied. These four verification keywords
+are routed explicitly; all other keywords are passed to the signer. Unknown options raise ``TypeError`` from the
+underlying method when its hook runs, before the request is sent or the response is returned to the caller.
 The hooks manage ``body`` and forward ``key_id`` to signing.
 
 Unspecified signature options are omitted from base method calls. Their defaults remain owned by the base implementation:
@@ -151,6 +152,8 @@ digest requirement. A present digest of empty content is verified. ``Content-Dig
 ``signer_class`` and ``verifier_class`` can be overridden on a ``SignatureHooks`` subclass to use base subclasses.
 For example, customize ``HTTPMessageVerifier.max_clock_skew`` there. To generate SHA-512 digests, subclass
 ``ContentDigest`` with ``algorithm = "sha-512"`` and assign it to the signer's ``content_digest_class``.
+Additional signer keywords are forwarded unchanged. For verifier-specific subclass options, set entries in
+``signatures.verification_options`` before using the hooks; no method signatures are inspected at runtime.
 The configured signature algorithm is never selected from untrusted message metadata.
 
 Hook ordering and redirects

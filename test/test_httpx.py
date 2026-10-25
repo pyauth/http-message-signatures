@@ -469,6 +469,7 @@ class TestSignatureHooks(SignatureTestCase):
             nonce="caller-nonce",
             covered_component_ids=("@method",),
             max_age=None,
+            expect_label="pyhms",
             require_components=("@status",),
         )
         request = httpx.Request("GET", ORIGIN)
@@ -485,11 +486,39 @@ class TestSignatureHooks(SignatureTestCase):
 
     def test_unknown_and_hook_managed_options_are_rejected(self):
         for name in ("max_ag", "covered_components", "body"):
+            hooks = self.hooks(**{name: None})
+            sent = []
             with (
                 self.subTest(option=name),
-                self.assertRaisesRegex(TypeError, rf"Unknown signature option\(s\): {name}"),
+                httpx.Client(transport=httpx.MockTransport(sent.append), event_hooks=hooks.event_hooks) as client,
+                self.assertRaisesRegex(TypeError, rf"HTTPMessageSigner.sign\(\).*'{name}'"),
             ):
-                self.hooks(**{name: None})
+                client.get(ORIGIN)
+            self.assertFalse(sent)
+
+    def test_verifier_rejects_unsupported_options(self):
+        class Verifier(HTTPMessageVerifier):
+            def verify(self, message):
+                return super().verify(message)
+
+        class Hooks(SignatureHooks):
+            verifier_class = Verifier
+
+        hooks = Hooks(
+            origin=ORIGIN,
+            key_id="client",
+            signing_key=SECRET,
+            verification_keys={"server": SECRET},
+            signature_algorithm=algorithms.HMAC_SHA256,
+            max_age=None,
+        )
+        response = self.response(httpx.Request("GET", ORIGIN))
+        stream = response.stream
+        with self.assertRaisesRegex(TypeError, r"Verifier.verify\(\).*'max_age'"):
+            hooks.verify_response(response)
+        self.assertEqual(stream.reads, 0)
+        self.assertTrue(stream.closed)
+        self.assertNotIn("http_message_signatures", response.extensions)
 
     def test_unspecified_options_are_not_forwarded(self):
         hooks = self.hooks()
@@ -542,7 +571,8 @@ class TestSignatureHooks(SignatureTestCase):
             "verification_keys": {"server": SECRET},
             "signature_algorithm": algorithms.HMAC_SHA256,
         }
-        hooks = Hooks(**config, include_alg=False, max_age=None, signing_context="out", verification_context="in")
+        hooks = Hooks(**config, include_alg=False, max_age=None, signing_context="out")
+        hooks.verification_options["verification_context"] = "in"
         request = httpx.Request("GET", ORIGIN)
         hooks.sign_request(request)
         hooks.verify_response(self.response(request))
@@ -551,8 +581,8 @@ class TestSignatureHooks(SignatureTestCase):
         defaults = Hooks(**config)
         self.assertEqual(defaults.signing_options, {})
         self.assertEqual(defaults.verification_options, {})
-        with self.assertRaisesRegex(TypeError, "Unknown signature option"):
-            Hooks(**config, max_ag=None)
+        with self.assertRaisesRegex(TypeError, r"HTTPMessageSigner.sign\(\).*'max_ag'"):
+            Hooks(**config, max_ag=None).sign_request(httpx.Request("GET", ORIGIN))
 
     def test_asymmetric_keys_and_untrusted_key_id(self):
         client_key, server_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()

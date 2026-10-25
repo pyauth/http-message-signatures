@@ -1,7 +1,6 @@
 """Buffered request signing and response verification for HTTPX."""
 
 from collections.abc import Awaitable, Callable, Mapping
-from inspect import Parameter, signature
 from io import BytesIO
 from typing import Any, overload
 
@@ -77,7 +76,9 @@ class SignatureHooks:
         ``HTTPMessageVerifier.verify()``. Unspecified options are not forwarded;
         the base methods own their defaults. ``tag`` also supplies ``expect_tag``
         unless the latter is explicitly provided. ``body`` is managed by the hooks.
-        Unknown options raise ``TypeError`` during construction.
+        Verification options are ``max_age``, ``expect_tag``, ``expect_label``,
+        and ``require_components``. All other options go to the signer; unknown
+        options raise ``TypeError`` from the underlying method when its hook runs.
 
     Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
     Signing belongs after request-mutating hooks; verification belongs before
@@ -124,28 +125,16 @@ class SignatureHooks:
         keys = MappingKeyResolver(public_keys=verification_keys, private_keys={key_id: signing_key})
         self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
         self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        # Use the base methods' keyword names, never copy their default values.
-        signing_names = self._option_names(self.signer.sign, HTTPMessageSigner.sign) - {"body", "key_id"}
-        verifying_names = self._option_names(self.verifier.verify, HTTPMessageVerifier.verify) - {"body"}
-        unknown = options.keys() - (signing_names | verifying_names)
-        if unknown:
-            raise TypeError(f"Unknown signature option(s): {', '.join(sorted(unknown))}")
-        self.signing_options = {name: value for name, value in options.items() if name in signing_names}
-        self.verification_options = {name: value for name, value in options.items() if name in verifying_names}
-        if "tag" in options and "expect_tag" not in options:
+        # Route verification keywords; leave argument validation and defaults to
+        # the underlying methods. Do not discard unrecognized signing keywords.
+        self.verification_options = {
+            name: options.pop(name)
+            for name in ("max_age", "expect_tag", "expect_label", "require_components")
+            if name in options
+        }
+        self.signing_options = options
+        if "tag" in options and "expect_tag" not in self.verification_options:
             self.verification_options["expect_tag"] = options["tag"]
-
-    @staticmethod
-    def _option_names(method: Callable[..., Any], base_method: Callable[..., Any]) -> set[str]:
-        parameters = signature(method).parameters
-        names = {name for name, parameter in parameters.items() if parameter.kind == Parameter.KEYWORD_ONLY}
-        if any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values()):
-            names.update(
-                name
-                for name, parameter in signature(base_method).parameters.items()
-                if parameter.kind == Parameter.KEYWORD_ONLY
-            )
-        return names
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:
