@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import aiohttp
 from aiohttp import web
-from aiohttp.compression_utils import ZLibDecompressor
+from aiohttp.compression_utils import ZLibCompressor, ZLibDecompressor
 from aiohttp.test_utils import TestServer
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from multidict import CIMultiDict
@@ -239,16 +239,55 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
             yield b"request"
 
-        file = io.BytesIO(b"file content")
-        self.addCleanup(file.close)
-        form = aiohttp.FormData()
-        form.add_field("file", io.BytesIO(b"form file"), filename="test.txt")
         middleware = self.middleware()
         async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            for body, expected in ((chunks(), b"streamed request"), (file, b"file content"), (form, b"form file")):
-                async with client.post(self.origin, data=body) as response:
-                    self.assertEqual(await response.read(), PLAIN)
-                    self.assertIn(expected, self.requests[-1][1])
+            for compression in (None, "gzip", "deflate"):
+                file = io.BytesIO(b"file content")
+                self.addCleanup(file.close)
+                form = aiohttp.FormData()
+                form.add_field("file", io.BytesIO(b"form file"), filename="test.txt")
+                for body, expected in ((chunks(), b"streamed request"), (file, b"file content"), (form, b"form file")):
+                    with self.subTest(compression=compression, expected=expected):
+                        async with client.post(self.origin, data=body, compress=compression) as response:
+                            self.assertEqual(await response.read(), PLAIN)
+                            received = self.requests[-1][1]
+                            if compression:
+                                received = (
+                                    gzip.decompress(received) if compression == "gzip" else zlib.decompress(received)
+                                )
+                            self.assertIn(expected, received)
+
+    async def test_compressed_requests_match_native_aiohttp(self):
+        middleware = self.middleware(sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type")})
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as signed,
+        ):
+            for compression in (True, "gzip", "deflate"):
+                for options in ({"data": PLAIN * 1000}, {"json": {"message": "hello"}}, {"data": b""}):
+                    with self.subTest(compression=compression, options=options.keys()):
+                        for client in (native, signed):
+                            async with client.post(self.origin, compress=compression, **options) as response:
+                                await response.read()
+                        (original, expected), (request, body) = self.requests[-2:]
+                        self.assertEqual(body, expected)
+                        for header in ("Content-Type", "Content-Encoding", "Content-Length", "Transfer-Encoding"):
+                            self.assertEqual(request.headers.get(header), original.headers.get(header))
+                        ContentDigest.verify(request.headers["Content-Digest"], body)
+
+    async def test_empty_compressed_stream(self):
+        async def chunks():
+            yield b""
+
+        middleware = self.middleware()
+        async with (
+            aiohttp.ClientSession(**middleware.session_kwargs) as client,
+            client.post(self.origin, data=chunks(), compress="gzip") as response,
+        ):
+            await response.read()
+        request, body = self.requests[-1]
+        self.assertEqual(request.headers["Content-Encoding"], "gzip")
+        self.assertEqual(gzip.decompress(body), b"")
 
     async def test_multipart_part_encoding_is_preserved(self):
         writer = aiohttp.MultipartWriter("mixed")
@@ -313,14 +352,26 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
         middleware = self.middleware()
         options = {**middleware.session_kwargs, "middlewares": (retry, middleware)}
-        async with aiohttp.ClientSession(**options) as client, client.post(self.origin, data=b"retry") as response:
-            await response.read()
-        self.assertEqual([body for _, body in self.requests], [b"retry", b"retry"])
+        async with aiohttp.ClientSession(**options) as client:
+            for compression in (None, "gzip", "deflate"):
+                with self.subTest(compression=compression):
+                    async with client.post(self.origin, data=b"retry", compress=compression) as response:
+                        await response.read()
+                    first, second = [body for _, body in self.requests[-2:]]
+                    self.assertEqual(first, second)
+                    if compression:
+                        first = gzip.decompress(first) if compression == "gzip" else zlib.decompress(first)
+                    self.assertEqual(first, b"retry")
+
+        middleware = self.middleware(sign_options={"use_existing_digest": False})
+        async with aiohttp.ClientSession(**{**middleware.session_kwargs, "middlewares": (retry, middleware)}) as client:
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+                await client.post(self.origin, data=b"retry", compress="gzip")
 
     async def test_redirects_resign_and_replay_buffered_upload(self):
         async def endpoint(request):
             if request.path == "/redirect":
-                return await self.signed_response(request, status=307, headers={"Location": "/destination"})
+                return await self.signed_response(request, status=status, headers={"Location": "/destination"})
             return await self.signed_response(request)
 
         async def chunks():
@@ -328,13 +379,44 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
         self.endpoint = endpoint
         middleware = self.middleware()
+        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+            for status in (301, 302, 303, 307, 308):
+                for compression in (None, "gzip", "deflate"):
+                    with self.subTest(status=status, compression=compression):
+                        async with client.post(
+                            self.origin + "/redirect", data=chunks(), compress=compression
+                        ) as response:
+                            self.assertEqual(response.url.path, "/destination")
+                            self.assertEqual(len(response.history), 1)
+                        (_, first), (request, second) = self.requests[-2:]
+                        if status in (307, 308):
+                            self.assertEqual(first, second)
+                        else:
+                            self.assertEqual(request.method, "GET")
+                            self.assertNotIn("Content-Encoding", request.headers)
+                            self.assertEqual(second, b"")
+                        if compression:
+                            first = gzip.decompress(first) if compression == "gzip" else zlib.decompress(first)
+                        self.assertEqual(first, b"redirected upload")
+
+    async def test_compressed_redirect_preserves_content_type(self):
+        async def endpoint(request):
+            if request.path == "/redirect":
+                return await self.signed_response(request, status=307, headers={"Location": "/destination"})
+            return await self.signed_response(request)
+
+        self.endpoint = endpoint
+        middleware = self.middleware(
+            sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type", "content-encoding")}
+        )
         async with (
             aiohttp.ClientSession(**middleware.session_kwargs) as client,
-            client.post(self.origin + "/redirect", data=chunks()) as response,
+            client.post(self.origin + "/redirect", json={"message": "hello"}, compress="gzip") as response,
         ):
-            self.assertEqual(response.url.path, "/destination")
-            self.assertEqual(len(response.history), 1)
-        self.assertEqual([body for _, body in self.requests], [b"redirected upload"] * 2)
+            await response.read()
+        for request, body in self.requests:
+            self.assertEqual(request.headers["Content-Type"], "application/json")
+            self.assertEqual(gzip.decompress(body), b'{"message": "hello"}')
 
     async def test_cross_origin_redirect_is_blocked(self):
         async def endpoint(request):
@@ -384,10 +466,36 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         async with aiohttp.ClientSession(middlewares=(middleware,)) as client:
             with self.assertRaisesRegex(ValueError, "session_kwargs"):
                 await client.get(self.origin)
-        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            with self.assertRaisesRegex(ValueError, "compress="):
-                await client.post(self.origin, data=b"body", compress="gzip")
         self.assertFalse(self.requests)
+
+    async def test_compressed_existing_digest_describes_encoded_bytes(self):
+        async with (
+            aiohttp.ClientSession() as client,
+            client.post(self.origin, data=PLAIN, compress="gzip") as response,
+        ):
+            await response.read()
+        encoded = self.requests[-1][1]
+        cases = ((False, encoded, "already present"), (True, encoded, None), (True, PLAIN, "does not match"))
+        for allowed, content, error in cases:
+            with self.subTest(allowed=allowed, error=error):
+                middleware = self.middleware(sign_options={"use_existing_digest": allowed})
+                async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+
+                    async def send(content=content):
+                        async with client.post(
+                            self.origin,
+                            data=PLAIN,
+                            compress="gzip",
+                            headers={"Content-Digest": ContentDigest.create(content)},
+                        ) as response:
+                            await response.read()
+
+                    if error:
+                        with self.assertRaisesRegex(HTTPMessageSignaturesException, error):
+                            await send()
+                    else:
+                        await send()
+        self.assertEqual(len(self.requests), 2)
 
     async def test_per_request_decompression_override_is_rejected(self):
         async def endpoint(request):
@@ -437,13 +545,42 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
         middleware = self.middleware()
         async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            payload = TrackedPayload(b"body")
-            async with client.post(self.origin, data=payload):
-                self.assertTrue(payload.closed)
-            payload = TrackedPayload(b"body")
-            with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
-                await client.post(self.origin, data=payload, headers={"Content-Digest": ContentDigest.create(b"body")})
-            self.assertTrue(payload.closed)
+            for compression in (None, "gzip"):
+                with self.subTest(compression=compression):
+                    payload = TrackedPayload(b"body")
+                    async with client.post(self.origin, data=payload, compress=compression):
+                        self.assertTrue(payload.closed)
+                    payload = TrackedPayload(b"body")
+                    with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
+                        await client.post(
+                            self.origin,
+                            data=payload,
+                            compress=compression,
+                            headers={"Content-Digest": ContentDigest.create(b"body")},
+                        )
+                    self.assertTrue(payload.closed)
+
+    async def test_compression_failure_discards_partial_body_and_closes_payload(self):
+        class FailingPayload(aiohttp.BytesPayload):
+            closed = False
+
+            async def write_with_length(self, writer, content_length):
+                await writer.write(b"partial content")
+                raise failure
+
+            async def close(self):
+                self.closed = True
+
+        middleware = self.middleware()
+        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+            for failure in (asyncio.CancelledError(), RuntimeError("upload failed")):
+                with self.subTest(failure=type(failure).__name__):
+                    payload = FailingPayload(b"body")
+                    with patch.object(ZLibCompressor, "flush") as flush, self.assertRaises(type(failure)):
+                        await client.post(self.origin, data=payload, compress="gzip")
+                    flush.assert_not_called()
+                    self.assertTrue(payload.closed)
+        self.assertFalse(self.requests)
 
     async def test_unsigned_responses_and_unsigned_digests_are_rejected(self):
         async def unsigned(request):

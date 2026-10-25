@@ -250,8 +250,11 @@ The middleware buffers complete request and response bodies. It generates reques
 digests automatically, including for streaming uploads and downloads. To accept an existing request digest, set
 ``"use_existing_digest": True`` in ``sign_options``. The middleware checks it against the buffered body. It also
 allows digest reuse when a retry invokes the same middleware on the same request, unless you set this option to ``False``.
-For compressed uploads, supply already encoded bytes with a Content-Encoding header; signing rejects ``compress=``
-because aiohttp would apply it after signing.
+For compressed uploads, pass ``compress=True`` or an encoding such as ``compress="gzip"`` to aiohttp's request method.
+The middleware uses aiohttp's compressor while buffering the upload, then computes Content-Digest and signs the
+compressed bytes that aiohttp will send. Retries and redirects that preserve the body reuse those bytes without
+compressing them again. Streaming uploads are fully buffered before sending. You can also supply already encoded bytes
+with a Content-Encoding header without ``compress=``. An existing digest must describe the compressed content.
 
 When verification is enabled, ``session_kwargs`` disables aiohttp's early decompression. The middleware verifies the
 encoded body, then decodes it for normal ``read()``, ``text()``, ``json()``, and ``content.iter_chunked()`` access.
