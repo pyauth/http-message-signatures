@@ -168,9 +168,7 @@ For verification only::
 
 The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply a ``sign_options`` dictionary
 when signing requests and a ``verify_options`` dictionary when verifying responses. Omit the dictionary for any disabled
-operation. Omitting a required dictionary or supplying one for a disabled operation raises ``ValueError``; missing required
-dictionary entries raise ``TypeError`` at construction. No dummy keys or IDs are needed. Disabled handlers are not
-constructed, and their hook lists are empty.
+operation.
 
 .. warning::
 

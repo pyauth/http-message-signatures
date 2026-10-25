@@ -610,14 +610,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         return verify_results
 
     def verify_body(self, message, results: Sequence[VerifyResult], body: bytes) -> list[VerifyResult]:
-        """Complete body validation after ``verify()`` has authenticated headers.
-
-        Pass only results returned by this verifier for this unchanged message,
-        and its content bytes before decoding. This supports clients that read
-        the body after header verification, without verifying signatures twice.
-        Each selected signature must independently cover the validated digest.
-        Empty content without a digest leaves ``VerifyResult.body`` as ``None``.
-        """
+        """Complete body validation after ``verify()`` has authenticated headers."""
         self.content_digest_class._check_body(body)
         needs_digest = bool(body) or "content-digest" in get_header_fields(message.headers)
         verified = []
