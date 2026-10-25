@@ -9,9 +9,9 @@ from typing import Any, TypedDict, overload
 
 import httpx2
 
+from ._messages import _HeaderFields, _Request, _Response
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
-from .messages import HeaderFields, Request, Response
 from .resolvers import HTTPSignatureKeyResolver
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
 from .structures import VerifyResult
@@ -72,24 +72,24 @@ class VerificationOptions(_VerificationConfiguration, total=False):
 
 
 @overload
-def adapt_message(message: httpx2.Request) -> Request: ...
+def adapt_message(message: httpx2.Request) -> _Request: ...
 
 
 @overload
-def adapt_message(message: httpx2.Response) -> Response: ...
+def adapt_message(message: httpx2.Response) -> _Response: ...
 
 
-def adapt_message(message: httpx2.Request | httpx2.Response) -> Request | Response:
+def adapt_message(message: httpx2.Request | httpx2.Response) -> _Request | _Response:
     """This function exposes original header lines to the base signer/verifier.
 
     Header writes reach the original message. Response request components use
     the same adapter. Use this for direct base-API calls on HTTPX2 objects;
     SignatureHooks applies it automatically. A response must have a request.
     """
-    headers = HeaderFields.from_raw(lambda: message.headers.raw, writable=message.headers)
+    headers = _HeaderFields.from_raw(lambda: message.headers.raw, writable=message.headers)
     if isinstance(message, httpx2.Request):
-        return Request(method=message.method, url=str(message.url), headers=headers)
-    return Response(status_code=message.status_code, headers=headers, request=adapt_message(message.request))
+        return _Request(method=message.method, url=str(message.url), headers=headers)
+    return _Response(status_code=message.status_code, headers=headers, request=adapt_message(message.request))
 
 
 class _SyncVerifiedStream(httpx2.SyncByteStream):
@@ -138,6 +138,10 @@ class SignatureHooks:
     :param verify_options: VerificationOptions containing ``origin``,
         ``signature_algorithm``, and ``key_resolver``, plus optional
         ``HTTPMessageVerifier.verify()`` keywords. Required when verifying responses.
+    :ivar signer: Configured HTTPMessageSigner, or None when signing is disabled.
+    :ivar verifier: Configured HTTPMessageVerifier, or None when verification is disabled.
+    :cvar signer_class: Subclasses may override the HTTPMessageSigner class used by the hooks.
+    :cvar verifier_class: Subclasses may override the HTTPMessageVerifier class used by the hooks.
 
     Each origin is an HTTP origin including its scheme and port. The signing hook
     checks the request's origin before HTTPX2 sends it; the verification hook checks

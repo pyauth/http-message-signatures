@@ -9,9 +9,9 @@ from warnings import warn
 import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
+from ._components import _component_identity, _parse_component_ids
 from .algorithms import HTTPSignatureAlgorithm
-from .components import component_identity, parse_component_ids
-from .digests import ContentDigest, is_content_digest
+from .digests import ContentDigest, _is_content_digest
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
 from .structures import (
@@ -98,7 +98,7 @@ class HTTPSignatureHandler:
             component_key = str(component_id)
             # Reject repeated identities before resolving potentially large values.
             # Component identity ignores parameter order (RFC 9421 section 2).
-            identity = component_identity(component_id)
+            identity = _component_identity(component_id)
             if identity in seen_components:
                 raise HTTPMessageSignaturesException(
                     f'Component ID "{component_key}" appeared multiple times in signature input'
@@ -183,7 +183,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         )
 
     def _parse_covered_component_ids(self, covered_component_ids):
-        return parse_component_ids(covered_component_ids)
+        return _parse_component_ids(covered_component_ids)
 
     def _armor_set_cookie(self, message, covered_component_nodes):
         field_lines = {}
@@ -320,7 +320,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
         self.content_digest_class.prepare(message.headers, body, use_existing_digest=use_existing_digest)
-        if body is not None and not any(is_content_digest(node) for node in covered_component_nodes):
+        if body is not None and not any(_is_content_digest(node) for node in covered_component_nodes):
             covered_component_nodes.append(Item("content-digest"))
         self._armor_set_cookie(message, covered_component_nodes)
         sig_base, sig_params_node, _ = self._build_signature_base(
@@ -590,8 +590,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             else:
                 raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
 
-        required = parse_component_ids(require_components)
-        if len({component_identity(node) for node in required}) != len(required):
+        required = _parse_component_ids(require_components)
+        if len({_component_identity(node) for node in required}) != len(required):
             raise HTTPMessageSignaturesException("Duplicate required component identifier")
 
         # Share parsed message data across selected signatures, but never across
@@ -614,10 +614,10 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             )
             if required:
                 covered = {
-                    component_identity(node) for node in parse_component_ids(tuple(verify_result.covered_components))
+                    _component_identity(node) for node in _parse_component_ids(tuple(verify_result.covered_components))
                 }
                 for component in required:
-                    if component_identity(component) not in covered:
+                    if _component_identity(component) not in covered:
                         raise InvalidSignature(f"Required component {component} was not covered by the signature")
             verify_results.append(verify_result)
         if body is not None:

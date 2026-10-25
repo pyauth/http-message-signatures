@@ -34,7 +34,6 @@ from http_message_signatures.httpx2 import (
     VerificationOptions,
     adapt_message,
 )
-from http_message_signatures.messages import HeaderFields, Request, Response
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:
@@ -218,11 +217,10 @@ def configure_httpx2_resolvers(
     )
 
 
-def use_shared_views(request: httpx2.Request, response: httpx2.Response) -> None:
-    assert_type(adapt_message(request), Request)
-    assert_type(adapt_message(response), Response)
-    fields = HeaderFields.from_raw(lambda: request.headers.raw, writable=request.headers)
-    view = Request(method=request.method, url=str(request.url), headers=fields)
+def use_adapted_messages(request: httpx2.Request, response: httpx2.Response) -> None:
+    view = adapt_message(request)
+    assert_type(view.method, str)
+    assert_type(adapt_message(response).status_code, int)
     ContentDigest.add(view.headers, b"hello")
     assert_type(ContentDigest.verify_components({}, b"hello"), bool)
 
