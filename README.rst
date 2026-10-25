@@ -124,7 +124,7 @@ Use the async hook collection with ``AsyncClient``::
 Signing only or verification only
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``mode`` selects which hooks are installed:
+The first argument, ``mode``, selects which hooks are installed. All other arguments are keyword-only:
 
 * ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires ``key_id``, ``signing_key``, and
   ``verification_keys``.
@@ -134,7 +134,7 @@ Signing only or verification only
 For signing only::
 
     signatures = SignatureHooks(
-        mode=SignatureHooksMode.SIGN_REQUEST,
+        SignatureHooksMode.SIGN_REQUEST,
         origin="https://api.example.com",
         signature_algorithm=algorithms.ED25519,
         key_id="client-1",
@@ -147,7 +147,7 @@ For signing only::
 For verification only::
 
     signatures = SignatureHooks(
-        mode=SignatureHooksMode.VERIFY_RESPONSE,
+        SignatureHooksMode.VERIFY_RESPONSE,
         origin="https://api.example.com",
         signature_algorithm=algorithms.ED25519,
         verification_keys={"server-1": server_public_key},

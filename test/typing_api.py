@@ -116,7 +116,7 @@ def configure_httpx(secret: bytes) -> SignatureHooks:
 
 def configure_single_operation_modes(secret: bytes) -> tuple[SignatureHooks, SignatureHooks]:
     signing = SignatureHooks(
-        mode=SignatureHooksMode.SIGN_REQUEST,
+        SignatureHooksMode.SIGN_REQUEST,
         origin="https://example.com",
         signature_algorithm=HMAC_SHA256,
         key_id="client",
@@ -124,7 +124,7 @@ def configure_single_operation_modes(secret: bytes) -> tuple[SignatureHooks, Sig
         sign_options={"tag": "out"},
     )
     verification = SignatureHooks(
-        mode=SignatureHooksMode.VERIFY_RESPONSE,
+        SignatureHooksMode.VERIFY_RESPONSE,
         origin="https://example.com",
         signature_algorithm=HMAC_SHA256,
         verification_keys={"server": secret},

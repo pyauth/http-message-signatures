@@ -258,7 +258,7 @@ class TestSignatureHooks(SignatureTestCase):
             verifier_class = UnusedVerifier
 
         hooks = Hooks(
-            mode=SignatureHooksMode.SIGN_REQUEST,
+            SignatureHooksMode.SIGN_REQUEST,
             origin=ORIGIN,
             signature_algorithm=algorithms.HMAC_SHA256,
             key_id="client",
@@ -293,7 +293,7 @@ class TestSignatureHooks(SignatureTestCase):
             signer_class = UnusedSigner
 
         hooks = Hooks(
-            mode=SignatureHooksMode.VERIFY_RESPONSE,
+            SignatureHooksMode.VERIFY_RESPONSE,
             origin=ORIGIN,
             signature_algorithm=algorithms.HMAC_SHA256,
             verification_keys={"server": SECRET},

@@ -103,10 +103,10 @@ class _AsyncCapture(httpx.AsyncByteStream):
 class SignatureHooks:
     """Sign requests, verify responses, or both through HTTPX event hooks.
 
+    :param mode: Operations to enable; defaults to signing and verification.
     :param origin: HTTP origin allowed to use these keys, including its scheme
         and port. Signing checks it before sending; verification checks it when
         the response arrives.
-    :param mode: Operations to enable; defaults to signing and verification.
     :param key_id: Signing key ID, required only when signing requests.
     :param signing_key: PEM bytes, a cryptography private key, or HMAC secret bytes;
         required only when signing requests.
@@ -151,10 +151,10 @@ class SignatureHooks:
 
     def __init__(
         self,
+        mode: SignatureHooksMode = SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE,
         *,
         origin: str,
         signature_algorithm: type[HTTPSignatureAlgorithm],
-        mode: SignatureHooksMode = SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE,
         key_id: str | None = None,
         signing_key: SigningKey | None = None,
         verification_keys: Mapping[str, VerificationKey] | None = None,
