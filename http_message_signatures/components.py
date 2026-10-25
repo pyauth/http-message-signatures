@@ -1,6 +1,7 @@
 """Structured Field component identifiers shared by signers and integrations."""
 
 from collections.abc import Sequence
+from typing import Any
 
 import http_sf
 from http_sf.compat import Item
@@ -26,23 +27,6 @@ def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
     return nodes
 
 
-def normalized_component_key(node: Item) -> str:
+def component_identity(node: Item) -> tuple[Any, frozenset[tuple[str, Any]]]:
     """Compare component identities without changing their signed parameter order."""
-    canonical = Item(node.value)
-    canonical.params.update(sorted(node.params.items()))
-    return str(canonical)
-
-
-def component_map(component_ids: Sequence[str]) -> dict[str, str]:
-    """Map normalized identities to supplied identifiers; reject duplicates.
-
-    Use the keys to compare required and covered components. Values retain the
-    caller's spelling so they can index a VerifyResult's covered_components.
-    """
-    components = {}
-    for identifier, node in zip(component_ids, parse_component_ids(component_ids)):
-        key = normalized_component_key(node)
-        if key in components:
-            raise HTTPMessageSignaturesException(f"Duplicate component identifier: {identifier}")
-        components[key] = identifier
-    return components
+    return node.value, frozenset(node.params.items())

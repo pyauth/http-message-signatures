@@ -15,15 +15,6 @@ HTTPX2
 .. automodule:: http_message_signatures.httpx2
    :members:
 
-Shared integration helpers
-==========================
-
-.. automodule:: http_message_signatures.messages
-   :members:
-
-.. automodule:: http_message_signatures.components
-   :members:
-
 Algorithms
 ==========
 

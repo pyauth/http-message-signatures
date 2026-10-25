@@ -180,7 +180,6 @@ class TestDigestRetries(SignatureTestCase):
             self.assertIsNone(seen[0][0])
             self.assertTrue(seen[1][0].startswith("Digest "))
             self.assertEqual([body for _, body in seen], [b"hello", b"hello"])
-            self.assertNotIn("allow_existing_digest", hooks.sign_options)
 
         for async_mode in (False, True):
             with self.subTest(async_mode=async_mode):

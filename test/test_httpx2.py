@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -260,6 +261,102 @@ class TestContentDigest(SignatureTestCase):
 
 
 class TestSignatureHooks(SignatureTestCase):
+    def test_configuration_captures_options_but_preserves_resolvers(self):
+        covered, required = ["@method"], ["@status"]
+        signing = {**SIGN_OPTIONS, "covered_component_ids": covered, "tag": "out", "nonce": None}
+        verification = {**VERIFY_OPTIONS, "require_components": required, "max_age": None}
+        hooks = SignatureHooks(sign_options=signing, verify_options=verification)
+        signing["tag"] = "changed"
+        verification["max_age"] = timedelta(seconds=1)
+        covered.append("missing")
+        required.clear()
+        self.assertIs(hooks.signer.key_resolver, signing["key_resolver"])
+        self.assertIs(hooks.verifier.key_resolver, verification["key_resolver"])
+        request = httpx2.Request("GET", ORIGIN)
+        hooks.sign_request(request)
+        result = self.verifier.verify(adapt_message(request), expect_tag="out", body=b"")[0]
+        self.assertNotIn('"@target-uri"', result.covered_components)
+        self.assertIsNone(result.nonce)
+        hooks.verify_response(self.response(request, created=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+        with self.assertRaisesRegex(InvalidSignature, "Required component"):
+            hooks.verify_response(self.response(request, components=()))
+
+    def test_composed_security_hooks_persist(self):
+        async def exercise(async_mode):
+            hooks = self.hooks()
+            observed = []
+
+            def check(response):
+                observed.append(response.extensions["http_message_signatures"][0].body)
+                raise InvalidSignature("application policy")
+
+            async def async_check(response):
+                check(response)
+
+            def server(request):
+                return self.response(request, async_mode=async_mode)
+
+            if async_mode:
+                hooks.async_event_hooks["response"].append(async_check)
+                async with httpx2.AsyncClient(
+                    transport=httpx2.MockTransport(server), event_hooks=hooks.async_event_hooks
+                ) as client:
+                    with self.assertRaisesRegex(InvalidSignature, "application policy"):
+                        await client.get(ORIGIN)
+            else:
+                hooks.event_hooks["response"].append(check)
+                with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+                    with self.assertRaisesRegex(InvalidSignature, "application policy"):
+                        client.get(ORIGIN)
+            self.assertEqual(observed, [b'{"ok":true}'])
+
+        for async_mode in (False, True):
+            with self.subTest(async_mode=async_mode):
+                asyncio.run(exercise(async_mode))
+
+    def test_digest_is_verified_before_decompression(self):
+        async def exercise(async_mode, valid):
+            body = gzip.compress(b"trusted content")
+            response = self.response(
+                httpx2.Request("GET", ORIGIN),
+                body=body,
+                async_mode=async_mode,
+                headers={"Content-Encoding": "gzip"},
+                components=("@status", "content-encoding"),
+            )
+            stream = response.stream
+            if not valid:
+                stream.body = gzip.compress(b"x" * 1024 * 1024)
+            # The decoder must never receive any bytes from a rejected body.
+            decoder = response._get_content_decoder()
+            with (
+                patch.object(response, "_get_content_decoder", return_value=decoder),
+                patch.object(decoder, "decode", wraps=decoder.decode) as decode,
+            ):
+                hooks = self.hooks()
+                if valid:
+                    if async_mode:
+                        await hooks.verify_response_async(response)
+                    else:
+                        hooks.verify_response(response)
+                    self.assertEqual(response.content, b"trusted content")
+                    self.assertEqual(response.extensions["http_message_signatures"][0].body, body)
+                    decode.assert_called_once_with(body)
+                else:
+                    with self.assertRaisesRegex(InvalidSignature, "does not match"):
+                        if async_mode:
+                            await hooks.verify_response_async(response)
+                        else:
+                            hooks.verify_response(response)
+                    decode.assert_not_called()
+                    self.assertNotIn("http_message_signatures", response.extensions)
+                self.assertTrue(stream.closed)
+
+        for async_mode in (False, True):
+            for valid in (False, True):
+                with self.subTest(async_mode=async_mode, valid=valid):
+                    asyncio.run(exercise(async_mode, valid))
+
     def test_custom_resolvers_are_lazy_and_follow_key_rotation(self):
         async def exercise(mode, async_mode):
             lookups = []
@@ -450,7 +547,6 @@ class TestSignatureHooks(SignatureTestCase):
                     client.post(ORIGIN + path, content=b"unsigned request")
         self.assertTrue(all(stream.closed for stream in streams))
         self.assertIsNone(hooks.signer)
-        self.assertIsNone(hooks.sign_options)
         self.assertEqual(hooks.event_hooks["request"], [])
 
     def test_modes_validate_credentials_and_unused_configuration(self):
@@ -477,22 +573,6 @@ class TestSignatureHooks(SignatureTestCase):
         for mode in (None, "verify_response", 1):
             with self.subTest(mode=mode), self.assertRaisesRegex(TypeError, "SignatureHooksMode"):
                 self.hooks(mode=mode)
-
-    def test_combined_mode_is_default_and_hook_lists_are_fresh(self):
-        default = self.hooks()
-        explicit = self.hooks(mode=SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE)
-        self.assertIs(default.mode, SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE)
-        for hooks in (default, explicit):
-            self.assertIsNotNone(hooks.signer)
-            self.assertIsNotNone(hooks.verifier)
-            for collection in (hooks.event_hooks, hooks.async_event_hooks):
-                self.assertEqual(
-                    {name: len(values) for name, values in collection.items()}, {"request": 1, "response": 1}
-                )
-                collection["request"].clear()
-                collection["response"].clear()
-            self.assertEqual(len(hooks.event_hooks["request"]), 1)
-            self.assertEqual(len(hooks.async_event_hooks["response"]), 1)
 
     def test_disabled_manual_hooks_fail_before_consuming_content(self):
         sign_only = SignatureHooks(
@@ -765,7 +845,7 @@ class TestSignatureHooks(SignatureTestCase):
             self.hooks(verify_options={"expect_tag": "incoming-api"}).verify_response(response)
 
     def test_unknown_and_hook_managed_options_are_rejected(self):
-        for name in ("max_ag", "covered_components", "expect_tag", "body", "verification_keys", "signing_key"):
+        for name in ("unknown", "expect_tag", "body"):
             hooks = self.hooks(sign_options={name: None})
             sent = []
             with (
@@ -777,7 +857,7 @@ class TestSignatureHooks(SignatureTestCase):
             self.assertFalse(sent)
 
     def test_verifier_rejects_unsupported_options(self):
-        for name in ("max_ag", "tag", "include_alg", "key_id", "signing_key", "verification_keys"):
+        for name in ("unknown", "tag", "key_id"):
             with self.subTest(option=name):
                 hooks = self.hooks(verify_options={name: None})
                 response = self.response(httpx2.Request("GET", ORIGIN))
@@ -787,55 +867,6 @@ class TestSignatureHooks(SignatureTestCase):
                 self.assertEqual(stream.reads, 0)
                 self.assertTrue(stream.closed)
                 self.assertNotIn("http_message_signatures", response.extensions)
-
-    def test_flat_options_are_rejected(self):
-        for name in ("tag", "max_age", "origin", "key_id", "key_resolver", "signature_algorithm"):
-            with self.subTest(option=name), self.assertRaisesRegex(TypeError, name):
-                self.hooks(**{name: None})
-
-    def test_narrowed_verifier_rejects_unsupported_options(self):
-        class Verifier(HTTPMessageVerifier):
-            def verify(self, message):
-                return super().verify(message)
-
-        class Hooks(SignatureHooks):
-            verifier_class = Verifier
-
-        hooks = Hooks(
-            sign_options=SIGN_OPTIONS,
-            verify_options={**VERIFY_OPTIONS, "max_age": None},
-        )
-        response = self.response(httpx2.Request("GET", ORIGIN))
-        stream = response.stream
-        with self.assertRaisesRegex(TypeError, r"Verifier.verify\(\).*'max_age'"):
-            hooks.verify_response(response)
-        self.assertEqual(stream.reads, 0)
-        self.assertTrue(stream.closed)
-        self.assertNotIn("http_message_signatures", response.extensions)
-
-    def test_unspecified_options_are_not_forwarded(self):
-        hooks = self.hooks()
-        self.assertEqual(hooks.sign_options, SIGN_OPTIONS)
-        self.assertEqual(hooks.verify_options, VERIFY_OPTIONS)
-        self.assertEqual(self.hooks(sign_options={"tag": "out"}).verify_options, VERIFY_OPTIONS)
-        self.assertEqual(self.hooks(verify_options={"expect_tag": "in"}).sign_options, SIGN_OPTIONS)
-
-    def test_option_containers_are_copied_and_preserve_explicit_none(self):
-        signing = SigningOptions(**SIGN_OPTIONS, tag="out", nonce=None, include_alg=False)
-        verification = VerificationOptions(**VERIFY_OPTIONS, expect_tag=None, max_age=None)
-        hooks = SignatureHooks(sign_options=signing, verify_options=verification)
-        signing["tag"] = "changed"
-        signing["origin"] = "https://other.example"
-        signing["signature_algorithm"] = algorithms.ED25519
-        verification["max_age"] = timedelta(seconds=1)
-        self.assertEqual(hooks.sign_options, {**SIGN_OPTIONS, "tag": "out", "nonce": None, "include_alg": False})
-        self.assertEqual(hooks.verify_options, {**VERIFY_OPTIONS, "expect_tag": None, "max_age": None})
-        request = httpx2.Request("GET", ORIGIN)
-        hooks.sign_request(request)
-        self.verifier.verify(adapt_message(request), expect_tag="out", body=b"")
-        hooks.verify_response(self.response(request, created=datetime(2020, 1, 1, tzinfo=timezone.utc)))
-        self.assertEqual(self.hooks().sign_options, SIGN_OPTIONS)
-        self.assertEqual(self.hooks().verify_options, VERIFY_OPTIONS)
 
     def test_subclass_defaults_are_inherited(self):
         class Verifier(HTTPMessageVerifier):

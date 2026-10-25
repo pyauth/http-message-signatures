@@ -3,6 +3,7 @@
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import cached_property
 from io import BytesIO
 from typing import Any, TypedDict, overload
 
@@ -13,6 +14,7 @@ from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .messages import HeaderFields, Request, Response
 from .resolvers import HTTPSignatureKeyResolver
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
+from .structures import VerifyResult
 
 
 class SignatureHooksMode(Enum):
@@ -89,29 +91,37 @@ def adapt_message(message: httpx2.Request | httpx2.Response) -> Request | Respon
     return Response(status_code=message.status_code, headers=headers, request=adapt_message(message.request))
 
 
-class _SyncCapture(httpx2.SyncByteStream):
-    def __init__(self, stream: httpx2.SyncByteStream, content: BytesIO):
+class _SyncVerifiedStream(httpx2.SyncByteStream):
+    def __init__(self, stream: httpx2.SyncByteStream, verify: Callable[[bytes], list[VerifyResult]]):
         self.stream = stream
-        self.content = content
+        self.verify = verify
+        self.results: list[VerifyResult] = []
 
     def __iter__(self):
-        for chunk in self.stream:
-            self.content.write(chunk)
-            yield chunk
+        with BytesIO() as content:
+            for chunk in self.stream:
+                content.write(chunk)
+            body = content.getvalue()
+        self.results = self.verify(body)
+        yield body
 
     def close(self):
         self.stream.close()
 
 
-class _AsyncCapture(httpx2.AsyncByteStream):
-    def __init__(self, stream: httpx2.AsyncByteStream, content: BytesIO):
+class _AsyncVerifiedStream(httpx2.AsyncByteStream):
+    def __init__(self, stream: httpx2.AsyncByteStream, verify: Callable[[bytes], list[VerifyResult]]):
         self.stream = stream
-        self.content = content
+        self.verify = verify
+        self.results: list[VerifyResult] = []
 
     async def __aiter__(self):
-        async for chunk in self.stream:
-            self.content.write(chunk)
-            yield chunk
+        with BytesIO() as content:
+            async for chunk in self.stream:
+                content.write(chunk)
+            body = content.getvalue()
+        self.results = self.verify(body)
+        yield body
 
     async def aclose(self):
         await self.stream.aclose()
@@ -135,7 +145,7 @@ class SignatureHooks:
     message is signed or verified, using the base HTTPSignatureKeyResolver interface.
     Key loading, caching, and trust policy belong to the supplied resolver.
 
-    The option dictionaries are shallow-copied to configure their handlers.
+    Options are captured at construction; component sequences are copied.
     Signature keywords are forwarded independently. Omitted signature options use
     the underlying method defaults; explicit ``None`` is passed through.
     Set ``expect_tag`` separately from the signing ``tag``. Unknown
@@ -153,7 +163,7 @@ class SignatureHooks:
     is configured. Requests previously signed by these hooks may reuse their digest
     on retries and redirects, unless that option is explicitly False. Reused digests
     are validated against the current body; changed content requires a new digest.
-    Response content is captured before decoding for digest validation; normal
+    Response content is buffered and verified before decoding; normal
     HTTPX2 content decoding is preserved. Successful verification results are
     stored in ``response.extensions["http_message_signatures"]``.
 
@@ -188,8 +198,6 @@ class SignatureHooks:
         elif verify_options is None:
             raise ValueError("verify_options is required when verifying responses")
         self.mode = mode
-        self.sign_options = sign_options.copy() if sign_options is not None else None
-        self.verify_options = verify_options.copy() if verify_options is not None else None
         self.signer: HTTPMessageSigner | None = None
         self.verifier: HTTPMessageVerifier | None = None
         self._sign_origin: tuple[str, str, int | None] | None = None
@@ -197,10 +205,10 @@ class SignatureHooks:
         self._sign_kwargs: dict[str, Any] = {}
         self._verify_kwargs: dict[str, Any] = {}
         self._signing_marker = object()
-        if self.sign_options is not None:
-            self._configure_signing(**self.sign_options)
-        if self.verify_options is not None:
-            self._configure_verification(**self.verify_options)
+        if sign_options is not None:
+            self._configure_signing(**sign_options)
+        if verify_options is not None:
+            self._configure_verification(**verify_options)
 
     def _configure_signing(
         self,
@@ -213,6 +221,8 @@ class SignatureHooks:
     ) -> None:
         self._sign_origin = self._parse_origin(origin)
         self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
+        if "covered_component_ids" in options and not isinstance(options["covered_component_ids"], (str, bytes)):
+            options["covered_component_ids"] = tuple(options["covered_component_ids"])
         self._sign_kwargs = {"key_id": key_id, **options}
 
     def _configure_verification(
@@ -225,6 +235,8 @@ class SignatureHooks:
     ) -> None:
         self._verify_origin = self._parse_origin(origin)
         self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
+        if "require_components" in options and not isinstance(options["require_components"], (str, bytes)):
+            options["require_components"] = tuple(options["require_components"])
         self._verify_kwargs = options
 
     @staticmethod
@@ -241,17 +253,17 @@ class SignatureHooks:
             raise ValueError("origin must be an HTTP origin without a path, query, fragment, or credentials")
         return url.scheme, url.host, url.port
 
-    @property
+    @cached_property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:
-        """Fresh hook lists for ``httpx2.Client``."""
+        """Mutable hook lists for ``httpx2.Client``."""
         return {
             "request": [self.sign_request] if self.signer is not None else [],
             "response": [self.verify_response] if self.verifier is not None else [],
         }
 
-    @property
+    @cached_property
     def async_event_hooks(self) -> dict[str, list[Callable[..., Awaitable[None]]]]:
-        """Fresh async hook lists for ``httpx2.AsyncClient``."""
+        """Mutable async hook lists for ``httpx2.AsyncClient``."""
         return {
             "request": [self.sign_request_async] if self.signer is not None else [],
             "response": [self.verify_response_async] if self.verifier is not None else [],
@@ -300,40 +312,44 @@ class SignatureHooks:
 
     def verify_response(self, response: httpx2.Response) -> None:
         """Authenticate headers and the complete encoded body before returning."""
-        if self.verifier is None:
+        verifier = self.verifier
+        if verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response, self.verifier)
+            message, results = self._verify_headers(response, verifier)
             if response.is_stream_consumed:
-                body = self._buffered_body(response)
+                verified = verifier.verify_body(message, results, self._buffered_body(response))
             else:
                 if not isinstance(response.stream, httpx2.SyncByteStream):
                     raise TypeError("Use async_event_hooks with an asynchronous response stream")
-                with BytesIO() as content:
-                    response.stream = _SyncCapture(response.stream, content)
-                    response.read()
-                    body = content.getvalue()
-            response.extensions["http_message_signatures"] = self.verifier.verify_body(message, results, body)
+                stream = _SyncVerifiedStream(response.stream, lambda body: verifier.verify_body(message, results, body))
+                response.stream = stream
+                response.read()
+                verified = stream.results
+            response.extensions["http_message_signatures"] = verified
         except BaseException:
             response.close()
             raise
 
     async def verify_response_async(self, response: httpx2.Response) -> None:
         """Async response hook with the same buffering and verification contract."""
-        if self.verifier is None:
+        verifier = self.verifier
+        if verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response, self.verifier)
+            message, results = self._verify_headers(response, verifier)
             if response.is_stream_consumed:
-                body = self._buffered_body(response)
+                verified = verifier.verify_body(message, results, self._buffered_body(response))
             else:
                 if not isinstance(response.stream, httpx2.AsyncByteStream):
                     raise TypeError("Use event_hooks with a synchronous response stream")
-                with BytesIO() as content:
-                    response.stream = _AsyncCapture(response.stream, content)
-                    await response.aread()
-                    body = content.getvalue()
-            response.extensions["http_message_signatures"] = self.verifier.verify_body(message, results, body)
+                stream = _AsyncVerifiedStream(
+                    response.stream, lambda body: verifier.verify_body(message, results, body)
+                )
+                response.stream = stream
+                await response.aread()
+                verified = stream.results
+            response.extensions["http_message_signatures"] = verified
         except BaseException:
             await response.aclose()
             raise

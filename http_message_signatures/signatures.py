@@ -10,7 +10,7 @@ import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
 from .algorithms import HTTPSignatureAlgorithm
-from .components import component_map, normalized_component_key, parse_component_ids
+from .components import component_identity, parse_component_ids
 from .digests import ContentDigest, is_content_digest
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
@@ -98,12 +98,12 @@ class HTTPSignatureHandler:
             component_key = str(component_id)
             # Reject repeated identities before resolving potentially large values.
             # Component identity ignores parameter order (RFC 9421 section 2).
-            component_identity = normalized_component_key(component_id)
-            if component_identity in seen_components:
+            identity = component_identity(component_id)
+            if identity in seen_components:
                 raise HTTPMessageSignaturesException(
                     f'Component ID "{component_key}" appeared multiple times in signature input'
                 )
-            seen_components.add(component_identity)
+            seen_components.add(identity)
             component_value = component_resolver.resolve(component_id)
             if not isinstance(component_value, str):
                 raise HTTPMessageSignaturesException(f'Component value for "{component_key}" must be a string')
@@ -587,7 +587,9 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             else:
                 raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
 
-        required = component_map(require_components)
+        required = parse_component_ids(require_components)
+        if len({component_identity(node) for node in required}) != len(required):
+            raise HTTPMessageSignaturesException("Duplicate required component identifier")
 
         # Share parsed message data across selected signatures, but never across
         # verify() calls: callers may mutate or reuse a message between calls.
@@ -607,10 +609,13 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 max_age=max_age,
                 component_resolver_factory=component_resolver_factory,
             )
-            covered = component_map(tuple(verify_result.covered_components))
-            for component in required:
-                if component not in covered:
-                    raise InvalidSignature(f"Required component {component} was not covered by the signature")
+            if required:
+                covered = {
+                    component_identity(node) for node in parse_component_ids(tuple(verify_result.covered_components))
+                }
+                for component in required:
+                    if component_identity(component) not in covered:
+                        raise InvalidSignature(f"Required component {component} was not covered by the signature")
             verify_results.append(verify_result)
         if body is not None:
             return self.verify_body(message, verify_results, body)

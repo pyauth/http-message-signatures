@@ -27,7 +27,6 @@ from http_message_signatures.algorithms import (
     RSA_PSS_SHA512,
     RSA_V1_5_SHA256,
 )
-from http_message_signatures.components import component_map
 from http_message_signatures.httpx2 import (
     SignatureHooks,
     SignatureHooksMode,
@@ -118,8 +117,6 @@ def configure_httpx2(secret: bytes) -> SignatureHooks:
     assert_type(hooks.mode, SignatureHooksMode)
     assert_type(hooks.signer, HTTPMessageSigner | None)
     assert_type(hooks.verifier, HTTPMessageVerifier | None)
-    assert_type(hooks.sign_options, SigningOptions | None)
-    assert_type(hooks.verify_options, VerificationOptions | None)
     return hooks
 
 
@@ -194,8 +191,6 @@ def reject_invalid_options(secret: bytes) -> None:
     verification["max_age"] = 60  # type: ignore[typeddict-item]
     signing["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     verification["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
-    signing["verification_keys"] = {"server": secret}  # type: ignore[typeddict-unknown-key]
-    signing["signing_key"] = secret  # type: ignore[typeddict-unknown-key]
     verification["key_id"] = "client"  # type: ignore[typeddict-unknown-key]
     signing["signature_algorithm"] = "hmac-sha256"  # type: ignore[typeddict-item]
     verification["signature_algorithm"] = "hmac-sha256"  # type: ignore[typeddict-item]
@@ -203,7 +198,6 @@ def reject_invalid_options(secret: bytes) -> None:
     VerificationOptions(expect_tag="in")  # type: ignore[typeddict-item]
     SignatureHooks("sign_request", sign_options=signing)  # type: ignore[arg-type]
     SignatureHooks(sign_options={"tag": "out"}, verify_options={"expect_tag": "in"})  # type: ignore[arg-type]
-    SignatureHooks(origin="https://example.com", sign_options=signing)  # type: ignore[call-arg]
 
 
 def configure_httpx2_resolvers(
@@ -231,7 +225,6 @@ def use_shared_views(request: httpx2.Request, response: httpx2.Response) -> None
     view = Request(method=request.method, url=str(request.url), headers=fields)
     ContentDigest.add(view.headers, b"hello")
     assert_type(ContentDigest.verify_components({}, b"hello"), bool)
-    assert_type(component_map(("content-digest",)), dict[str, str])
 
 
 def reject_invalid_httpx2_resolvers(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:

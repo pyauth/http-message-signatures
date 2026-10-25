@@ -22,10 +22,7 @@ Synopsis
 
 .. code-block:: python
 
-    import hashlib
-
     import requests
-    from http_sf.compat import Dictionary
     from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms
 
     class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
@@ -39,16 +36,12 @@ Synopsis
 
     request = requests.Request('POST', 'https://example.com/foo?param=Value&Pet=dog', json={"hello": "world"})
     request = request.prepare()
-    request.headers["Content-Digest"] = str(Dictionary({"sha-256": hashlib.sha256(request.body).digest()}))
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    signer.sign(
-        request, key_id="my-key", allow_existing_digest=True,
-        covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
-    )
+    signer.sign(request, key_id="my-key", body=request.body)
 
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    verifier.verify(request)
+    verifier.verify(request, body=request.body)
 
 Signing Content-Digest and checking it against the body protects the body against tampering.
 Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
@@ -58,7 +51,7 @@ bytes automatically.
 Signing a message with an existing Content-Digest requires ``allow_existing_digest=True`` on ``sign()`` or
 ``prepare()``. With ``body=`` supplied, the existing digest is validated against those bytes and its coverage is added.
 Without ``body=``, the digest's format and algorithms are checked, but the caller remains responsible for its match
-to the content and must include it in ``covered_component_ids`` to sign it, as above. Existing digest field lines are
+to the content and must include it in ``covered_component_ids`` to sign it. Existing digest field lines are
 preserved. A malformed digest or a digest that does not match supplied content raises an error without replacement.
 If ``allow_existing_digest=True`` is supplied with neither a digest nor body bytes, signing raises an error.
 
@@ -76,7 +69,7 @@ provides a Requests integration.
  In http-message-signatures, you can ensure that the information signed is what you expect to be signed by only trusting the
  data returned by the ``verify()`` method::
 
-   verify_results = verifier.verify(request)
+   verify_results = verifier.verify(request, body=request.body)
 
  This returns a list of ``VerifyResult`` s, which are ``namedtuple`` s with the following attributes:
 
@@ -229,13 +222,15 @@ returns the raw 64-byte signature. The client must use the private key identifie
         prepared = signer.prepare(
             request,
             key_id=key_id,
+            body=request.body,
+            allow_existing_digest=True,
             label="sig1",
             covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
         )
         signature = await sign_base(prepared.signature_base)
         signer.apply(request, prepared, signature)
 
-Populate ``Content-Digest`` from the request body before this example runs, as in the synopsis above.
+Supply the request's content bytes before decoding, as in the synopsis above.
 The same two calls work with a synchronous signer or a signing job completed in another process.
 No local ``key_resolver`` is needed. The existing ``sign()`` method still resolves a local key and performs all three
 steps synchronously.
