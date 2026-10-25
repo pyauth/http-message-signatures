@@ -11,7 +11,7 @@ import aiohttp
 from aiohttp.abc import AbstractStreamWriter
 from aiohttp.base_protocol import BaseProtocol
 from aiohttp.http_exceptions import ContentEncodingError
-from aiohttp.http_parser import HttpResponseParser
+from aiohttp.http_parser import HeadersParser, HttpPayloadParser
 from aiohttp.payload import Payload
 from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
@@ -87,35 +87,21 @@ class _BufferedProtocol(BaseProtocol):
         pass
 
 
-def _decoded_content(response: aiohttp.ClientResponse, body: bytes, limit: int) -> aiohttp.StreamReader:
+def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.StreamReader:
     # aiohttp has no public facility to defer decoding until after verification.
-    # Replay only Content-Encoding and the verified body through its response
-    # parser. HTTP framing was already consumed; this envelope ends at EOF.
-    # Raw fields preserve repeated values and bytes that cannot round-trip
-    # through aiohttp's outgoing header serializer.
-    headers = b"HTTP/1.1 200 OK\r\n"
-    headers += b"".join(
-        name + b": " + value + b"\r\n" for name, value in response.raw_headers if name.lower() == b"content-encoding"
-    )
-    headers += b"\r\n"
+    # Its payload parser consumes the verified body without HTTP framing.
     loop = asyncio.get_running_loop()
+    limit, _ = response.content.get_read_buffer_limits()
+    content = aiohttp.StreamReader(_BufferedProtocol(loop), limit, loop=loop)
+    encoding = response.headers.get("Content-Encoding", "").strip().lower()
     try:
-        parser = HttpResponseParser(
-            _BufferedProtocol(loop),
-            loop,
-            limit,
-            read_until_eof=True,
-            payload_exception=aiohttp.ClientPayloadError,
-            # These fields already passed the client's configured limits.
-            max_line_size=len(headers),
-            max_field_size=len(headers),
-            max_headers=len(response.raw_headers),
+        parser = HttpPayloadParser(
+            content,
+            compression=encoding,
+            auto_decompress=encoding in {"gzip", "deflate", "br", "zstd"},
+            headers_parser=HeadersParser(),
         )
-        messages, _, _ = parser.feed_data(headers)
-        _, content = messages[0]
         parser.feed_data(body)
-        if error := content.exception():
-            raise error
         parser.feed_eof()
     except ContentEncodingError as exc:
         raise aiohttp.ClientPayloadError(str(exc)) from exc
@@ -173,8 +159,7 @@ class SignatureMiddleware(_SignatureAdapter):
     Failed verification closes the response before aiohttp updates its cookie jar.
     To authenticate cookie fields, require ``'"set-cookie";bs'`` coverage as well.
 
-    aiohttp selects and runs the decoder from the original Content-Encoding fields.
-    Restoring decoded response streams uses its internal response parser and stream
+    Restoring decoded response streams uses aiohttp's internal payload parser and stream
     construction APIs. This adapter does not patch aiohttp or require an upstream change.
     """
 
@@ -266,12 +251,10 @@ class SignatureMiddleware(_SignatureAdapter):
                 empty = isinstance(response.content, EmptyStreamReader)
                 if not empty and response.content.total_compressed_bytes is not None:
                     raise ValueError("Do not override auto_decompress=True when using signature verification")
-                if not empty:
-                    limit, _ = response.content.get_read_buffer_limits()
                 body = await response.content.read()
                 results = self.verifier.verify_body(message, results, body)
                 if not empty:
-                    response.content = _decoded_content(response, body, limit)
+                    response.content = _decoded_content(response, body)
                 self._results[response] = results
             return response
         except BaseException:
