@@ -8,14 +8,31 @@ from typing import overload
 
 import httpx2
 
-from ._integrations import SignatureAdapter as _SignatureAdapter
-from ._integrations import SigningOptions, VerificationOptions
+from ._integrations import _SignatureAdapter, _SigningOptions, _VerificationOptions
 from ._messages import _HeaderFields, _Request, _Response
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
 from .structures import VerifyResult
 
 __all__ = ["SignatureHooks", "SignatureHooksMode", "SigningOptions", "VerificationOptions", "adapt_message"]
+
+
+class SigningOptions(_SigningOptions):
+    """Configuration for request signing with SignatureHooks.
+
+    ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
+    required. Other entries are optional ``HTTPMessageSigner.sign()`` keywords.
+    The hooks supply ``body``; the base signer supplies defaults for omitted options.
+    """
+
+
+class VerificationOptions(_VerificationOptions):
+    """Configuration for response verification with SignatureHooks.
+
+    ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
+    Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
+    The hooks supply ``body``; the base verifier supplies defaults for omitted options.
+    """
 
 
 class SignatureHooksMode(Enum):

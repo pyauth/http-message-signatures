@@ -16,13 +16,8 @@ class _SigningConfiguration(TypedDict):
     key_resolver: HTTPSignatureKeyResolver
 
 
-class SigningOptions(_SigningConfiguration, total=False):
-    """Request signing configuration and optional base signer keywords.
-
-    ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
-    required. The adapters supply ``body``; the base signer supplies defaults for
-    omitted signing options.
-    """
+class _SigningOptions(_SigningConfiguration, total=False):
+    """Fields shared by the integrations' public signing option types."""
 
     created: datetime | None
     expires: datetime | None
@@ -41,13 +36,8 @@ class _VerificationConfiguration(TypedDict):
     key_resolver: HTTPSignatureKeyResolver
 
 
-class VerificationOptions(_VerificationConfiguration, total=False):
-    """Response verification configuration and optional base verifier keywords.
-
-    ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
-    The adapters supply ``body``; the base verifier supplies defaults for omitted
-    verification options. The adapters do not infer these options from SigningOptions.
-    """
+class _VerificationOptions(_VerificationConfiguration, total=False):
+    """Fields shared by the integrations' public verification option types."""
 
     max_age: timedelta | None
     expect_tag: str | None
@@ -55,7 +45,7 @@ class VerificationOptions(_VerificationConfiguration, total=False):
     require_components: Sequence[str]
 
 
-class SignatureAdapter:
+class _SignatureAdapter:
     signer_class: type[HTTPMessageSigner] = HTTPMessageSigner
     verifier_class: type[HTTPMessageVerifier] = HTTPMessageVerifier
 
@@ -64,8 +54,8 @@ class SignatureAdapter:
         *,
         sign_requests: bool,
         verify_responses: bool,
-        sign_options: SigningOptions | None,
-        verify_options: VerificationOptions | None,
+        sign_options: _SigningOptions | None,
+        verify_options: _VerificationOptions | None,
     ) -> None:
         if sign_requests and sign_options is None:
             raise ValueError("sign_options is required when signing requests")

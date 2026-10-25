@@ -17,13 +17,30 @@ from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
 from yarl import URL
 
-from ._integrations import SignatureAdapter as _SignatureAdapter
-from ._integrations import SigningOptions, VerificationOptions
+from ._integrations import _SignatureAdapter, _SigningOptions, _VerificationOptions
+from ._messages import _HeaderFields, _Request, _Response
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
-from .messages import HeaderFields, Request, Response
 from .structures import VerifyResult
 
 __all__ = ["SignatureMiddleware", "SignatureMiddlewareMode", "SigningOptions", "VerificationOptions"]
+
+
+class SigningOptions(_SigningOptions):
+    """Configuration for request signing with SignatureMiddleware.
+
+    ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
+    required. Other entries are optional ``HTTPMessageSigner.sign()`` keywords.
+    The middleware supplies ``body``; the base signer supplies defaults for omitted options.
+    """
+
+
+class VerificationOptions(_VerificationOptions):
+    """Configuration for response verification with SignatureMiddleware.
+
+    ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
+    Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
+    The middleware supplies ``body``; the base verifier supplies defaults for omitted options.
+    """
 
 
 class SignatureMiddlewareMode(Enum):
@@ -95,17 +112,17 @@ async def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aio
     return content
 
 
-def _request_view(request: aiohttp.ClientRequest) -> Request:
+def _request_view(request: aiohttp.ClientRequest) -> _Request:
     # aiohttp serializes outgoing field values as UTF-8, with surrogate escapes
     # for received bytes. The core represents those wire bytes as Latin-1.
-    headers = HeaderFields(
+    headers = _HeaderFields(
         lambda: (
             (name, value.encode("utf-8", "surrogateescape").decode("latin-1"))
             for name, value in request.headers.items()
         ),
         writable=request.headers,
     )
-    return Request(method=request.method, url=str(request.url), headers=headers)
+    return _Request(method=request.method, url=str(request.url), headers=headers)
 
 
 class SignatureMiddleware(_SignatureAdapter):
@@ -114,6 +131,10 @@ class SignatureMiddleware(_SignatureAdapter):
     :param mode: Operations that the middleware performs; defaults to both.
     :param sign_options: SigningOptions dictionary for enabled request signing.
     :param verify_options: VerificationOptions dictionary for enabled response verification.
+    :ivar signer: Configured HTTPMessageSigner, or None when signing is disabled.
+    :ivar verifier: Configured HTTPMessageVerifier, or None when verification is disabled.
+    :cvar signer_class: Subclasses may override the HTTPMessageSigner class used by the middleware.
+    :cvar verifier_class: Subclasses may override the HTTPMessageVerifier class used by the middleware.
 
     Pass ``**middleware.session_kwargs`` to ``aiohttp.ClientSession``. When
     verification is enabled, these options disable aiohttp's early decompression.
@@ -225,9 +246,9 @@ class SignatureMiddleware(_SignatureAdapter):
             response = await handler(request)
             if self.verifier is not None:
                 self._results.pop(response, None)
-                message = Response(
+                message = _Response(
                     status_code=response.status,
-                    headers=HeaderFields.from_raw(lambda: response.raw_headers),
+                    headers=_HeaderFields.from_raw(lambda: response.raw_headers),
                     request=_request_view(request),
                 )
                 results = self.verifier.verify(message, **self._verify_kwargs)

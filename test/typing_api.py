@@ -22,6 +22,8 @@ from http_message_signatures import (
     algorithms,
 )
 from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
+from http_message_signatures.aiohttp import SigningOptions as AiohttpSigningOptions
+from http_message_signatures.aiohttp import VerificationOptions as AiohttpVerificationOptions
 from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
     ED25519,
@@ -41,7 +43,9 @@ from http_message_signatures.httpx2 import (
 async def aiohttp_example(keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
     signatures = SignatureMiddleware(
         SignatureMiddlewareMode.VERIFY_RESPONSE,
-        verify_options={"origin": "https://example.com", "signature_algorithm": HMAC_SHA256, "key_resolver": keys},
+        verify_options=AiohttpVerificationOptions(
+            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_resolver=keys
+        ),
     )
     async with (
         aiohttp.ClientSession(**signatures.session_kwargs) as client,
@@ -239,6 +243,15 @@ def use_adapted_messages(request: httpx2.Request, response: httpx2.Response) -> 
     assert_type(adapt_message(response).status_code, int)
     ContentDigest.add(view.headers, b"hello")
     assert_type(ContentDigest.verify_components({}, b"hello"), bool)
+
+
+def configure_aiohttp_signing(keys: HTTPSignatureKeyResolver) -> SignatureMiddleware:
+    return SignatureMiddleware(
+        SignatureMiddlewareMode.SIGN_REQUEST,
+        sign_options=AiohttpSigningOptions(
+            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_id="client", key_resolver=keys
+        ),
+    )
 
 
 def reject_invalid_httpx2_resolvers(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:

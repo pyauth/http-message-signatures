@@ -21,8 +21,8 @@ from http_message_signatures import (
     MappingKeyResolver,
     algorithms,
 )
+from http_message_signatures._messages import _HeaderFields, _Request, _Response
 from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
-from http_message_signatures.messages import HeaderFields, Request, Response
 
 SECRET = b"local-tests-only-shared-secret"
 PLAIN = b'{"verified": true}'
@@ -46,7 +46,7 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
     async def dispatch(self, request):
         body = await request.read()
-        view = Request(request.method, str(request.url), HeaderFields.from_raw(lambda: request.raw_headers))
+        view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
         if "Signature" in request.headers:
             self.verifier.verify(view, body=body)
         self.requests.append((request, body))
@@ -66,13 +66,13 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         response.content_type = "application/json"
         if encoding:
             response.headers["Content-Encoding"] = encoding
-        request_view = Request(request.method, str(request.url), HeaderFields.from_raw(lambda: request.raw_headers))
-        fields = HeaderFields(
+        request_view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
+        fields = _HeaderFields(
             lambda: ((name, value.encode("utf-8").decode("latin-1")) for name, value in response.headers.items()),
             writable=response.headers,
         )
         self.signer.sign(
-            Response(status, fields, request_view), key_id="server", body=body, covered_component_ids=components
+            _Response(status, fields, request_view), key_id="server", body=body, covered_component_ids=components
         )
         return response
 
@@ -420,10 +420,10 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
         async def unsigned_digest(request):
             response = await self.signed_response(request)
-            view = Response(
+            view = _Response(
                 response.status,
-                HeaderFields(lambda: response.headers.items(), writable=response.headers),
-                Request(request.method, str(request.url), HeaderFields.from_raw(lambda: request.raw_headers)),
+                _HeaderFields(lambda: response.headers.items(), writable=response.headers),
+                _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers)),
             )
             self.signer.sign(
                 view,
