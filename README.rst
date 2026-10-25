@@ -20,9 +20,6 @@ Installation
 Synopsis
 --------
 
-Pass ``covered_component_ids`` to choose which components the signer covers. This example adds Content-Type to the
-default request components and explicitly includes Content-Digest:
-
 .. code-block:: python
 
     import requests
@@ -41,12 +38,7 @@ default request components and explicitly includes Content-Digest:
     request = request.prepare()
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    signer.sign(
-        request,
-        key_id="my-key",
-        covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest"),
-        body=request.body,
-    )
+    signer.sign(request, key_id="my-key", body=request.body)
 
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request, body=request.body)
@@ -55,6 +47,8 @@ Signing Content-Digest and checking it against the body protects the body agains
 Supply content bytes before decoding as ``body=``. With this argument, ``sign()`` generates Content-Digest if absent
 and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
 The HTTPX2 hooks below read and supply these bytes automatically.
+When signing, components covered by the signature can be customized using ``covered_component_ids``, for example
+``covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest")``.
 
 Signing a message with an existing Content-Digest requires ``use_existing_digest=True`` on ``sign()`` or
 ``prepare()``. With ``body=`` supplied, these methods validate the existing digest against those bytes and add digest
