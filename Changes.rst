@@ -1,17 +1,3 @@
-Unreleased
-==========
-
-- Add HTTPX request signing and response verification hooks with automatic
-  Content-Digest handling and support for repeated header fields.
-
-- Add client-independent digest, component, key, and message-view helpers for
-  HTTPX, Requests, and aiohttp integrations. Body-based signing refuses an
-  existing Content-Digest without changing message headers.
-
-- Breaking change: ``sign()`` passes ``body`` to ``prepare()`` even when it is
-  ``None``. Subclasses overriding the recently introduced ``prepare()`` API
-  must accept this keyword or forward ``**kwargs``.
-
 Changes for v2.2.0 (2026-10-22)
 ===============================
 
