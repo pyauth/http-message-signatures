@@ -9,7 +9,7 @@ from http_sf.compat import Item
 from .exceptions import HTTPMessageSignaturesException
 
 
-def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
+def _parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
     """This function parses names or serialized String items, preserving parameter order."""
     if isinstance(component_ids, (str, bytes, bytearray)):
         raise HTTPMessageSignaturesException(
@@ -27,6 +27,6 @@ def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
     return nodes
 
 
-def component_identity(node: Item) -> tuple[Any, frozenset[tuple[str, Any]]]:
+def _component_identity(node: Item) -> tuple[Any, frozenset[tuple[str, Any]]]:
     """The returned identity ignores parameter order without changing the signed item."""
     return node.value, frozenset(node.params.items())

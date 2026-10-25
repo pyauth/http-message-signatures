@@ -248,6 +248,9 @@ class HTTPSignatureKeyResolver:
 
     Return PEM bytes or the appropriate cryptography key object for asymmetric
     algorithms. For HMAC, return the same secret bytes from both methods.
+    The public type aliases ``http_message_signatures.SigningKey`` and
+    ``http_message_signatures.VerificationKey`` describe the accepted signing
+    and verification key types, respectively.
     """
 
     def resolve_public_key(self, key_id: str):

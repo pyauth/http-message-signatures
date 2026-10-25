@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-class Headers(Protocol):
+class _Headers(Protocol):
     """Header interface whose ``items()`` implementations must retain repeated field lines."""
 
     def items(self) -> Iterable[tuple[str, str]]: ...
@@ -15,7 +15,7 @@ class Headers(Protocol):
     def __delitem__(self, name: str) -> None: ...
 
 
-class HeaderFields:
+class _HeaderFields:
     """A live view of field lines, with optional writes to their underlying container.
 
     Supply a ``fields`` callback that returns all string field lines in order.
@@ -39,7 +39,7 @@ class HeaderFields:
         fields: Callable[[], Iterable[tuple[bytes, bytes]]],
         *,
         writable: MutableMapping[str, str] | None = None,
-    ) -> "HeaderFields":
+    ) -> "_HeaderFields":
         """The returned view preserves header bytes using ASCII names and Latin-1 values."""
         return cls(
             lambda: ((name.decode("ascii"), value.decode("latin-1")) for name, value in fields()),
@@ -67,18 +67,18 @@ class HeaderFields:
 
 
 @dataclass
-class Request:
+class _Request:
     """View of a prepared request's encoded URL, method, and header fields."""
 
     method: str
     url: str
-    headers: Headers
+    headers: _Headers
 
 
 @dataclass
-class Response:
+class _Response:
     """View of a response and the prepared request it answers."""
 
     status_code: int
-    headers: Headers
-    request: Request
+    headers: _Headers
+    request: _Request

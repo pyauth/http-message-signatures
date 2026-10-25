@@ -8,13 +8,13 @@ from typing import ClassVar
 import http_sf
 from http_sf.compat import Dictionary, Item
 
-from .components import parse_component_ids
+from ._components import _parse_component_ids
+from ._messages import _Headers
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
-from .messages import Headers
 from .structures import get_header_fields
 
 
-def is_content_digest(component: Item) -> bool:
+def _is_content_digest(component: Item) -> bool:
     """Whether a component covers this message's digest field or a member."""
     return component.value == "content-digest" and not set(component.params) - {"sf", "key"}
 
@@ -47,14 +47,14 @@ class ContentDigest:
         return str(node)
 
     @classmethod
-    def add(cls, headers: Headers, body: bytes) -> None:
+    def add(cls, headers: _Headers, body: bytes) -> None:
         """This method adds Content-Digest, or raises without changes if it is present."""
         if any(name.lower() == "content-digest" for name, _ in headers.items()):
             raise HTTPMessageSignaturesException("Cannot add Content-Digest: the field is already present")
         headers["Content-Digest"] = cls.create(body)
 
     @classmethod
-    def prepare(cls, headers: Headers, body: bytes | None, *, use_existing_digest: bool) -> None:
+    def prepare(cls, headers: _Headers, body: bytes | None, *, use_existing_digest: bool) -> None:
         """This method generates or validates a digest, preserving existing field lines."""
         if not isinstance(use_existing_digest, bool):
             raise TypeError("use_existing_digest must be True or False")
@@ -125,8 +125,8 @@ class ContentDigest:
         cls._check_body(body)
         verified = False
         for identifier, value in covered_components.items():
-            node = parse_component_ids((identifier,))[0]
-            if is_content_digest(node):
+            node = _parse_component_ids((identifier,))[0]
+            if _is_content_digest(node):
                 cls.verify(value, body, key=node.params.get("key"))
                 verified = True
         return verified

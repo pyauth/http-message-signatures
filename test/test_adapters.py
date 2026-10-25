@@ -14,8 +14,8 @@ from http_message_signatures import (
     MappingKeyResolver,
     algorithms,
 )
+from http_message_signatures._messages import _HeaderFields, _Request, _Response
 from http_message_signatures.httpx2 import adapt_message
-from http_message_signatures.messages import HeaderFields, Request, Response
 
 
 def handlers():
@@ -50,10 +50,10 @@ class TestSharedUtilities(unittest.TestCase):
                 (name.decode("ascii"), value.decode("latin-1")) for name, value in outgoing.headers.raw
             )
         )
-        message = Response(
+        message = _Response(
             status_code=response.status_code,
-            headers=HeaderFields(lambda: response.raw.headers.items()),
-            request=Request(method=request.method, url=request.url, headers=request.headers),
+            headers=_HeaderFields(lambda: response.raw.headers.items()),
+            request=_Request(method=request.method, url=request.url, headers=request.headers),
         )
         result = verifier.verify(message, body=b"hello")[0]
         self.assertIn('"set-cookie";bs', result.covered_components)
@@ -63,7 +63,7 @@ class TestSharedUtilities(unittest.TestCase):
 
     def test_header_view_tracks_mutations(self):
         headers = httpx2.Headers([("Example", "first"), ("Example", "second")])
-        fields = HeaderFields.from_raw(lambda: headers.raw, writable=headers)
+        fields = _HeaderFields.from_raw(lambda: headers.raw, writable=headers)
         self.assertEqual(list(fields.items()), [("Example", "first"), ("Example", "second")])
         fields["Example"] = "replacement"
         self.assertEqual(list(fields.items()), [("Example", "replacement")])
