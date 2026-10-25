@@ -13,7 +13,14 @@ HTTPX2
 ======
 
 .. automodule:: http_message_signatures.httpx2
-   :members:
+   :members: SignatureHooks, SignatureHooksMode, SigningOptions, VerificationOptions, adapt_message
+   :imported-members:
+
+aiohttp integration
+===================
+
+.. automodule:: http_message_signatures.aiohttp
+   :members: SignatureMiddleware, SignatureMiddlewareMode
 
 Algorithms
 ==========

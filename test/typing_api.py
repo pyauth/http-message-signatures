@@ -1,5 +1,6 @@
 """Public imports and result fields must retain their types for strict consumers."""
 
+import aiohttp
 import httpx2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
@@ -20,6 +21,7 @@ from http_message_signatures import (
     VerifyResult,
     algorithms,
 )
+from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
 from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
     ED25519,
@@ -34,6 +36,20 @@ from http_message_signatures.httpx2 import (
     VerificationOptions,
     adapt_message,
 )
+
+
+async def aiohttp_example(keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
+    signatures = SignatureMiddleware(
+        SignatureMiddlewareMode.VERIFY_RESPONSE,
+        verify_options={"origin": "https://example.com", "signature_algorithm": HMAC_SHA256, "key_resolver": keys},
+    )
+    async with (
+        aiohttp.ClientSession(**signatures.session_kwargs) as client,
+        client.get("https://example.com") as response,
+    ):
+        assert_type(await response.read(), bytes)
+        assert_type(signatures.mode, SignatureMiddlewareMode)
+        return signatures.verification_results(response)
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:

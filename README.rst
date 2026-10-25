@@ -205,6 +205,70 @@ redirects that retain the body. If you change the body, remove or replace its ex
  persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX2 response
  lifecycle, such as an HTTPX2 transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
 
+aiohttp integration
+~~~~~~~~~~~~~~~~~~~
+
+Install the optional dependency (aiohttp 3.14 or later)::
+
+    pip install 'http-message-signatures[aiohttp]'
+
+``SignatureMiddleware`` works with the standard ``aiohttp.ClientSession``. Its ``sign_options`` and ``verify_options``
+dictionaries accept the same configuration as the HTTPX2 integration, including custom key resolvers and independent
+algorithms. Pass the middleware's ``session_kwargs`` to the session constructor::
+
+    import aiohttp
+    from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
+
+    signatures = SignatureMiddleware(
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "key_resolver": client_key_resolver,
+            "tag": "example-api",
+        },
+        verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": server_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@status", '"@method";req', '"@target-uri";req'),
+        },
+    )
+    async with aiohttp.ClientSession(**signatures.session_kwargs) as client:
+        async with client.post("https://api.example.com/items", json={"hello": "world"}) as response:
+            response.raise_for_status()
+            data = await response.json()
+            results = signatures.verification_results(response)
+
+The first constructor argument selects the mode. ``SignatureMiddlewareMode.SIGN_REQUEST`` needs only ``sign_options``;
+``SignatureMiddlewareMode.VERIFY_RESPONSE`` needs only ``verify_options``. The default,
+``SignatureMiddlewareMode.SIGN_REQUEST_VERIFY_RESPONSE``, needs both dictionaries. The middleware forwards supplied
+signature options to the base signer and verifier; those methods provide defaults for omitted options.
+
+The middleware buffers complete request and response bodies. It generates request digests and validates response
+digests automatically, including for streaming uploads and downloads. To accept an existing request digest, set
+``"use_existing_digest": True`` in ``sign_options``. The middleware checks it against the buffered body. It also
+allows digest reuse when a retry invokes the same middleware on the same request, unless you set this option to ``False``.
+For compressed uploads, supply already encoded bytes with a Content-Encoding header; signing rejects ``compress=``
+because aiohttp would apply it after signing.
+
+When verification is enabled, ``session_kwargs`` disables aiohttp's early decompression. The middleware verifies the
+encoded body, then decodes it for normal ``read()``, ``text()``, ``json()``, and ``content.iter_chunked()`` access.
+``VerifyResult.body`` contains the verified bytes before decoding. Buffering removes the original HTTP chunk boundaries
+and retains both encoded and decoded content in memory. The adapter uses aiohttp's internal decoder and stream
+construction APIs for this step; it requires no patches or upstream changes. Signing-only mode leaves response handling
+to aiohttp.
+
+Place this middleware last in a session's middleware sequence: earlier middleware can modify requests before signing
+and consume responses after verification. Retain the ``auto_decompress=False`` setting from ``session_kwargs`` and
+include the signature middleware if you override the per-request middleware list. Do not set per-request
+``auto_decompress=True``: aiohttp can decode content before the middleware detects and rejects that override.
+
+aiohttp updates its cookie jar after this middleware returns, so failed verification prevents that response's cookie
+updates. To authenticate cookies, also require ``'"set-cookie";bs'`` coverage; a valid body signature alone does not
+authenticate Set-Cookie fields.
+
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
