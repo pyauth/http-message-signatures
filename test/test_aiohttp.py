@@ -202,6 +202,37 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(encoding=encoding):
                     await asyncio.gather(*(consume() for _ in range(4)))
 
+    async def test_decoding_matches_native_aiohttp(self):
+        compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+        raw_deflate = compressor.compress(PLAIN) + compressor.flush()
+        cases = (
+            (None, PLAIN),
+            ("identity", PLAIN),
+            ("unknown", gzip.compress(PLAIN)),
+            ("gzip, deflate", PLAIN),
+            ("GZip", gzip.compress(PLAIN)),
+            ("gzip", gzip.compress(PLAIN[:5]) + gzip.compress(PLAIN[5:])),
+            ("gzip", b""),
+            ("deflate", raw_deflate),
+        )
+        middleware = self.middleware(SignatureMiddlewareMode.VERIFY_RESPONSE)
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as verified,
+        ):
+            for encoding, body in cases:
+                with self.subTest(encoding=encoding, empty=not body):
+
+                    async def endpoint(request, body=body, encoding=encoding):
+                        return await self.signed_response(request, body, encoding=encoding)
+
+                    self.endpoint = endpoint
+                    async with native.get(self.origin) as response:
+                        expected = await response.read()
+                    async with verified.get(self.origin) as response:
+                        self.assertEqual(await response.read(), expected)
+                        self.assertEqual(middleware.verification_results(response)[0].body, body)
+
     async def test_streamed_file_and_multipart_requests(self):
         async def chunks():
             yield b"streamed "
@@ -449,7 +480,7 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
             received.append(response)
             return response
 
-        async def cancel(*args):
+        def cancel(*args):
             raise asyncio.CancelledError
 
         async with aiohttp.ClientSession(

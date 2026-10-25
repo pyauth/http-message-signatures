@@ -256,7 +256,7 @@ because aiohttp would apply it after signing.
 When verification is enabled, ``session_kwargs`` disables aiohttp's early decompression. The middleware verifies the
 encoded body, then decodes it for normal ``read()``, ``text()``, ``json()``, and ``content.iter_chunked()`` access.
 ``VerifyResult.body`` contains the verified bytes before decoding. Buffering removes the original HTTP chunk boundaries
-and retains both encoded and decoded content in memory. The adapter uses aiohttp's internal decoder and stream
+and retains both encoded and decoded content in memory. The adapter uses aiohttp's internal payload parser and stream
 construction APIs for this step; it requires no patches or upstream changes. Signing-only mode leaves response handling
 to aiohttp.
 

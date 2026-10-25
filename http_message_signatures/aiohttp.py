@@ -11,7 +11,7 @@ import aiohttp
 from aiohttp.abc import AbstractStreamWriter
 from aiohttp.base_protocol import BaseProtocol
 from aiohttp.http_exceptions import ContentEncodingError
-from aiohttp.http_parser import DeflateBuffer
+from aiohttp.http_parser import HeadersParser, HttpPayloadParser
 from aiohttp.payload import Payload
 from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
@@ -87,26 +87,24 @@ class _BufferedProtocol(BaseProtocol):
         pass
 
 
-async def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.StreamReader:
+def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.StreamReader:
     # aiohttp has no public facility to defer decoding until after verification.
-    # Keep its decoder and detached StreamReader construction together here.
+    # Its payload parser consumes the verified body without HTTP framing.
     loop = asyncio.get_running_loop()
     limit, _ = response.content.get_read_buffer_limits()
     content = aiohttp.StreamReader(_BufferedProtocol(loop), limit, loop=loop)
     encoding = response.headers.get("Content-Encoding", "").strip().lower()
-    if encoding in {"gzip", "deflate", "br", "zstd"}:
-        try:
-            decoder = DeflateBuffer(content, encoding)
-            more = decoder.feed_data(body, len(body))
-            while more:
-                await asyncio.sleep(0)
-                more = decoder.feed_data(b"", 0)
-            decoder.feed_eof()
-        except ContentEncodingError as exc:
-            raise aiohttp.ClientPayloadError(str(exc)) from exc
-    else:
-        content.feed_data(body)
-        content.feed_eof()
+    try:
+        parser = HttpPayloadParser(
+            content,
+            compression=encoding,
+            auto_decompress=encoding in {"gzip", "deflate", "br", "zstd"},
+            headers_parser=HeadersParser(),
+        )
+        parser.feed_data(body)
+        parser.feed_eof()
+    except ContentEncodingError as exc:
+        raise aiohttp.ClientPayloadError(str(exc)) from exc
     return content
 
 
@@ -161,7 +159,7 @@ class SignatureMiddleware(_SignatureAdapter):
     Failed verification closes the response before aiohttp updates its cookie jar.
     To authenticate cookie fields, require ``'"set-cookie";bs'`` coverage as well.
 
-    Restoring decoded response streams uses aiohttp's internal decoder and stream
+    Restoring decoded response streams uses aiohttp's internal payload parser and stream
     construction APIs. This adapter does not patch aiohttp or require an upstream change.
     """
 
@@ -256,7 +254,7 @@ class SignatureMiddleware(_SignatureAdapter):
                 body = await response.content.read()
                 results = self.verifier.verify_body(message, results, body)
                 if not empty:
-                    response.content = await _decoded_content(response, body)
+                    response.content = _decoded_content(response, body)
                 self._results[response] = results
             return response
         except BaseException:
