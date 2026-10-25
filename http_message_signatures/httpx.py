@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timedelta
+from enum import Enum
 from io import BytesIO
 from typing import TypedDict, overload
 
@@ -12,6 +13,14 @@ from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .messages import HeaderFields, Request, Response
 from .resolvers import MappingKeyResolver, SigningKey, VerificationKey
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
+
+
+class SignatureHooksMode(Enum):
+    """Operations installed by the synchronous and asynchronous hook collections."""
+
+    SIGN_REQUEST = "sign_request"
+    VERIFY_RESPONSE = "verify_response"
+    SIGN_REQUEST_VERIFY_RESPONSE = "sign_request_verify_response"
 
 
 class SigningOptions(TypedDict, total=False):
@@ -92,36 +101,44 @@ class _AsyncCapture(httpx.AsyncByteStream):
 
 
 class SignatureHooks:
-    """Sign requests and verify responses through paired HTTPX event hooks.
+    """Sign requests, verify responses, or both through HTTPX event hooks.
 
     :param origin: HTTP origin allowed to use these keys, including its scheme
-        and port. Other destinations, including redirects, fail before sending.
-    :param key_id: Signing key ID, passed to the base signer.
-    :param signing_key: PEM bytes, a cryptography private key, or HMAC secret bytes.
+        and port. Signing checks it before sending; verification checks it when
+        the response arrives.
+    :param mode: Operations to enable; defaults to signing and verification.
+    :param key_id: Signing key ID, required only when signing requests.
+    :param signing_key: PEM bytes, a cryptography private key, or HMAC secret bytes;
+        required only when signing requests.
     :param verification_keys: Mapping of trusted response key IDs to public keys
         or HMAC secrets. No key is inferred from the signing key or fetched remotely.
+        Required only when verifying responses.
     :param signature_algorithm: Algorithm class, required as in the base API.
-    :param signing_options: Dictionary of optional ``HTTPMessageSigner.sign()``
+    :param sign_options: Dictionary of optional ``HTTPMessageSigner.sign()``
         keywords, typed by SigningOptions. ``key_id`` and ``body`` are managed
         by the hooks.
-    :param verification_options: Dictionary of optional ``HTTPMessageVerifier.verify()``
+    :param verify_options: Dictionary of optional ``HTTPMessageVerifier.verify()``
         keywords, typed by VerificationOptions. ``body`` is managed by the hooks.
 
     The option dictionaries are shallow-copied and forwarded independently.
     Omitted keys use the underlying method defaults; explicit ``None`` is passed
     through. Set ``expect_tag`` separately from the signing ``tag``. Unknown
     keywords raise ``TypeError`` from the underlying method when its hook runs.
+    Missing credentials or configuration for a disabled operation raise
+    ``ValueError`` at construction. Disabled handlers are not constructed.
 
     Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
+    Each collection installs only the operations enabled by ``mode``.
     Signing belongs after request-mutating hooks; verification belongs before
-    response consumers. Requests and responses are buffered, even with stream().
-    Requests with an existing Content-Digest are rejected, including redirected
+    response consumers. Signing buffers requests and verification buffers responses,
+    even with stream().
+    Signing rejects requests with an existing Content-Digest, including redirected
     requests that inherit that field. Build a fresh request to follow a redirect.
     Response content is captured before decoding for digest validation; normal
     HTTPX content decoding is preserved. Successful verification results are
     stored in ``response.extensions["http_message_signatures"]``.
 
-    Nonempty responses and responses with Content-Digest require signed digest
+    When verifying, nonempty responses and responses with Content-Digest require signed digest
     coverage. Other coverage is controlled by the base ``require_components``
     option. No nonce, expiration, status, or request-binding policy is added.
 
@@ -136,13 +153,26 @@ class SignatureHooks:
         self,
         *,
         origin: str,
-        key_id: str,
-        signing_key: SigningKey,
-        verification_keys: Mapping[str, VerificationKey],
         signature_algorithm: type[HTTPSignatureAlgorithm],
-        signing_options: SigningOptions | None = None,
-        verification_options: VerificationOptions | None = None,
+        mode: SignatureHooksMode = SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE,
+        key_id: str | None = None,
+        signing_key: SigningKey | None = None,
+        verification_keys: Mapping[str, VerificationKey] | None = None,
+        sign_options: SigningOptions | None = None,
+        verify_options: VerificationOptions | None = None,
     ) -> None:
+        if not isinstance(mode, SignatureHooksMode):
+            raise TypeError("mode must be a SignatureHooksMode")
+        if mode is SignatureHooksMode.VERIFY_RESPONSE:
+            if key_id is not None or signing_key is not None or sign_options is not None:
+                raise ValueError("Signing configuration is not allowed in VERIFY_RESPONSE mode")
+        elif key_id is None or signing_key is None:
+            raise ValueError("key_id and signing_key are required when signing requests")
+        if mode is SignatureHooksMode.SIGN_REQUEST:
+            if verification_keys is not None or verify_options is not None:
+                raise ValueError("Verification configuration is not allowed in SIGN_REQUEST mode")
+        elif verification_keys is None:
+            raise ValueError("verification_keys is required when verifying responses")
         url = httpx.URL(origin)
         if (
             not url.is_absolute_url
@@ -154,24 +184,34 @@ class SignatureHooks:
         ):
             raise ValueError("origin must be an HTTP origin without a path, query, fragment, or credentials")
         self.origin = (url.scheme, url.host, url.port)
+        self.mode = mode
         self.key_id = key_id
-        keys = MappingKeyResolver(public_keys=verification_keys, private_keys={key_id: signing_key})
-        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        self.signing_options: SigningOptions = signing_options.copy() if signing_options is not None else {}
-        self.verification_options: VerificationOptions = (
-            verification_options.copy() if verification_options is not None else {}
-        )
+        self.signer: HTTPMessageSigner | None = None
+        self.verifier: HTTPMessageVerifier | None = None
+        if key_id is not None and signing_key is not None:
+            keys = MappingKeyResolver(public_keys={}, private_keys={key_id: signing_key})
+            self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        if verification_keys is not None:
+            keys = MappingKeyResolver(public_keys=verification_keys, private_keys={})
+            self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        self.sign_options: SigningOptions = sign_options.copy() if sign_options is not None else {}
+        self.verify_options: VerificationOptions = verify_options.copy() if verify_options is not None else {}
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:
         """Fresh hook lists for ``httpx.Client``."""
-        return {"request": [self.sign_request], "response": [self.verify_response]}
+        return {
+            "request": [self.sign_request] if self.signer is not None else [],
+            "response": [self.verify_response] if self.verifier is not None else [],
+        }
 
     @property
     def async_event_hooks(self) -> dict[str, list[Callable[..., Awaitable[None]]]]:
         """Fresh async hook lists for ``httpx.AsyncClient``."""
-        return {"request": [self.sign_request_async], "response": [self.verify_response_async]}
+        return {
+            "request": [self.sign_request_async] if self.signer is not None else [],
+            "response": [self.verify_response_async] if self.verifier is not None else [],
+        }
 
     def _check_origin(self, request: httpx.Request) -> None:
         url = request.url
@@ -180,21 +220,25 @@ class SignatureHooks:
 
     def sign_request(self, request: httpx.Request) -> None:
         """Buffer and sign a prepared request, including its current body."""
+        if self.signer is None or self.key_id is None:
+            raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request)
         body = request.read()
-        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.signing_options)
+        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.sign_options)
 
     async def sign_request_async(self, request: httpx.Request) -> None:
         """Async request hook; await body consumption before signing."""
+        if self.signer is None or self.key_id is None:
+            raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request)
         body = await request.aread()
-        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.signing_options)
+        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.sign_options)
 
-    def _verify_headers(self, response: httpx.Response):
+    def _verify_headers(self, response: httpx.Response, verifier: HTTPMessageVerifier):
         response.extensions.pop("http_message_signatures", None)
         self._check_origin(response.request)
         message = adapt_message(response)
-        return message, self.verifier.verify(message, **self.verification_options)
+        return message, verifier.verify(message, **self.verify_options)
 
     @staticmethod
     def _buffered_body(response: httpx.Response) -> bytes:
@@ -204,8 +248,10 @@ class SignatureHooks:
 
     def verify_response(self, response: httpx.Response) -> None:
         """Authenticate headers and the complete encoded body before returning."""
+        if self.verifier is None:
+            raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response)
+            message, results = self._verify_headers(response, self.verifier)
             if response.is_stream_consumed:
                 body = self._buffered_body(response)
             else:
@@ -222,8 +268,10 @@ class SignatureHooks:
 
     async def verify_response_async(self, response: httpx.Response) -> None:
         """Async response hook with the same buffering and verification contract."""
+        if self.verifier is None:
+            raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response)
+            message, results = self._verify_headers(response, self.verifier)
             if response.is_stream_consumed:
                 body = self._buffered_body(response)
             else:

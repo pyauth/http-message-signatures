@@ -19,7 +19,13 @@ from http_message_signatures import (
     algorithms,
 )
 from http_message_signatures.exceptions import InvalidSignature
-from http_message_signatures.httpx import SignatureHooks, SigningOptions, VerificationOptions, adapt_message
+from http_message_signatures.httpx import (
+    SignatureHooks,
+    SignatureHooksMode,
+    SigningOptions,
+    VerificationOptions,
+    adapt_message,
+)
 
 SECRET = b"local-tests-only-shared-secret"
 ORIGIN = "https://example.com"
@@ -243,6 +249,149 @@ class TestContentDigest(SignatureTestCase):
 
 
 class TestSignatureHooks(SignatureTestCase):
+    def test_signing_only_accepts_unsigned_responses_without_buffering(self):
+        class UnusedVerifier(HTTPMessageVerifier):
+            def __init__(self, **options):
+                raise AssertionError("Signing-only mode must not construct a verifier")
+
+        class Hooks(SignatureHooks):
+            verifier_class = UnusedVerifier
+
+        hooks = Hooks(
+            mode=SignatureHooksMode.SIGN_REQUEST,
+            origin=ORIGIN,
+            signature_algorithm=algorithms.HMAC_SHA256,
+            key_id="client",
+            signing_key=SECRET,
+            sign_options={"tag": "out", "include_alg": False},
+        )
+        stream = SyncBody(b"unverified response")
+
+        def server(request):
+            result = self.verifier.verify(adapt_message(request), body=request.content, expect_tag="out")[0]
+            self.assertEqual(result.body, b"hello")
+            self.assertNotIn("alg", result.parameters)
+            return httpx.Response(200, headers={"Signature": "invalid", "Content-Digest": "invalid"}, stream=stream)
+
+        with (
+            httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client,
+            client.stream("POST", ORIGIN, content=SyncBody(b"hello")) as response,
+        ):
+            self.assertFalse(response.is_stream_consumed)
+            self.assertEqual(stream.reads, 0)
+            self.assertNotIn("http_message_signatures", response.extensions)
+            self.assertEqual(response.read(), b"unverified response")
+        self.assertIsNone(hooks.verifier)
+        self.assertEqual(hooks.event_hooks["response"], [])
+
+    def test_verification_only_leaves_requests_unsigned(self):
+        class UnusedSigner(HTTPMessageSigner):
+            def __init__(self, **options):
+                raise AssertionError("Verification-only mode must not construct a signer")
+
+        class Hooks(SignatureHooks):
+            signer_class = UnusedSigner
+
+        hooks = Hooks(
+            mode=SignatureHooksMode.VERIFY_RESPONSE,
+            origin=ORIGIN,
+            signature_algorithm=algorithms.HMAC_SHA256,
+            verification_keys={"server": SECRET},
+            verify_options={"expect_tag": "in", "require_components": ("@status",)},
+        )
+        streams = []
+
+        def server(request):
+            for name in ("Signature", "Signature-Input", "Content-Digest"):
+                self.assertNotIn(name, request.headers)
+            self.assertEqual(request.content, b"unsigned request")
+            response = self.response(request, tag="in")
+            if request.url.path == "/tampered":
+                response.stream.body = b"changed"
+            elif request.url.path == "/unsigned":
+                del response.headers["Signature"]
+            streams.append(response.stream)
+            return response
+
+        with httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+            with client.stream("POST", ORIGIN, content=b"unsigned request") as response:
+                self.assertTrue(response.is_stream_consumed)
+                self.assertEqual(response.extensions["http_message_signatures"][0].body, b'{"ok":true}')
+            for path in ("/tampered", "/unsigned"):
+                with self.subTest(path=path), self.assertRaises(InvalidSignature):
+                    client.post(ORIGIN + path, content=b"unsigned request")
+        self.assertTrue(all(stream.closed for stream in streams))
+        self.assertIsNone(hooks.signer)
+        self.assertIsNone(hooks.key_id)
+        self.assertEqual(hooks.event_hooks["request"], [])
+
+    def test_modes_validate_credentials_and_unused_configuration(self):
+        signing = {"key_id": "client", "signing_key": SECRET}
+        verification = {"verification_keys": {"server": SECRET}}
+        invalid = [
+            {"mode": SignatureHooksMode.SIGN_REQUEST},
+            {"mode": SignatureHooksMode.SIGN_REQUEST, "key_id": "client"},
+            {"mode": SignatureHooksMode.SIGN_REQUEST, "signing_key": SECRET},
+            {"mode": SignatureHooksMode.VERIFY_RESPONSE},
+            signing,
+            verification,
+        ]
+        invalid.extend(
+            {"mode": SignatureHooksMode.SIGN_REQUEST, **signing, **unused}
+            for unused in ({"verification_keys": {}}, {"verify_options": {}})
+        )
+        invalid.extend(
+            {"mode": SignatureHooksMode.VERIFY_RESPONSE, **verification, **unused}
+            for unused in ({"key_id": "unused"}, {"signing_key": SECRET}, {"sign_options": {}})
+        )
+        for options in invalid:
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                SignatureHooks(origin=ORIGIN, signature_algorithm=algorithms.HMAC_SHA256, **options)
+        for mode in (None, "verify_response", 1):
+            with self.subTest(mode=mode), self.assertRaisesRegex(TypeError, "SignatureHooksMode"):
+                self.hooks(mode=mode)
+
+    def test_combined_mode_is_default_and_hook_lists_are_fresh(self):
+        default = self.hooks()
+        explicit = self.hooks(mode=SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE)
+        self.assertIs(default.mode, SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE)
+        for hooks in (default, explicit):
+            self.assertIsNotNone(hooks.signer)
+            self.assertIsNotNone(hooks.verifier)
+            for collection in (hooks.event_hooks, hooks.async_event_hooks):
+                self.assertEqual(
+                    {name: len(values) for name, values in collection.items()}, {"request": 1, "response": 1}
+                )
+                collection["request"].clear()
+                collection["response"].clear()
+            self.assertEqual(len(hooks.event_hooks["request"]), 1)
+            self.assertEqual(len(hooks.async_event_hooks["response"]), 1)
+
+    def test_disabled_manual_hooks_fail_before_consuming_content(self):
+        sign_only = SignatureHooks(
+            mode=SignatureHooksMode.SIGN_REQUEST,
+            origin=ORIGIN,
+            signature_algorithm=algorithms.HMAC_SHA256,
+            key_id="client",
+            signing_key=SECRET,
+        )
+        verify_only = SignatureHooks(
+            mode=SignatureHooksMode.VERIFY_RESPONSE,
+            origin=ORIGIN,
+            signature_algorithm=algorithms.HMAC_SHA256,
+            verification_keys={"server": SECRET},
+        )
+        upload = SyncBody(b"hello")
+        request = httpx.Request("POST", ORIGIN, stream=upload)
+        response = self.response(request)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "signing is disabled"):
+            verify_only.sign_request(request)
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "verification is disabled"):
+            sign_only.verify_response(response)
+        self.assertEqual(upload.reads, 0)
+        self.assertEqual(response.stream.reads, 0)
+        self.assertFalse(response.is_closed)
+
     def test_roundtrip_and_verification_before_consumers(self):
         hooks = self.hooks()
         observed = []
@@ -463,14 +612,14 @@ class TestSignatureHooks(SignatureTestCase):
 
     def test_configured_options_reach_base_methods(self):
         hooks = self.hooks(
-            signing_options={
+            sign_options={
                 "tag": "outgoing-api",
                 "label": "outgoing",
                 "include_alg": False,
                 "nonce": "caller-nonce",
                 "covered_component_ids": ("@method",),
             },
-            verification_options={
+            verify_options={
                 "max_age": None,
                 "expect_tag": "incoming-api",
                 "expect_label": "pyhms",
@@ -487,11 +636,11 @@ class TestSignatureHooks(SignatureTestCase):
         response = self.response(request, tag="incoming-api", created=datetime(2020, 1, 1, tzinfo=timezone.utc))
         hooks.verify_response(response)
         with self.assertRaises(InvalidSignature):
-            self.hooks(verification_options={"expect_tag": "incoming-api"}).verify_response(response)
+            self.hooks(verify_options={"expect_tag": "incoming-api"}).verify_response(response)
 
     def test_unknown_and_hook_managed_options_are_rejected(self):
         for name in ("max_ag", "covered_components", "expect_tag", "body", "key_id"):
-            hooks = self.hooks(signing_options={name: None})
+            hooks = self.hooks(sign_options={name: None})
             sent = []
             with (
                 self.subTest(option=name),
@@ -504,7 +653,7 @@ class TestSignatureHooks(SignatureTestCase):
     def test_verifier_rejects_unsupported_options(self):
         for name in ("max_ag", "tag", "include_alg"):
             with self.subTest(option=name):
-                hooks = self.hooks(verification_options={name: None})
+                hooks = self.hooks(verify_options={name: None})
                 response = self.response(httpx.Request("GET", ORIGIN))
                 stream = response.stream
                 with self.assertRaisesRegex(TypeError, rf"HTTPMessageVerifier.verify\(\).*'{name}'"):
@@ -532,7 +681,7 @@ class TestSignatureHooks(SignatureTestCase):
             signing_key=SECRET,
             verification_keys={"server": SECRET},
             signature_algorithm=algorithms.HMAC_SHA256,
-            verification_options={"max_age": None},
+            verify_options={"max_age": None},
         )
         response = self.response(httpx.Request("GET", ORIGIN))
         stream = response.stream
@@ -544,21 +693,21 @@ class TestSignatureHooks(SignatureTestCase):
 
     def test_unspecified_options_are_not_forwarded(self):
         hooks = self.hooks()
-        self.assertEqual(hooks.signing_options, {})
-        self.assertEqual(hooks.verification_options, {})
-        self.assertEqual(self.hooks(signing_options={"tag": "out"}).verification_options, {})
-        self.assertEqual(self.hooks(verification_options={"expect_tag": "in"}).signing_options, {})
+        self.assertEqual(hooks.sign_options, {})
+        self.assertEqual(hooks.verify_options, {})
+        self.assertEqual(self.hooks(sign_options={"tag": "out"}).verify_options, {})
+        self.assertEqual(self.hooks(verify_options={"expect_tag": "in"}).sign_options, {})
 
     def test_option_containers_are_copied_and_preserve_explicit_none(self):
         signing = SigningOptions(tag="out", nonce=None, include_alg=False)
         verification = VerificationOptions(expect_tag=None, max_age=None)
-        hooks = self.hooks(signing_options=signing, verification_options=verification)
+        hooks = self.hooks(sign_options=signing, verify_options=verification)
         signing["tag"] = "changed"
         verification["max_age"] = timedelta(seconds=1)
-        self.assertEqual(hooks.signing_options, {"tag": "out", "nonce": None, "include_alg": False})
-        self.assertEqual(hooks.verification_options, {"expect_tag": None, "max_age": None})
-        self.assertEqual(self.hooks().signing_options, {})
-        self.assertEqual(self.hooks().verification_options, {})
+        self.assertEqual(hooks.sign_options, {"tag": "out", "nonce": None, "include_alg": False})
+        self.assertEqual(hooks.verify_options, {"expect_tag": None, "max_age": None})
+        self.assertEqual(self.hooks().sign_options, {})
+        self.assertEqual(self.hooks().verify_options, {})
 
     def test_subclass_defaults_are_inherited(self):
         class Verifier(HTTPMessageVerifier):
@@ -607,8 +756,8 @@ class TestSignatureHooks(SignatureTestCase):
         }
         hooks = Hooks(
             **config,
-            signing_options={"include_alg": False, "signing_context": "out"},
-            verification_options={"max_age": None, "verification_context": "in"},
+            sign_options={"include_alg": False, "signing_context": "out"},
+            verify_options={"max_age": None, "verification_context": "in"},
         )
         request = httpx.Request("GET", ORIGIN)
         hooks.sign_request(request)
@@ -616,10 +765,10 @@ class TestSignatureHooks(SignatureTestCase):
         self.assertEqual(observed[0], ("sign", "out", {"key_id": "client", "body": b"", "include_alg": False}))
         self.assertEqual(observed[1], ("verify", "in", {"max_age": None}))
         defaults = Hooks(**config)
-        self.assertEqual(defaults.signing_options, {})
-        self.assertEqual(defaults.verification_options, {})
+        self.assertEqual(defaults.sign_options, {})
+        self.assertEqual(defaults.verify_options, {})
         with self.assertRaisesRegex(TypeError, r"HTTPMessageSigner.sign\(\).*'max_ag'"):
-            Hooks(**config, signing_options={"max_ag": None}).sign_request(httpx.Request("GET", ORIGIN))
+            Hooks(**config, sign_options={"max_ag": None}).sign_request(httpx.Request("GET", ORIGIN))
 
     def test_asymmetric_keys_and_untrusted_key_id(self):
         client_key, server_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
@@ -696,9 +845,70 @@ class TestSignatureHooks(SignatureTestCase):
 
 
 class TestAsyncSignatureHooks(SignatureTestCase):
+    def test_single_operation_modes(self):
+        async def run():
+            sign_only = SignatureHooks(
+                mode=SignatureHooksMode.SIGN_REQUEST,
+                origin=ORIGIN,
+                signature_algorithm=algorithms.HMAC_SHA256,
+                key_id="client",
+                signing_key=SECRET,
+                sign_options={"tag": "out"},
+            )
+            unsigned_stream = AsyncBody(b"unsigned response")
+
+            async def unsigned_server(request):
+                result = self.verifier.verify(adapt_message(request), body=request.content, expect_tag="out")[0]
+                self.assertEqual(result.body, b"hello")
+                return httpx.Response(200, stream=unsigned_stream)
+
+            async with (
+                httpx.AsyncClient(
+                    transport=httpx.MockTransport(unsigned_server), event_hooks=sign_only.async_event_hooks
+                ) as client,
+                client.stream("POST", ORIGIN, content=AsyncBody(b"hello")) as response,
+            ):
+                self.assertEqual(unsigned_stream.reads, 0)
+                self.assertNotIn("http_message_signatures", response.extensions)
+                self.assertEqual(await response.aread(), b"unsigned response")
+
+            verify_only = SignatureHooks(
+                mode=SignatureHooksMode.VERIFY_RESPONSE,
+                origin=ORIGIN,
+                signature_algorithm=algorithms.HMAC_SHA256,
+                verification_keys={"server": SECRET},
+                verify_options={"expect_tag": "in"},
+            )
+
+            async def signed_server(request):
+                self.assertNotIn("Signature", request.headers)
+                self.assertNotIn("Content-Digest", request.headers)
+                return self.response(
+                    request, gzip.compress(b"hello"), async_mode=True, headers={"Content-Encoding": "gzip"}, tag="in"
+                )
+
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(signed_server), event_hooks=verify_only.async_event_hooks
+            ) as client:
+                response = await client.get(ORIGIN)
+                self.assertEqual(response.content, b"hello")
+                self.assertEqual(gzip.decompress(response.extensions["http_message_signatures"][0].body), b"hello")
+            upload = AsyncBody(b"unused")
+            request = httpx.Request("POST", ORIGIN, stream=upload)
+            response = self.response(request, async_mode=True)
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "signing is disabled"):
+                await verify_only.sign_request_async(request)
+            with self.assertRaisesRegex(HTTPMessageSignaturesException, "verification is disabled"):
+                await sign_only.verify_response_async(response)
+            self.assertEqual(upload.reads, 0)
+            self.assertEqual(response.stream.reads, 0)
+            self.assertFalse(response.is_closed)
+
+        asyncio.run(run())
+
     def test_concurrent_requests_and_compressed_responses(self):
         async def run():
-            hooks = self.hooks(signing_options={"tag": "client"}, verification_options={"expect_tag": "server"})
+            hooks = self.hooks(sign_options={"tag": "client"}, verify_options={"expect_tag": "server"})
             streams = []
 
             async def server(request):

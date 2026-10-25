@@ -81,13 +81,13 @@ Install the optional dependency::
 
     pip install 'http-message-signatures[httpx]'
 
-``SignatureHooks`` signs prepared requests and verifies responses through HTTPX event hooks. Supply a signing key,
-trusted response keys, and an algorithm directly. PEM bytes and cryptography key objects work for asymmetric algorithms;
-HMAC uses shared secret bytes. The client and server keys need not be the same::
+``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX event hooks. The default mode
+enables both operations. Supply an algorithm and the keys needed by the selected mode. PEM bytes and cryptography key
+objects work for asymmetric algorithms; HMAC uses shared secret bytes. The client and server keys need not be the same::
 
     import httpx
     from http_message_signatures import algorithms
-    from http_message_signatures.httpx import SignatureHooks
+    from http_message_signatures.httpx import SignatureHooks, SignatureHooksMode
 
     signatures = SignatureHooks(
         origin="https://api.example.com",
@@ -95,8 +95,8 @@ HMAC uses shared secret bytes. The client and server keys need not be the same::
         signing_key=client_private_key,
         verification_keys={"server-1": server_public_key},
         signature_algorithm=algorithms.ED25519,
-        signing_options={"tag": "example-api"},
-        verification_options={
+        sign_options={"tag": "example-api"},
+        verify_options={
             "expect_tag": "example-api",
             "require_components": ("@status", '"@method";req', '"@target-uri";req'),
         },
@@ -121,11 +121,51 @@ Use the async hook collection with ``AsyncClient``::
         response = await client.post("https://api.example.com/items", json={"hello": "world"})
         data = response.json()
 
+Signing only or verification only
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``mode`` selects which hooks are installed:
+
+* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires ``key_id``, ``signing_key``, and
+  ``verification_keys``.
+* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``key_id`` and ``signing_key``. Responses use normal HTTPX handling.
+* ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verification_keys``. Requests are sent without signing.
+
+For signing only::
+
+    signatures = SignatureHooks(
+        mode=SignatureHooksMode.SIGN_REQUEST,
+        origin="https://api.example.com",
+        signature_algorithm=algorithms.ED25519,
+        key_id="client-1",
+        signing_key=client_private_key,
+        sign_options={"tag": "example-api"},
+    )
+    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.post("https://api.example.com/items", json={"hello": "world"})
+
+For verification only::
+
+    signatures = SignatureHooks(
+        mode=SignatureHooksMode.VERIFY_RESPONSE,
+        origin="https://api.example.com",
+        signature_algorithm=algorithms.ED25519,
+        verification_keys={"server-1": server_public_key},
+        verify_options={"expect_tag": "example-api", "require_components": ("@status",)},
+    )
+    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.get("https://api.example.com/items")
+        results = response.extensions["http_message_signatures"]
+
+The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply credentials and options only
+for the enabled operations; missing required configuration or configuration for a disabled operation raises ``ValueError``
+at construction. No dummy keys or IDs are needed. Disabled handlers are not constructed, and their hook lists are empty.
+
 Configuration and defaults
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Supply keywords for ``HTTPMessageSigner.sign()`` in ``signing_options`` and keywords for ``HTTPMessageVerifier.verify()``
-in ``verification_options``. Both accept ordinary dictionary literals, typed as ``SigningOptions`` and
+Supply keywords for ``HTTPMessageSigner.sign()`` in ``sign_options`` and keywords for ``HTTPMessageVerifier.verify()``
+in ``verify_options``. Both accept ordinary dictionary literals, typed as ``SigningOptions`` and
 ``VerificationOptions``. These ``TypedDict`` containers have optional keys and no signature defaults. You can also
 import them from ``http_message_signatures.httpx`` to annotate reusable configurations::
 
@@ -151,10 +191,10 @@ header or derived component your application relies on; unrelated unsigned field
         signing_key=client_private_key,
         verification_keys={"server-1": server_public_key},
         signature_algorithm=algorithms.ED25519,
-        signing_options={
+        sign_options={
             "covered_component_ids": ("@method", "@target-uri", "content-type", "authorization"),
         },
-        verification_options={
+        verify_options={
             "require_components": ("@status", "content-type", '"@target-uri";req'),
         },
     )
@@ -184,20 +224,26 @@ The hook collections are fresh lists, so modifying one does not change future co
 application hooks as well. Do not modify a signed request afterward. Ordinary HTTPX TLS verification remains enabled;
 message signatures do not replace TLS.
 
-HTTPX invokes request hooks for each redirected request. The integration checks the configured origin before consuming
-the request body or sending it. Other origins, including scheme or port changes, are rejected; verification keys are
-scoped to the same origin. Digest generation refuses an existing Content-Digest, including one inherited by a redirect
+When signing is enabled, HTTPX invokes the signing hook for each redirected request. It checks the configured origin
+before consuming the request body or sending it. Other origins, including scheme or port changes, are rejected.
+Digest generation refuses an existing Content-Digest, including one inherited by a redirect
 or a reused signed request. Automatic redirect following therefore fails before sending the redirected request.
 Leave ``follow_redirects`` disabled and build a fresh request to follow an authenticated Location; require signed
 ``location`` coverage as part of that protocol. Choose its method and body according to the redirect semantics.
 Other configured options retain base semantics: for example, appending a signature with an already present label raises an error.
 Nonce replay detection remains application/server responsibility.
 
+Response verification checks the response's request origin against the configured origin. In verification-only mode,
+this happens after the request has been sent. Same-origin redirects follow normal HTTPX behavior, with each response
+verified before following the redirect.
+
 Buffering and content decoding
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Both hook collections buffer entire request and response bodies. Upload files and iterators are consumed before sending.
-Even ``client.stream()`` and ``client.send(..., stream=True)`` wait for response-body validation before returning a response.
+Request signing buffers the entire request body; upload files and iterators are consumed before sending. Response
+verification buffers the entire response body. This applies to both synchronous and asynchronous hooks. With verification
+enabled, even ``client.stream()`` and ``client.send(..., stream=True)`` wait for body validation before returning a response.
+Signing-only mode retains normal HTTPX response streaming; verification-only mode leaves request-body handling to HTTPX.
 These hooks are unsuitable for unbounded streams and streaming protocols. Budget memory for encoded and decoded response
 content; this integration does not impose a size limit or provide incremental authenticity guarantees.
 
@@ -221,7 +267,8 @@ wrapping (``;bs``), multiple Set-Cookie lines, repeated signature fields, and re
 
 .. warning::
 
- HTTPX updates its client cookie jar before running response hooks. Verification failure does not undo cookie changes,
+ When response verification is enabled, HTTPX updates its client cookie jar before running the verification hook.
+ Verification failure does not undo cookie changes,
  even when Set-Cookie coverage is required. These hooks therefore do not provide authenticated automatic cookie
  persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX response
  lifecycle, such as an HTTPX transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.

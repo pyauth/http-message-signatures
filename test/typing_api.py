@@ -28,7 +28,13 @@ from http_message_signatures.algorithms import (
     RSA_V1_5_SHA256,
 )
 from http_message_signatures.components import component_map
-from http_message_signatures.httpx import SignatureHooks, SigningOptions, VerificationOptions, adapt_message
+from http_message_signatures.httpx import (
+    SignatureHooks,
+    SignatureHooksMode,
+    SigningOptions,
+    VerificationOptions,
+    adapt_message,
+)
 from http_message_signatures.messages import HeaderFields, Request, Response
 
 
@@ -97,14 +103,34 @@ def configure_httpx(secret: bytes) -> SignatureHooks:
         signing_key=secret,
         verification_keys={"server": secret},
         signature_algorithm=HMAC_SHA256,
-        signing_options={"tag": "out", "include_alg": False},
-        verification_options={"expect_tag": "in", "max_age": None},
+        sign_options={"tag": "out", "include_alg": False},
+        verify_options={"expect_tag": "in", "max_age": None},
     )
-    assert_type(hooks.signer, HTTPMessageSigner)
-    assert_type(hooks.verifier, HTTPMessageVerifier)
-    assert_type(hooks.signing_options, SigningOptions)
-    assert_type(hooks.verification_options, VerificationOptions)
+    assert_type(hooks.mode, SignatureHooksMode)
+    assert_type(hooks.signer, HTTPMessageSigner | None)
+    assert_type(hooks.verifier, HTTPMessageVerifier | None)
+    assert_type(hooks.sign_options, SigningOptions)
+    assert_type(hooks.verify_options, VerificationOptions)
     return hooks
+
+
+def configure_single_operation_modes(secret: bytes) -> tuple[SignatureHooks, SignatureHooks]:
+    signing = SignatureHooks(
+        mode=SignatureHooksMode.SIGN_REQUEST,
+        origin="https://example.com",
+        signature_algorithm=HMAC_SHA256,
+        key_id="client",
+        signing_key=secret,
+        sign_options={"tag": "out"},
+    )
+    verification = SignatureHooks(
+        mode=SignatureHooksMode.VERIFY_RESPONSE,
+        origin="https://example.com",
+        signature_algorithm=HMAC_SHA256,
+        verification_keys={"server": secret},
+        verify_options={"expect_tag": "in"},
+    )
+    return signing, verification
 
 
 class CustomSigningOptions(SigningOptions, total=False):
@@ -124,8 +150,8 @@ def configure_subclass_options(secret: bytes, hooks_class: type[SignatureHooks])
         signing_key=secret,
         verification_keys={"server": secret},
         signature_algorithm=HMAC_SHA256,
-        signing_options=signing,
-        verification_options=verification,
+        sign_options=signing,
+        verify_options=verification,
     )
 
 
@@ -139,12 +165,19 @@ def reject_invalid_options(secret: bytes) -> None:
     VerificationOptions(body=b"managed")  # type: ignore[typeddict-unknown-key]
     SignatureHooks(
         origin="https://example.com",
+        signature_algorithm=HMAC_SHA256,
+        mode="sign_request",  # type: ignore[arg-type]
+        key_id="client",
+        signing_key=secret,
+    )
+    SignatureHooks(
+        origin="https://example.com",
         key_id="client",
         signing_key=secret,
         verification_keys={"server": secret},
         signature_algorithm=HMAC_SHA256,
-        signing_options={"max_age": None},  # type: ignore[arg-type]
-        verification_options={"tag": "out"},  # type: ignore[arg-type]
+        sign_options={"max_age": None},  # type: ignore[arg-type]
+        verify_options={"tag": "out"},  # type: ignore[arg-type]
     )
 
 
