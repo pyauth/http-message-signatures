@@ -46,7 +46,6 @@ Synopsis
 Signing Content-Digest and checking it against the body protects the body against tampering.
 Supply content bytes before decoding as ``body=``. With this argument, ``sign()`` generates Content-Digest if absent
 and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
-The HTTPX2 hooks below read and supply these bytes automatically.
 When signing, components covered by the signature can be customized using ``covered_component_ids``, for example
 ``covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest")``.
 
@@ -56,9 +55,6 @@ coverage to the signature. Without ``body=``, they check only the digest's forma
 the digest matches the content and include it in ``covered_component_ids`` to sign it. Both methods preserve existing
 digest field lines and raise an error if the digest is malformed or does not match supplied content.
 They also raise an error if you supply ``use_existing_digest=True`` with neither a digest nor body bytes.
-
-The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
-provides a Requests integration.
 
 .. admonition:: See what is signed
 
@@ -80,6 +76,8 @@ provides a Requests integration.
  * covered_components: A mapping of component names to their values, as covered by the signature
  * parameters: A mapping of signature parameters to their values, as covered by the signature
  * body: Content bytes that the verifier validated against a signed digest, before decoding; otherwise ``None``.
+
+Integrations are available for HTTPX2 and `Requests <https://github.com/pyauth/requests-http-signature>`_.
 
 HTTPX2 integration
 ~~~~~~~~~~~~~~~~~~
