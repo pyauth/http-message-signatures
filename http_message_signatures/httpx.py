@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from io import BytesIO
-from typing import TypedDict, overload
+from typing import Any, TypedDict, overload
 
 import httpx
 
@@ -23,10 +23,18 @@ class SignatureHooksMode(Enum):
     SIGN_REQUEST_VERIFY_RESPONSE = "sign_request_verify_response"
 
 
-class SigningOptions(TypedDict, total=False):
-    """Optional keywords for request signing; omitted keys use signer defaults.
+class _SigningConfiguration(TypedDict):
+    origin: str
+    signature_algorithm: type[HTTPSignatureAlgorithm]
+    key_id: str
+    signing_key: SigningKey
 
-    ``key_id`` is supplied separately to SignatureHooks, which manages ``body``.
+
+class SigningOptions(_SigningConfiguration, total=False):
+    """Request signing configuration and optional base signer keywords.
+
+    ``origin``, ``signature_algorithm``, ``key_id``, and ``signing_key`` are
+    required. The hooks manage ``body``; omitted signing options use base defaults.
     """
 
     created: datetime | None
@@ -39,10 +47,18 @@ class SigningOptions(TypedDict, total=False):
     append_if_signature_exists: bool
 
 
-class VerificationOptions(TypedDict, total=False):
-    """Optional keywords for response verification; omitted keys use verifier defaults.
+class _VerificationConfiguration(TypedDict):
+    origin: str
+    signature_algorithm: type[HTTPSignatureAlgorithm]
+    verification_keys: Mapping[str, VerificationKey]
 
-    SignatureHooks manages ``body``. No options are inferred from SigningOptions.
+
+class VerificationOptions(_VerificationConfiguration, total=False):
+    """Response verification configuration and optional base verifier keywords.
+
+    ``origin``, ``signature_algorithm``, and ``verification_keys`` are required.
+    The hooks manage ``body``; omitted verification options use base defaults.
+    No configuration is inferred from SigningOptions.
     """
 
     max_age: timedelta | None
@@ -104,28 +120,27 @@ class SignatureHooks:
     """Sign requests, verify responses, or both through HTTPX event hooks.
 
     :param mode: Operations to enable; defaults to signing and verification.
-    :param origin: HTTP origin allowed to use these keys, including its scheme
-        and port. Signing checks it before sending; verification checks it when
-        the response arrives.
-    :param key_id: Signing key ID, required only when signing requests.
-    :param signing_key: PEM bytes, a cryptography private key, or HMAC secret bytes;
-        required only when signing requests.
-    :param verification_keys: Mapping of trusted response key IDs to public keys
-        or HMAC secrets. No key is inferred from the signing key or fetched remotely.
-        Required only when verifying responses.
-    :param signature_algorithm: Algorithm class, required as in the base API.
-    :param sign_options: Dictionary of optional ``HTTPMessageSigner.sign()``
-        keywords, typed by SigningOptions. ``key_id`` and ``body`` are managed
-        by the hooks.
-    :param verify_options: Dictionary of optional ``HTTPMessageVerifier.verify()``
-        keywords, typed by VerificationOptions. ``body`` is managed by the hooks.
+    :param sign_options: SigningOptions containing ``origin``,
+        ``signature_algorithm``, ``key_id``, and ``signing_key``, plus optional
+        ``HTTPMessageSigner.sign()`` keywords. Required when signing requests.
+    :param verify_options: VerificationOptions containing ``origin``,
+        ``signature_algorithm``, and ``verification_keys``, plus optional
+        ``HTTPMessageVerifier.verify()`` keywords. Required when verifying responses.
 
-    The option dictionaries are shallow-copied and forwarded independently.
-    Omitted keys use the underlying method defaults; explicit ``None`` is passed
-    through. Set ``expect_tag`` separately from the signing ``tag``. Unknown
+    Each origin is an HTTP origin including its scheme and port. Signing checks
+    its origin before sending; verification checks its origin when the response
+    arrives. Algorithms and credentials are independent. Signing keys accept PEM
+    bytes, cryptography private keys, or HMAC secret bytes. Verification keys map
+    trusted key IDs to public keys or HMAC secrets; no key is inferred or fetched.
+
+    The option dictionaries are shallow-copied to configure their handlers.
+    Signature keywords are forwarded independently. Omitted signature options use
+    the underlying method defaults; explicit ``None`` is passed through.
+    Set ``expect_tag`` separately from the signing ``tag``. Unknown
     keywords raise ``TypeError`` from the underlying method when its hook runs.
-    Missing credentials or configuration for a disabled operation raise
-    ``ValueError`` at construction. Disabled handlers are not constructed.
+    Missing containers or containers for a disabled operation raise ``ValueError``.
+    Missing required entries raise ``TypeError`` at construction. Disabled handlers
+    are not constructed. The hooks manage ``body`` for both operations.
 
     Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
     Each collection installs only the operations enabled by ``mode``.
@@ -153,26 +168,64 @@ class SignatureHooks:
         self,
         mode: SignatureHooksMode = SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE,
         *,
-        origin: str,
-        signature_algorithm: type[HTTPSignatureAlgorithm],
-        key_id: str | None = None,
-        signing_key: SigningKey | None = None,
-        verification_keys: Mapping[str, VerificationKey] | None = None,
         sign_options: SigningOptions | None = None,
         verify_options: VerificationOptions | None = None,
     ) -> None:
         if not isinstance(mode, SignatureHooksMode):
             raise TypeError("mode must be a SignatureHooksMode")
         if mode is SignatureHooksMode.VERIFY_RESPONSE:
-            if key_id is not None or signing_key is not None or sign_options is not None:
+            if sign_options is not None:
                 raise ValueError("Signing configuration is not allowed in VERIFY_RESPONSE mode")
-        elif key_id is None or signing_key is None:
-            raise ValueError("key_id and signing_key are required when signing requests")
+        elif sign_options is None:
+            raise ValueError("sign_options is required when signing requests")
         if mode is SignatureHooksMode.SIGN_REQUEST:
-            if verification_keys is not None or verify_options is not None:
+            if verify_options is not None:
                 raise ValueError("Verification configuration is not allowed in SIGN_REQUEST mode")
-        elif verification_keys is None:
-            raise ValueError("verification_keys is required when verifying responses")
+        elif verify_options is None:
+            raise ValueError("verify_options is required when verifying responses")
+        self.mode = mode
+        self.sign_options = sign_options.copy() if sign_options is not None else None
+        self.verify_options = verify_options.copy() if verify_options is not None else None
+        self.signer: HTTPMessageSigner | None = None
+        self.verifier: HTTPMessageVerifier | None = None
+        self._sign_origin: tuple[str, str, int | None] | None = None
+        self._verify_origin: tuple[str, str, int | None] | None = None
+        self._sign_kwargs: dict[str, Any] = {}
+        self._verify_kwargs: dict[str, Any] = {}
+        if self.sign_options is not None:
+            self._configure_signing(**self.sign_options)
+        if self.verify_options is not None:
+            self._configure_verification(**self.verify_options)
+
+    def _configure_signing(
+        self,
+        *,
+        origin: str,
+        signature_algorithm: type[HTTPSignatureAlgorithm],
+        key_id: str,
+        signing_key: SigningKey,
+        **options: Any,
+    ) -> None:
+        self._sign_origin = self._parse_origin(origin)
+        keys = MappingKeyResolver(public_keys={}, private_keys={key_id: signing_key})
+        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        self._sign_kwargs = {"key_id": key_id, **options}
+
+    def _configure_verification(
+        self,
+        *,
+        origin: str,
+        signature_algorithm: type[HTTPSignatureAlgorithm],
+        verification_keys: Mapping[str, VerificationKey],
+        **options: Any,
+    ) -> None:
+        self._verify_origin = self._parse_origin(origin)
+        keys = MappingKeyResolver(public_keys=verification_keys, private_keys={})
+        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        self._verify_kwargs = options
+
+    @staticmethod
+    def _parse_origin(origin: str) -> tuple[str, str, int | None]:
         url = httpx.URL(origin)
         if (
             not url.is_absolute_url
@@ -183,19 +236,7 @@ class SignatureHooks:
             or url.userinfo
         ):
             raise ValueError("origin must be an HTTP origin without a path, query, fragment, or credentials")
-        self.origin = (url.scheme, url.host, url.port)
-        self.mode = mode
-        self.key_id = key_id
-        self.signer: HTTPMessageSigner | None = None
-        self.verifier: HTTPMessageVerifier | None = None
-        if key_id is not None and signing_key is not None:
-            keys = MappingKeyResolver(public_keys={}, private_keys={key_id: signing_key})
-            self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        if verification_keys is not None:
-            keys = MappingKeyResolver(public_keys=verification_keys, private_keys={})
-            self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        self.sign_options: SigningOptions = sign_options.copy() if sign_options is not None else {}
-        self.verify_options: VerificationOptions = verify_options.copy() if verify_options is not None else {}
+        return url.scheme, url.host, url.port
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:
@@ -213,32 +254,33 @@ class SignatureHooks:
             "response": [self.verify_response_async] if self.verifier is not None else [],
         }
 
-    def _check_origin(self, request: httpx.Request) -> None:
+    @staticmethod
+    def _check_origin(request: httpx.Request, origin: tuple[str, str, int | None] | None) -> None:
         url = request.url
-        if (url.scheme, url.host, url.port) != self.origin:
+        if (url.scheme, url.host, url.port) != origin:
             raise HTTPMessageSignaturesException("Request origin is not authorized for these signature keys")
 
     def sign_request(self, request: httpx.Request) -> None:
         """Buffer and sign a prepared request, including its current body."""
-        if self.signer is None or self.key_id is None:
+        if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
-        self._check_origin(request)
+        self._check_origin(request, self._sign_origin)
         body = request.read()
-        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.sign_options)
+        self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
 
     async def sign_request_async(self, request: httpx.Request) -> None:
         """Async request hook; await body consumption before signing."""
-        if self.signer is None or self.key_id is None:
+        if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
-        self._check_origin(request)
+        self._check_origin(request, self._sign_origin)
         body = await request.aread()
-        self.signer.sign(adapt_message(request), key_id=self.key_id, body=body, **self.sign_options)
+        self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
 
     def _verify_headers(self, response: httpx.Response, verifier: HTTPMessageVerifier):
         response.extensions.pop("http_message_signatures", None)
-        self._check_origin(response.request)
+        self._check_origin(response.request, self._verify_origin)
         message = adapt_message(response)
-        return message, verifier.verify(message, **self.verify_options)
+        return message, verifier.verify(message, **self._verify_kwargs)
 
     @staticmethod
     def _buffered_body(response: httpx.Response) -> bytes:

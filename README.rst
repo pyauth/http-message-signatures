@@ -82,21 +82,26 @@ Install the optional dependency::
     pip install 'http-message-signatures[httpx]'
 
 ``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX event hooks. The default mode
-enables both operations. Supply an algorithm and the keys needed by the selected mode. PEM bytes and cryptography key
-objects work for asymmetric algorithms; HMAC uses shared secret bytes. The client and server keys need not be the same::
+enables both operations. Configure each operation independently in ``sign_options`` and ``verify_options``, including
+its origin, algorithm, and keys. PEM bytes and cryptography key objects work for asymmetric algorithms; HMAC uses shared
+secret bytes. Signing and verification can use different algorithms and keys::
 
     import httpx
     from http_message_signatures import algorithms
     from http_message_signatures.httpx import SignatureHooks, SignatureHooksMode
 
     signatures = SignatureHooks(
-        origin="https://api.example.com",
-        key_id="client-1",
-        signing_key=client_private_key,
-        verification_keys={"server-1": server_public_key},
-        signature_algorithm=algorithms.ED25519,
-        sign_options={"tag": "example-api"},
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "signing_key": client_private_key,
+            "tag": "example-api",
+        },
         verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "verification_keys": {"server-1": server_public_key},
             "expect_tag": "example-api",
             "require_components": ("@status", '"@method";req', '"@target-uri";req'),
         },
@@ -108,7 +113,7 @@ objects work for asymmetric algorithms; HMAC uses shared secret bytes. The clien
         data = response.json()
         results = response.extensions["http_message_signatures"]
 
-The server must return a signature from one of the configured verification keys, using the selected algorithm and
+The server must return a signature from one of the configured verification keys, using the verification algorithm and
 application tag. This example explicitly requires status and request method/URL coverage. A nonempty response, or any
 response carrying Content-Digest, also requires a signed digest of the response's content. A digest of request content
 selected using ``;req`` does not satisfy this requirement. Missing signatures, untrusted keys, insufficient configured
@@ -126,20 +131,21 @@ Signing only or verification only
 
 The first argument, ``mode``, selects which hooks are installed. All other arguments are keyword-only:
 
-* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires ``key_id``, ``signing_key``, and
-  ``verification_keys``.
-* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``key_id`` and ``signing_key``. Responses use normal HTTPX handling.
-* ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verification_keys``. Requests are sent without signing.
+* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both containers.
+* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX handling.
+* ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verify_options``. Requests are sent without signing.
 
 For signing only::
 
     signatures = SignatureHooks(
         SignatureHooksMode.SIGN_REQUEST,
-        origin="https://api.example.com",
-        signature_algorithm=algorithms.ED25519,
-        key_id="client-1",
-        signing_key=client_private_key,
-        sign_options={"tag": "example-api"},
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "signing_key": client_private_key,
+            "tag": "example-api",
+        },
     )
     with httpx.Client(event_hooks=signatures.event_hooks) as client:
         response = client.post("https://api.example.com/items", json={"hello": "world"})
@@ -148,37 +154,61 @@ For verification only::
 
     signatures = SignatureHooks(
         SignatureHooksMode.VERIFY_RESPONSE,
-        origin="https://api.example.com",
-        signature_algorithm=algorithms.ED25519,
-        verification_keys={"server-1": server_public_key},
-        verify_options={"expect_tag": "example-api", "require_components": ("@status",)},
+        verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "verification_keys": {"server-1": server_public_key},
+            "expect_tag": "example-api",
+            "require_components": ("@status",),
+        },
     )
     with httpx.Client(event_hooks=signatures.event_hooks) as client:
         response = client.get("https://api.example.com/items")
         results = response.extensions["http_message_signatures"]
 
-The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply credentials and options only
-for the enabled operations; missing required configuration or configuration for a disabled operation raises ``ValueError``
-at construction. No dummy keys or IDs are needed. Disabled handlers are not constructed, and their hook lists are empty.
+The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply containers only for the enabled
+operations. Missing containers or containers for a disabled operation raise ``ValueError``; missing required entries
+raise ``TypeError`` at construction. No dummy keys or IDs are needed. Disabled handlers are not constructed, and their
+hook lists are empty.
 
 Configuration and defaults
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Supply keywords for ``HTTPMessageSigner.sign()`` in ``sign_options`` and keywords for ``HTTPMessageVerifier.verify()``
-in ``verify_options``. Both accept ordinary dictionary literals, typed as ``SigningOptions`` and
-``VerificationOptions``. These ``TypedDict`` containers have optional keys and no signature defaults. You can also
-import them from ``http_message_signatures.httpx`` to annotate reusable configurations::
+``sign_options`` requires ``origin``, ``signature_algorithm``, ``key_id``, and ``signing_key``. ``verify_options`` requires
+``origin``, ``signature_algorithm``, and ``verification_keys``. Each origin includes its scheme and port. Neither
+container inherits any configuration from the other, including its algorithm or origin.
+
+Additional keywords for ``HTTPMessageSigner.sign()`` belong in ``sign_options``; keywords for
+``HTTPMessageVerifier.verify()`` belong in ``verify_options``. Both accept ordinary dictionary literals, typed as
+``SigningOptions`` and ``VerificationOptions``. These ``TypedDict`` containers distinguish required configuration from
+optional signature keywords and supply no signature defaults. Import them to annotate reusable configurations::
 
     from http_message_signatures.httpx import SigningOptions, VerificationOptions
 
-    signing: SigningOptions = {"tag": "outgoing-api", "include_alg": False}
-    verification: VerificationOptions = {"expect_tag": "incoming-api", "max_age": None}
+    signing: SigningOptions = {
+        "origin": "https://api.example.com",
+        "signature_algorithm": algorithms.HMAC_SHA256,
+        "key_id": "client-1",
+        "signing_key": client_shared_secret,
+        "tag": "outgoing-api",
+        "include_alg": False,
+    }
+    verification: VerificationOptions = {
+        "origin": "https://api.example.com",
+        "signature_algorithm": algorithms.ED25519,
+        "verification_keys": {"server-1": server_public_key},
+        "expect_tag": "incoming-api",
+        "max_age": None,
+    }
+    signatures = SignatureHooks(sign_options=signing, verify_options=verification)
 
-The dictionaries are shallow-copied and passed independently to their corresponding methods. Set ``tag`` and
+The dictionaries are shallow-copied when the hooks are constructed. Their optional signature keywords are forwarded
+independently to the corresponding base methods. Set ``tag`` and
 ``expect_tag`` separately when your protocol uses application tags. An omitted option uses the base method's default;
 an explicit ``None`` is forwarded, so ``{"max_age": None}`` disables the age limit. Type checkers catch unknown keys,
-options in the wrong container, and invalid value types. At runtime, unknown options raise ``TypeError`` from the
-underlying method when its hook runs. The hooks manage ``body`` and forward their separate ``key_id`` to signing.
+missing required entries, options in the wrong container, and invalid value types. At runtime, unknown options raise
+``TypeError`` from the underlying method when its hook runs. The hooks manage ``body`` and forward ``sign_options["key_id"]``
+to signing.
 
 Unspecified signature options are omitted from base method calls. Their defaults remain owned by the base implementation:
 the hooks do not generate nonces, introduce expiration times, shorten the age limit, alter signature selection, or require
@@ -186,15 +216,12 @@ status/request binding implicitly. In particular, ``require_components`` above i
 header or derived component your application relies on; unrelated unsigned fields are not authenticated. For example::
 
     signatures = SignatureHooks(
-        origin="https://api.example.com",
-        key_id="client-1",
-        signing_key=client_private_key,
-        verification_keys={"server-1": server_public_key},
-        signature_algorithm=algorithms.ED25519,
         sign_options={
+            **signing,
             "covered_component_ids": ("@method", "@target-uri", "content-type", "authorization"),
         },
         verify_options={
+            **verification,
             "require_components": ("@status", "content-type", '"@target-uri";req'),
         },
     )
@@ -209,7 +236,7 @@ digest requirement. A present digest of empty content is verified. ``Content-Dig
 For example, customize ``HTTPMessageVerifier.max_clock_skew`` there.
 For subclass-specific keywords, extend the corresponding options TypedDict and pass that container to the hooks.
 Its entries are forwarded unchanged; no method signatures are inspected at runtime.
-The configured signature algorithm is never selected from untrusted message metadata.
+Neither configured signature algorithm is selected from untrusted message metadata.
 
 Hook ordering and redirects
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -224,7 +251,7 @@ The hook collections are fresh lists, so modifying one does not change future co
 application hooks as well. Do not modify a signed request afterward. Ordinary HTTPX TLS verification remains enabled;
 message signatures do not replace TLS.
 
-When signing is enabled, HTTPX invokes the signing hook for each redirected request. It checks the configured origin
+When signing is enabled, HTTPX invokes the signing hook for each redirected request. It checks ``sign_options["origin"]``
 before consuming the request body or sending it. Other origins, including scheme or port changes, are rejected.
 Digest generation refuses an existing Content-Digest, including one inherited by a redirect
 or a reused signed request. Automatic redirect following therefore fails before sending the redirected request.
@@ -233,7 +260,7 @@ Leave ``follow_redirects`` disabled and build a fresh request to follow an authe
 Other configured options retain base semantics: for example, appending a signature with an already present label raises an error.
 Nonce replay detection remains application/server responsibility.
 
-Response verification checks the response's request origin against the configured origin. In verification-only mode,
+Response verification checks the response's request origin against ``verify_options["origin"]``. In verification-only mode,
 this happens after the request has been sent. Same-origin redirects follow normal HTTPX behavior, with each response
 verified before following the redirect.
 
