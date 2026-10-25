@@ -189,10 +189,6 @@ It accepts the signing options used by ``sign()``, including covered components,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
 
-``sign()`` now always passes the ``body`` keyword to ``prepare()``, including ``None``. Subclasses overriding
-``prepare()`` must accept this keyword or forward ``**kwargs``; this is a breaking change to the recently introduced
-preparation API.
-
 This example expects an asynchronous ``sign_base`` function that signs the supplied bytes with Ed25519 and
 returns the raw 64-byte signature. The client must use the private key identified by ``key_id``::
 
