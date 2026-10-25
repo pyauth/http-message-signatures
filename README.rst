@@ -86,9 +86,10 @@ Install the optional dependency::
 
     pip install 'http-message-signatures[httpx2]'
 
-``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2 event hooks. The default mode
-enables both operations. Configure each operation independently in ``sign_options`` and ``verify_options``, including
-its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance. The hooks pass each resolver directly to the base signer
+``http_message_signatures.httpx2.SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2
+event hooks. The default mode enables both operations. Configure each operation independently in ``sign_options`` and
+``verify_options``, including its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance.
+The hooks pass each resolver directly to the base signer
 or verifier, which calls it to look up keys when processing a message. Signing and verification can use different algorithms and
 resolvers, or share one resolver. For example, these custom resolvers load keys on demand from application key stores::
 
