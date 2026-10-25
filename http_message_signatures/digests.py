@@ -41,7 +41,10 @@ class ContentDigest:
         cls._check_body(body)
         if cls.algorithm not in cls._hashers:
             raise HTTPMessageSignaturesException(f"Unsupported content digest algorithm {cls.algorithm!r}")
-        return str(Dictionary({cls.algorithm: cls._hashers[cls.algorithm](body).digest()}))
+        hasher = cls._hashers[cls.algorithm]
+        digest = hasher(body).digest()
+        node = Dictionary({cls.algorithm: digest})
+        return str(node)
 
     @classmethod
     def add(cls, headers: Headers, body: bytes) -> None:
