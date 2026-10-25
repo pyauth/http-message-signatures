@@ -95,8 +95,11 @@ HMAC uses shared secret bytes. The client and server keys need not be the same::
         signing_key=client_private_key,
         verification_keys={"server-1": server_public_key},
         signature_algorithm=algorithms.ED25519,
-        tag="example-api",
-        require_components=("@status", '"@method";req', '"@target-uri";req'),
+        signing_options={"tag": "example-api"},
+        verification_options={
+            "expect_tag": "example-api",
+            "require_components": ("@status", '"@method";req', '"@target-uri";req'),
+        },
     )
 
     with httpx.Client(event_hooks=signatures.event_hooks) as client:
@@ -121,13 +124,21 @@ Use the async hook collection with ``AsyncClient``::
 Configuration and defaults
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Keyword options from ``HTTPMessageSigner.sign()`` and ``HTTPMessageVerifier.verify()`` can be supplied directly to
-``SignatureHooks``. For example, ``covered_component_ids``, ``include_alg``, ``label``, ``expires``, and ``nonce`` go to
-signing; ``max_age``, ``expect_tag``, ``expect_label``, and ``require_components`` go to verification. An explicitly
-supplied ``tag`` also supplies ``expect_tag`` unless that option is separately supplied. These four verification keywords
-are routed explicitly; all other keywords are passed to the signer. Unknown options raise ``TypeError`` from the
-underlying method when its hook runs, before the request is sent or the response is returned to the caller.
-The hooks manage ``body`` and forward ``key_id`` to signing.
+Supply keywords for ``HTTPMessageSigner.sign()`` in ``signing_options`` and keywords for ``HTTPMessageVerifier.verify()``
+in ``verification_options``. Both accept ordinary dictionary literals, typed as ``SigningOptions`` and
+``VerificationOptions``. These ``TypedDict`` containers have optional keys and no signature defaults. You can also
+import them from ``http_message_signatures.httpx`` to annotate reusable configurations::
+
+    from http_message_signatures.httpx import SigningOptions, VerificationOptions
+
+    signing: SigningOptions = {"tag": "outgoing-api", "include_alg": False}
+    verification: VerificationOptions = {"expect_tag": "incoming-api", "max_age": None}
+
+The dictionaries are shallow-copied and passed independently to their corresponding methods. Set ``tag`` and
+``expect_tag`` separately when your protocol uses application tags. An omitted option uses the base method's default;
+an explicit ``None`` is forwarded, so ``{"max_age": None}`` disables the age limit. Type checkers catch unknown keys,
+options in the wrong container, and invalid value types. At runtime, unknown options raise ``TypeError`` from the
+underlying method when its hook runs. The hooks manage ``body`` and forward their separate ``key_id`` to signing.
 
 Unspecified signature options are omitted from base method calls. Their defaults remain owned by the base implementation:
 the hooks do not generate nonces, introduce expiration times, shorten the age limit, alter signature selection, or require
@@ -140,8 +151,12 @@ header or derived component your application relies on; unrelated unsigned field
         signing_key=client_private_key,
         verification_keys={"server-1": server_public_key},
         signature_algorithm=algorithms.ED25519,
-        covered_component_ids=("@method", "@target-uri", "content-type", "authorization"),
-        require_components=("@status", "content-type", '"@target-uri";req'),
+        signing_options={
+            "covered_component_ids": ("@method", "@target-uri", "content-type", "authorization"),
+        },
+        verification_options={
+            "require_components": ("@status", "content-type", '"@target-uri";req'),
+        },
     )
 
 The named fields must exist. Content-Digest is generated and covered automatically by the base signer's ``body=``
@@ -152,8 +167,8 @@ digest requirement. A present digest of empty content is verified. ``Content-Dig
 
 ``signer_class`` and ``verifier_class`` can be overridden on a ``SignatureHooks`` subclass to use base subclasses.
 For example, customize ``HTTPMessageVerifier.max_clock_skew`` there.
-Additional signer keywords are forwarded unchanged. For verifier-specific subclass options, set entries in
-``signatures.verification_options`` before using the hooks; no method signatures are inspected at runtime.
+For subclass-specific keywords, extend the corresponding options TypedDict and pass that container to the hooks.
+Its entries are forwarded unchanged; no method signatures are inspected at runtime.
 The configured signature algorithm is never selected from untrusted message metadata.
 
 Hook ordering and redirects

@@ -1,8 +1,9 @@
 """Buffered request signing and response verification for HTTPX."""
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime, timedelta
 from io import BytesIO
-from typing import Any, overload
+from typing import TypedDict, overload
 
 import httpx
 
@@ -11,6 +12,34 @@ from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .messages import HeaderFields, Request, Response
 from .resolvers import MappingKeyResolver, SigningKey, VerificationKey
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
+
+
+class SigningOptions(TypedDict, total=False):
+    """Optional keywords for request signing; omitted keys use signer defaults.
+
+    ``key_id`` is supplied separately to SignatureHooks, which manages ``body``.
+    """
+
+    created: datetime | None
+    expires: datetime | None
+    nonce: str | None
+    label: str | None
+    tag: str | None
+    include_alg: bool
+    covered_component_ids: Sequence[str]
+    append_if_signature_exists: bool
+
+
+class VerificationOptions(TypedDict, total=False):
+    """Optional keywords for response verification; omitted keys use verifier defaults.
+
+    SignatureHooks manages ``body``. No options are inferred from SigningOptions.
+    """
+
+    max_age: timedelta | None
+    expect_tag: str | None
+    expect_label: str | None
+    require_components: Sequence[str]
 
 
 @overload
@@ -72,13 +101,16 @@ class SignatureHooks:
     :param verification_keys: Mapping of trusted response key IDs to public keys
         or HMAC secrets. No key is inferred from the signing key or fetched remotely.
     :param signature_algorithm: Algorithm class, required as in the base API.
-    :param options: Keyword options of ``HTTPMessageSigner.sign()`` or
-        ``HTTPMessageVerifier.verify()``. Unspecified options are not forwarded;
-        the base methods own their defaults. ``tag`` also supplies ``expect_tag``
-        unless the latter is explicitly provided. ``body`` is managed by the hooks.
-        Verification options are ``max_age``, ``expect_tag``, ``expect_label``,
-        and ``require_components``. All other options go to the signer; unknown
-        options raise ``TypeError`` from the underlying method when its hook runs.
+    :param signing_options: Dictionary of optional ``HTTPMessageSigner.sign()``
+        keywords, typed by SigningOptions. ``key_id`` and ``body`` are managed
+        by the hooks.
+    :param verification_options: Dictionary of optional ``HTTPMessageVerifier.verify()``
+        keywords, typed by VerificationOptions. ``body`` is managed by the hooks.
+
+    The option dictionaries are shallow-copied and forwarded independently.
+    Omitted keys use the underlying method defaults; explicit ``None`` is passed
+    through. Set ``expect_tag`` separately from the signing ``tag``. Unknown
+    keywords raise ``TypeError`` from the underlying method when its hook runs.
 
     Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
     Signing belongs after request-mutating hooks; verification belongs before
@@ -108,7 +140,8 @@ class SignatureHooks:
         signing_key: SigningKey,
         verification_keys: Mapping[str, VerificationKey],
         signature_algorithm: type[HTTPSignatureAlgorithm],
-        **options: Any,
+        signing_options: SigningOptions | None = None,
+        verification_options: VerificationOptions | None = None,
     ) -> None:
         url = httpx.URL(origin)
         if (
@@ -125,16 +158,10 @@ class SignatureHooks:
         keys = MappingKeyResolver(public_keys=verification_keys, private_keys={key_id: signing_key})
         self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
         self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
-        # Route verification keywords; leave argument validation and defaults to
-        # the underlying methods. Do not discard unrecognized signing keywords.
-        self.verification_options = {
-            name: options.pop(name)
-            for name in ("max_age", "expect_tag", "expect_label", "require_components")
-            if name in options
-        }
-        self.signing_options = options
-        if "tag" in options and "expect_tag" not in self.verification_options:
-            self.verification_options["expect_tag"] = options["tag"]
+        self.signing_options: SigningOptions = signing_options.copy() if signing_options is not None else {}
+        self.verification_options: VerificationOptions = (
+            verification_options.copy() if verification_options is not None else {}
+        )
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:

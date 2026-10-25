@@ -28,7 +28,7 @@ from http_message_signatures.algorithms import (
     RSA_V1_5_SHA256,
 )
 from http_message_signatures.components import component_map
-from http_message_signatures.httpx import SignatureHooks, adapt_message
+from http_message_signatures.httpx import SignatureHooks, SigningOptions, VerificationOptions, adapt_message
 from http_message_signatures.messages import HeaderFields, Request, Response
 
 
@@ -97,10 +97,55 @@ def configure_httpx(secret: bytes) -> SignatureHooks:
         signing_key=secret,
         verification_keys={"server": secret},
         signature_algorithm=HMAC_SHA256,
+        signing_options={"tag": "out", "include_alg": False},
+        verification_options={"expect_tag": "in", "max_age": None},
     )
     assert_type(hooks.signer, HTTPMessageSigner)
     assert_type(hooks.verifier, HTTPMessageVerifier)
+    assert_type(hooks.signing_options, SigningOptions)
+    assert_type(hooks.verification_options, VerificationOptions)
     return hooks
+
+
+class CustomSigningOptions(SigningOptions, total=False):
+    signing_context: str
+
+
+class CustomVerificationOptions(VerificationOptions, total=False):
+    verification_context: str
+
+
+def configure_subclass_options(secret: bytes, hooks_class: type[SignatureHooks]) -> SignatureHooks:
+    signing = CustomSigningOptions(signing_context="out")
+    verification = CustomVerificationOptions(verification_context="in")
+    return hooks_class(
+        origin="https://example.com",
+        key_id="client",
+        signing_key=secret,
+        verification_keys={"server": secret},
+        signature_algorithm=HMAC_SHA256,
+        signing_options=signing,
+        verification_options=verification,
+    )
+
+
+def reject_invalid_options(secret: bytes) -> None:
+    # Strict mypy rejects unused ignores, so these exercise the container types.
+    SigningOptions(expect_tag="in")  # type: ignore[typeddict-unknown-key]
+    VerificationOptions(tag="out")  # type: ignore[typeddict-unknown-key]
+    SigningOptions(include_alg="yes")  # type: ignore[typeddict-item]
+    VerificationOptions(max_age=60)  # type: ignore[typeddict-item]
+    SigningOptions(body=b"managed")  # type: ignore[typeddict-unknown-key]
+    VerificationOptions(body=b"managed")  # type: ignore[typeddict-unknown-key]
+    SignatureHooks(
+        origin="https://example.com",
+        key_id="client",
+        signing_key=secret,
+        verification_keys={"server": secret},
+        signature_algorithm=HMAC_SHA256,
+        signing_options={"max_age": None},  # type: ignore[arg-type]
+        verification_options={"tag": "out"},  # type: ignore[arg-type]
+    )
 
 
 def configure_httpx_keys(signing_key: SigningKey, verification_key: VerificationKey) -> SignatureHooks:
