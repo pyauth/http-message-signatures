@@ -131,6 +131,9 @@ resolvers, or share one resolver. For example, these custom resolvers load keys 
         data = response.json()
         results = response.extensions["http_message_signatures"]
 
+If you just want to supply the keys directly, use ``http_message_signatures.MappingKeyResolver`` with ``private_keys``
+and ``public_keys`` dictionaries keyed by key ID.
+
 The server must return a signature whose key ID is trusted by the verification resolver, using the configured algorithm
 and application tag. This example configures the verifier to require status and request method/URL coverage. The hooks
 also require a signed digest of the response's content if the response is nonempty or carries Content-Digest.
