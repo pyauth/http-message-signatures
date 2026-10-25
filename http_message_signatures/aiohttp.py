@@ -4,15 +4,16 @@ import asyncio
 from enum import Enum
 from functools import cached_property
 from io import BytesIO
-from typing import TypedDict
+from typing import TypedDict, cast
 from weakref import WeakKeyDictionary, WeakSet
 
 import aiohttp
 from aiohttp.abc import AbstractStreamWriter
 from aiohttp.base_protocol import BaseProtocol
+from aiohttp.compression_utils import ZLibCompressor
 from aiohttp.http_exceptions import ContentEncodingError
 from aiohttp.http_parser import HeadersParser, HttpPayloadParser
-from aiohttp.payload import Payload
+from aiohttp.payload import BytesPayload, Payload
 from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
 from yarl import URL
@@ -55,10 +56,13 @@ class _SessionOptions(TypedDict, total=False):
 
 
 class _BodyWriter(AbstractStreamWriter):
-    def __init__(self, content: BytesIO):
+    def __init__(self, content: BytesIO, compressor: ZLibCompressor | None = None):
         self.content = content
+        self.compressor = compressor
 
     async def write(self, chunk: bytes | bytearray | memoryview) -> None:
+        if self.compressor is not None:
+            chunk = await self.compressor.compress(chunk)
         self.content.write(chunk)
 
     async def write_eof(self, chunk: bytes = b"") -> None:
@@ -75,6 +79,43 @@ class _BodyWriter(AbstractStreamWriter):
 
     async def write_headers(self, status_line: str, headers: CIMultiDict[str]) -> None:
         raise HTTPMessageSignaturesException("Payloads must leave HTTP headers to aiohttp")
+
+
+class _CompressedPayload(BytesPayload):
+    def __init__(self, body: bytes, content_encoding: str, content_type: str | None):
+        super().__init__(body, content_type=content_type)
+        self.content_encoding = content_encoding
+
+
+async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
+    payload = request.body
+    if isinstance(payload, _CompressedPayload):
+        # Redirects reuse the payload but reapply the original compress argument.
+        # Keep the encoded bytes and disable compression on the new request too.
+        request.compress = None
+        request.headers["Content-Encoding"] = payload.content_encoding
+        return await payload.as_bytes()
+
+    # aiohttp resolves compress=True to an encoding name before middleware runs.
+    encoding = cast(str, request.compress) if request.compress else None
+    compressor = ZLibCompressor(encoding=encoding) if encoding else None
+    with BytesIO() as content:
+        writer = _BodyWriter(content, compressor)
+        if isinstance(payload, Payload):
+            await payload.write_with_length(writer, None)
+        else:
+            await writer.write(payload)
+        if compressor is not None:
+            # Flush only after successful writes; cancellation discards this compressor.
+            content.write(compressor.flush())
+        body = content.getvalue()
+
+    if encoding:
+        await request.update_body(_CompressedPayload(body, encoding, request.headers.get("Content-Type")))
+        request.compress = None
+    elif isinstance(payload, Payload):
+        await request.update_body(body)
+    return body
 
 
 class _BufferedProtocol(BaseProtocol):
@@ -146,8 +187,10 @@ class SignatureMiddleware(_SignatureAdapter):
     so it signs those changes and verifies responses before other middleware reads
     them. The middleware buffers complete bodies, including streaming uploads and
     downloads; HTTP chunk boundaries are not retained in the verified response.
-    For compressed uploads, supply encoded bytes and a Content-Encoding header.
-    The middleware rejects ``compress=`` because aiohttp applies it after signing.
+    When you pass ``compress=`` to aiohttp, the middleware compresses the upload
+    while buffering it, then signs the compressed bytes that aiohttp sends. Retries
+    and redirects that preserve the body reuse those bytes without recompression. You can also
+    supply encoded bytes and a Content-Encoding header without ``compress=``.
 
     Each operation uses its own origin, algorithm, and key resolver. The middleware
     forwards signing options to ``HTTPMessageSigner.sign()`` and verification options
@@ -231,17 +274,7 @@ class SignatureMiddleware(_SignatureAdapter):
                 self._check_origin(request, self._verify_origin)
             if self.signer is not None:
                 self._check_origin(request, self._sign_origin)
-                if request.compress:
-                    raise ValueError("Signing does not support compress=; supply encoded bytes and Content-Encoding")
-                payload = request.body
-                with BytesIO() as content:
-                    if isinstance(payload, Payload):
-                        await payload.write_with_length(_BodyWriter(content), None)
-                    else:
-                        content.write(payload)
-                    body = content.getvalue()
-                if isinstance(payload, Payload):
-                    await request.update_body(body)
+                body = await _buffer_request(request)
                 options = self._sign_kwargs
                 if request in self._signed_requests:
                     options = {"use_existing_digest": True, **options}
