@@ -305,9 +305,11 @@ class TestSignatureHooks(SignatureTestCase):
                         await client.get(ORIGIN)
             else:
                 hooks.event_hooks["response"].append(check)
-                with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
-                    with self.assertRaisesRegex(InvalidSignature, "application policy"):
-                        client.get(ORIGIN)
+                with (
+                    httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client,
+                    self.assertRaisesRegex(InvalidSignature, "application policy"),
+                ):
+                    client.get(ORIGIN)
             self.assertEqual(observed, [b'{"ok":true}'])
 
         for async_mode in (False, True):
