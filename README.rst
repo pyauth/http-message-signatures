@@ -211,8 +211,12 @@ It accepts the signing options used by ``sign()``, including covered components,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
 
-This example expects an asynchronous ``sign_base`` function that signs the supplied bytes with Ed25519 and
-returns the raw 64-byte signature. The client must use the private key identified by ``key_id``::
+In this example, ``request`` is a prepared Requests request whose ``body`` contains encoded content bytes and whose
+headers do not yet contain Content-Digest. Passing ``body=request.body`` makes ``prepare()`` generate the digest
+and add it to the covered components before building the signing input.
+
+The asynchronous ``sign_base`` function signs the supplied bytes with Ed25519 and returns the raw 64-byte signature.
+The external signer must use the private key identified by ``key_id``::
 
     from collections.abc import Awaitable, Callable
 
@@ -224,14 +228,11 @@ returns the raw 64-byte signature. The client must use the private key identifie
             request,
             key_id=key_id,
             body=request.body,
-            allow_existing_digest=True,
             label="sig1",
-            covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
         )
         signature = await sign_base(prepared.signature_base)
         signer.apply(request, prepared, signature)
 
-Supply the request's content bytes before decoding, as in the synopsis above.
 The same two calls work with a synchronous signer or a signing job completed in another process.
 No local ``key_resolver`` is needed. The existing ``sign()`` method still resolves a local key and performs all three
 steps synchronously.
