@@ -1,6 +1,6 @@
 """Buffered request signing and response verification for HTTPX2."""
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from io import BytesIO
@@ -11,7 +11,7 @@ import httpx2
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .messages import HeaderFields, Request, Response
-from .resolvers import MappingKeyResolver, SigningKey, VerificationKey
+from .resolvers import HTTPSignatureKeyResolver
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
 
 
@@ -27,13 +27,13 @@ class _SigningConfiguration(TypedDict):
     origin: str
     signature_algorithm: type[HTTPSignatureAlgorithm]
     key_id: str
-    signing_key: SigningKey
+    key_resolver: HTTPSignatureKeyResolver
 
 
 class SigningOptions(_SigningConfiguration, total=False):
     """Request signing configuration and optional base signer keywords.
 
-    ``origin``, ``signature_algorithm``, ``key_id``, and ``signing_key`` are
+    ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
     required. The hooks manage ``body``; omitted signing options use base defaults.
     """
 
@@ -51,13 +51,13 @@ class SigningOptions(_SigningConfiguration, total=False):
 class _VerificationConfiguration(TypedDict):
     origin: str
     signature_algorithm: type[HTTPSignatureAlgorithm]
-    verification_keys: Mapping[str, VerificationKey]
+    key_resolver: HTTPSignatureKeyResolver
 
 
 class VerificationOptions(_VerificationConfiguration, total=False):
     """Response verification configuration and optional base verifier keywords.
 
-    ``origin``, ``signature_algorithm``, and ``verification_keys`` are required.
+    ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
     The hooks manage ``body``; omitted verification options use base defaults.
     No configuration is inferred from SigningOptions.
     """
@@ -122,17 +122,18 @@ class SignatureHooks:
 
     :param mode: Operations to enable; defaults to signing and verification.
     :param sign_options: SigningOptions containing ``origin``,
-        ``signature_algorithm``, ``key_id``, and ``signing_key``, plus optional
+        ``signature_algorithm``, ``key_id``, and ``key_resolver``, plus optional
         ``HTTPMessageSigner.sign()`` keywords. Required when signing requests.
     :param verify_options: VerificationOptions containing ``origin``,
-        ``signature_algorithm``, and ``verification_keys``, plus optional
+        ``signature_algorithm``, and ``key_resolver``, plus optional
         ``HTTPMessageVerifier.verify()`` keywords. Required when verifying responses.
 
     Each origin is an HTTP origin including its scheme and port. Signing checks
     its origin before sending; verification checks its origin when the response
-    arrives. Algorithms and credentials are independent. Signing keys accept PEM
-    bytes, cryptography private keys, or HMAC secret bytes. Verification keys map
-    trusted key IDs to public keys or HMAC secrets; no key is inferred or fetched.
+    arrives. Algorithms and key resolvers are independent. Each resolver is passed
+    unchanged to the underlying signer or verifier. Keys are resolved when each
+    message is signed or verified, using the base HTTPSignatureKeyResolver interface.
+    Key loading, caching, and trust policy belong to the supplied resolver.
 
     The option dictionaries are shallow-copied to configure their handlers.
     Signature keywords are forwarded independently. Omitted signature options use
@@ -207,12 +208,11 @@ class SignatureHooks:
         origin: str,
         signature_algorithm: type[HTTPSignatureAlgorithm],
         key_id: str,
-        signing_key: SigningKey,
+        key_resolver: HTTPSignatureKeyResolver,
         **options: Any,
     ) -> None:
         self._sign_origin = self._parse_origin(origin)
-        keys = MappingKeyResolver(public_keys={}, private_keys={key_id: signing_key})
-        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
         self._sign_kwargs = {"key_id": key_id, **options}
 
     def _configure_verification(
@@ -220,12 +220,11 @@ class SignatureHooks:
         *,
         origin: str,
         signature_algorithm: type[HTTPSignatureAlgorithm],
-        verification_keys: Mapping[str, VerificationKey],
+        key_resolver: HTTPSignatureKeyResolver,
         **options: Any,
     ) -> None:
         self._verify_origin = self._parse_origin(origin)
-        keys = MappingKeyResolver(public_keys=verification_keys, private_keys={})
-        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=keys)
+        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
         self._verify_kwargs = options
 
     @staticmethod

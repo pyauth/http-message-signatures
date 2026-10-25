@@ -102,7 +102,7 @@ def configure_httpx2(secret: bytes) -> SignatureHooks:
             "origin": "https://example.com",
             "signature_algorithm": HMAC_SHA256,
             "key_id": "client",
-            "signing_key": secret,
+            "key_resolver": keys,
             "tag": "out",
             "include_alg": False,
             "allow_existing_digest": True,
@@ -110,7 +110,7 @@ def configure_httpx2(secret: bytes) -> SignatureHooks:
         verify_options={
             "origin": "https://example.com",
             "signature_algorithm": HMAC_SHA256,
-            "verification_keys": {"server": secret},
+            "key_resolver": keys,
             "expect_tag": "in",
             "max_age": None,
         },
@@ -124,13 +124,14 @@ def configure_httpx2(secret: bytes) -> SignatureHooks:
 
 
 def configure_single_operation_modes(secret: bytes) -> tuple[SignatureHooks, SignatureHooks]:
+    keys = MappingKeyResolver(public_keys={"server": secret}, private_keys={"client": secret})
     signing = SignatureHooks(
         SignatureHooksMode.SIGN_REQUEST,
         sign_options=SigningOptions(
             origin="https://example.com",
             signature_algorithm=HMAC_SHA256,
             key_id="client",
-            signing_key=secret,
+            key_resolver=keys,
             tag="out",
         ),
     )
@@ -139,7 +140,7 @@ def configure_single_operation_modes(secret: bytes) -> tuple[SignatureHooks, Sig
         verify_options=VerificationOptions(
             origin="https://example.com",
             signature_algorithm=HMAC_SHA256,
-            verification_keys={"server": secret},
+            key_resolver=keys,
             expect_tag="in",
         ),
     )
@@ -155,16 +156,17 @@ class CustomVerificationOptions(VerificationOptions, total=False):
 
 
 def configure_subclass_options(secret: bytes, hooks_class: type[SignatureHooks]) -> SignatureHooks:
+    keys = MappingKeyResolver(public_keys={"server": secret}, private_keys={"client": secret})
     signing = CustomSigningOptions(
         origin="https://example.com",
         key_id="client",
-        signing_key=secret,
+        key_resolver=keys,
         signature_algorithm=HMAC_SHA256,
         signing_context="out",
     )
     verification = CustomVerificationOptions(
         origin="https://example.com",
-        verification_keys={"server": secret},
+        key_resolver=keys,
         signature_algorithm=HMAC_SHA256,
         verification_context="in",
     )
@@ -173,16 +175,17 @@ def configure_subclass_options(secret: bytes, hooks_class: type[SignatureHooks])
 
 def reject_invalid_options(secret: bytes) -> None:
     # Strict mypy rejects unused ignores, so these exercise the container types.
+    keys = MappingKeyResolver(public_keys={"server": secret}, private_keys={"client": secret})
     signing = SigningOptions(
         origin="https://example.com",
         signature_algorithm=HMAC_SHA256,
         key_id="client",
-        signing_key=secret,
+        key_resolver=keys,
     )
     verification = VerificationOptions(
         origin="https://example.com",
         signature_algorithm=HMAC_SHA256,
-        verification_keys={"server": secret},
+        key_resolver=keys,
     )
     signing["expect_tag"] = "in"  # type: ignore[typeddict-unknown-key]
     verification["tag"] = "out"  # type: ignore[typeddict-unknown-key]
@@ -192,6 +195,7 @@ def reject_invalid_options(secret: bytes) -> None:
     signing["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     verification["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     signing["verification_keys"] = {"server": secret}  # type: ignore[typeddict-unknown-key]
+    signing["signing_key"] = secret  # type: ignore[typeddict-unknown-key]
     verification["key_id"] = "client"  # type: ignore[typeddict-unknown-key]
     signing["signature_algorithm"] = "hmac-sha256"  # type: ignore[typeddict-item]
     verification["signature_algorithm"] = "hmac-sha256"  # type: ignore[typeddict-item]
@@ -202,18 +206,20 @@ def reject_invalid_options(secret: bytes) -> None:
     SignatureHooks(origin="https://example.com", sign_options=signing)  # type: ignore[call-arg]
 
 
-def configure_httpx2_keys(signing_key: SigningKey, verification_key: VerificationKey) -> SignatureHooks:
+def configure_httpx2_resolvers(
+    signing_resolver: HTTPSignatureKeyResolver, verification_resolver: HTTPSignatureKeyResolver
+) -> SignatureHooks:
     return SignatureHooks(
         sign_options={
             "origin": "https://example.com",
             "signature_algorithm": ED25519,
             "key_id": "client",
-            "signing_key": signing_key,
+            "key_resolver": signing_resolver,
         },
         verify_options={
             "origin": "https://example.com",
             "signature_algorithm": ED25519,
-            "verification_keys": {"server": verification_key},
+            "key_resolver": verification_resolver,
         },
     )
 
@@ -228,20 +234,21 @@ def use_shared_views(request: httpx2.Request, response: httpx2.Response) -> None
     assert_type(component_map(("content-digest",)), dict[str, str])
 
 
-def reject_invalid_httpx2_keys(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:
-    # Strict mypy rejects unused ignores, so these check that invalid keys remain errors.
+def reject_invalid_httpx2_resolvers(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:
+    # Strict mypy rejects unused ignores, so these check that keys cannot replace resolvers.
+    keys = MappingKeyResolver(public_keys={"server": public_key}, private_keys={"client": private_key})
     signing = SigningOptions(
         origin="https://example.com",
         key_id="client",
-        signing_key=private_key,
+        key_resolver=keys,
         signature_algorithm=ED25519,
     )
     verification = VerificationOptions(
         origin="https://example.com",
-        verification_keys={"server": public_key},
+        key_resolver=keys,
         signature_algorithm=ED25519,
     )
-    signing["signing_key"] = public_key  # type: ignore[typeddict-item]
-    verification["verification_keys"] = {"server": private_key}  # type: ignore[dict-item]
-    signing["signing_key"] = "secret"  # type: ignore[typeddict-item]
-    verification["verification_keys"] = {"server": 123}  # type: ignore[dict-item]
+    signing["key_resolver"] = private_key  # type: ignore[typeddict-item]
+    verification["key_resolver"] = {"server": public_key}  # type: ignore[typeddict-item]
+    signing["key_resolver"] = "secret"  # type: ignore[typeddict-item]
+    verification["key_resolver"] = None  # type: ignore[typeddict-item]

@@ -15,6 +15,7 @@ from http_message_signatures import (
     HTTPMessageSignaturesException,
     HTTPMessageSigner,
     HTTPMessageVerifier,
+    HTTPSignatureKeyResolver,
     MappingKeyResolver,
     algorithms,
 )
@@ -30,10 +31,15 @@ from http_message_signatures.httpx2 import (
 SECRET = b"local-tests-only-shared-secret"
 ORIGIN = "https://example.com"
 SIGN_OPTIONS = SigningOptions(
-    origin=ORIGIN, signature_algorithm=algorithms.HMAC_SHA256, key_id="client", signing_key=SECRET
+    origin=ORIGIN,
+    signature_algorithm=algorithms.HMAC_SHA256,
+    key_id="client",
+    key_resolver=MappingKeyResolver(public_keys={}, private_keys={"client": SECRET}),
 )
 VERIFY_OPTIONS = VerificationOptions(
-    origin=ORIGIN, signature_algorithm=algorithms.HMAC_SHA256, verification_keys={"server": SECRET}
+    origin=ORIGIN,
+    signature_algorithm=algorithms.HMAC_SHA256,
+    key_resolver=MappingKeyResolver(public_keys={"server": SECRET}, private_keys={}),
 )
 
 
@@ -254,6 +260,130 @@ class TestContentDigest(SignatureTestCase):
 
 
 class TestSignatureHooks(SignatureTestCase):
+    def test_custom_resolvers_are_lazy_and_follow_key_rotation(self):
+        async def exercise(mode, async_mode):
+            lookups = []
+            current_key = None
+
+            class SigningResolver(HTTPSignatureKeyResolver):
+                def resolve_private_key(self, key_id):
+                    lookups.append(("private", key_id))
+                    self_test.assertEqual(key_id, "client")
+                    self_test.assertIsNotNone(current_key)
+                    return current_key
+
+            class VerificationResolver(HTTPSignatureKeyResolver):
+                def resolve_public_key(self, key_id):
+                    lookups.append(("public", key_id))
+                    self_test.assertEqual(key_id, "server")
+                    self_test.assertIsNotNone(current_key)
+                    return current_key
+
+            self_test = self
+            signing = mode is not SignatureHooksMode.VERIFY_RESPONSE
+            verifying = mode is not SignatureHooksMode.SIGN_REQUEST
+            signing_resolver = SigningResolver()
+            verification_resolver = VerificationResolver()
+            hooks = SignatureHooks(
+                mode,
+                sign_options={**SIGN_OPTIONS, "key_resolver": signing_resolver} if signing else None,
+                verify_options={**VERIFY_OPTIONS, "key_resolver": verification_resolver} if verifying else None,
+            )
+            self.assertEqual(lookups, [])
+            if signing:
+                self.assertIs(hooks.signer.key_resolver, signing_resolver)
+            if verifying:
+                self.assertIs(hooks.verifier.key_resolver, verification_resolver)
+
+            def server(request):
+                if signing:
+                    result = self.verifier.verify(adapt_message(request), body=request.content)[0]
+                    self.assertEqual(result.body, b"hello")
+                else:
+                    self.assertNotIn("Signature", request.headers)
+                if verifying:
+                    return self.response(request, async_mode=async_mode)
+                return httpx2.Response(200, content=b"ok")
+
+            async def send_requests(client):
+                nonlocal current_key
+                for current_key in (b"first-key", b"rotated-key"):
+                    self.keys.public_keys["client"] = current_key
+                    self.keys.private_keys["server"] = current_key
+                    if async_mode:
+                        response = await client.post(ORIGIN, content=b"hello")
+                    else:
+                        response = client.post(ORIGIN, content=b"hello")
+                    self.assertEqual(response.status_code, 200)
+                    if verifying:
+                        self.assertEqual(response.extensions["http_message_signatures"][0].body, b'{"ok":true}')
+
+            if async_mode:
+                async with httpx2.AsyncClient(
+                    transport=httpx2.MockTransport(server), event_hooks=hooks.async_event_hooks
+                ) as client:
+                    await send_requests(client)
+            else:
+                with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+                    await send_requests(client)
+            expected = []
+            if signing:
+                expected.append(("private", "client"))
+            if verifying:
+                expected.append(("public", "server"))
+            self.assertEqual(lookups, expected * 2)
+
+        for mode in SignatureHooksMode:
+            for async_mode in (False, True):
+                with self.subTest(mode=mode, async_mode=async_mode):
+                    asyncio.run(exercise(mode, async_mode))
+
+    def test_one_custom_resolver_can_serve_both_operations(self):
+        lookups = []
+
+        class Resolver(HTTPSignatureKeyResolver):
+            def resolve_private_key(self, key_id):
+                lookups.append(("private", key_id))
+                return SECRET
+
+            def resolve_public_key(self, key_id):
+                lookups.append(("public", key_id))
+                return SECRET if key_id == "server" else None
+
+        resolver = Resolver()
+        hooks = self.hooks(sign_options={"key_resolver": resolver}, verify_options={"key_resolver": resolver})
+        self.assertIs(hooks.signer.key_resolver, resolver)
+        self.assertIs(hooks.verifier.key_resolver, resolver)
+        self.assertEqual(lookups, [])
+        request = httpx2.Request("GET", ORIGIN)
+        hooks.sign_request(request)
+        hooks.verify_response(self.response(request))
+        self.assertEqual(lookups, [("private", "client"), ("public", "server")])
+        response = self.response(request)
+        self.signer.sign(
+            adapt_message(response),
+            key_id="client",
+            allow_existing_digest=True,
+            covered_component_ids=("@status", "content-digest"),
+        )
+        with self.assertRaisesRegex(InvalidSignature, "Unable to resolve verification key"):
+            hooks.verify_response(response)
+        self.assertEqual(lookups[-1], ("public", "client"))
+
+    def test_custom_signing_resolver_error_is_propagated(self):
+        class Resolver(HTTPSignatureKeyResolver):
+            def resolve_private_key(self, key_id):
+                raise LookupError(f"No signing key for {key_id}")
+
+        hooks = self.hooks(sign_options={"key_resolver": Resolver()})
+        sent = []
+        with (
+            httpx2.Client(transport=httpx2.MockTransport(sent.append), event_hooks=hooks.event_hooks) as client,
+            self.assertRaisesRegex(LookupError, "No signing key for client"),
+        ):
+            client.get(ORIGIN)
+        self.assertEqual(sent, [])
+
     def test_signing_only_accepts_unsigned_responses_without_buffering(self):
         class UnusedVerifier(HTTPMessageVerifier):
             def __init__(self, **options):
@@ -635,7 +765,7 @@ class TestSignatureHooks(SignatureTestCase):
             self.hooks(verify_options={"expect_tag": "incoming-api"}).verify_response(response)
 
     def test_unknown_and_hook_managed_options_are_rejected(self):
-        for name in ("max_ag", "covered_components", "expect_tag", "body", "verification_keys"):
+        for name in ("max_ag", "covered_components", "expect_tag", "body", "verification_keys", "signing_key"):
             hooks = self.hooks(sign_options={name: None})
             sent = []
             with (
@@ -647,7 +777,7 @@ class TestSignatureHooks(SignatureTestCase):
             self.assertFalse(sent)
 
     def test_verifier_rejects_unsupported_options(self):
-        for name in ("max_ag", "tag", "include_alg", "key_id", "signing_key"):
+        for name in ("max_ag", "tag", "include_alg", "key_id", "signing_key", "verification_keys"):
             with self.subTest(option=name):
                 hooks = self.hooks(verify_options={name: None})
                 response = self.response(httpx2.Request("GET", ORIGIN))
@@ -659,7 +789,7 @@ class TestSignatureHooks(SignatureTestCase):
                 self.assertNotIn("http_message_signatures", response.extensions)
 
     def test_flat_options_are_rejected(self):
-        for name in ("tag", "max_age", "origin", "key_id", "signing_key", "verification_keys", "signature_algorithm"):
+        for name in ("tag", "max_age", "origin", "key_id", "key_resolver", "signature_algorithm"):
             with self.subTest(option=name), self.assertRaisesRegex(TypeError, name):
                 self.hooks(**{name: None})
 
@@ -762,10 +892,14 @@ class TestSignatureHooks(SignatureTestCase):
     def test_asymmetric_keys_and_untrusted_key_id(self):
         client_key, server_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
         hooks = SignatureHooks(
-            sign_options={**SIGN_OPTIONS, "signing_key": client_key, "signature_algorithm": algorithms.ED25519},
+            sign_options={
+                **SIGN_OPTIONS,
+                "key_resolver": MappingKeyResolver(public_keys={}, private_keys={"client": client_key}),
+                "signature_algorithm": algorithms.ED25519,
+            },
             verify_options={
                 **VERIFY_OPTIONS,
-                "verification_keys": {"server": server_key.public_key()},
+                "key_resolver": MappingKeyResolver(public_keys={"server": server_key.public_key()}, private_keys={}),
                 "signature_algorithm": algorithms.ED25519,
             },
         )
@@ -797,7 +931,9 @@ class TestSignatureHooks(SignatureTestCase):
                 hooks = self.hooks(
                     verify_options={
                         "signature_algorithm": algorithms.ED25519,
-                        "verification_keys": {"server": server_key.public_key()},
+                        "key_resolver": MappingKeyResolver(
+                            public_keys={"server": server_key.public_key()}, private_keys={}
+                        ),
                     }
                 )
 

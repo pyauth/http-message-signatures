@@ -94,25 +94,37 @@ Install the optional dependency::
 
 ``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2 event hooks. The default mode
 enables both operations. Configure each operation independently in ``sign_options`` and ``verify_options``, including
-its origin, algorithm, and keys. PEM bytes and cryptography key objects work for asymmetric algorithms; HMAC uses shared
-secret bytes. Signing and verification can use different algorithms and keys::
+its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance. Each resolver is passed directly to the base signer
+or verifier and looks up keys when a message is processed. Signing and verification can use different algorithms and
+resolvers, or share one resolver. For example, these custom resolvers load keys on demand from application key stores::
 
     import httpx2
-    from http_message_signatures import algorithms
+    from http_message_signatures import HTTPSignatureKeyResolver, algorithms
     from http_message_signatures.httpx2 import SignatureHooks, SignatureHooksMode
+
+    class ClientKeyResolver(HTTPSignatureKeyResolver):
+        def resolve_private_key(self, key_id):
+            return signing_key_store.load_private_key(key_id)
+
+    class ServerKeyResolver(HTTPSignatureKeyResolver):
+        def resolve_public_key(self, key_id):
+            return trusted_key_store.load_public_key(key_id)
+
+    client_key_resolver = ClientKeyResolver()
+    server_key_resolver = ServerKeyResolver()
 
     signatures = SignatureHooks(
         sign_options={
             "origin": "https://api.example.com",
             "signature_algorithm": algorithms.ED25519,
             "key_id": "client-1",
-            "signing_key": client_private_key,
+            "key_resolver": client_key_resolver,
             "tag": "example-api",
         },
         verify_options={
             "origin": "https://api.example.com",
             "signature_algorithm": algorithms.ED25519,
-            "verification_keys": {"server-1": server_public_key},
+            "key_resolver": server_key_resolver,
             "expect_tag": "example-api",
             "require_components": ("@status", '"@method";req', '"@target-uri";req'),
         },
@@ -124,8 +136,8 @@ secret bytes. Signing and verification can use different algorithms and keys::
         data = response.json()
         results = response.extensions["http_message_signatures"]
 
-The server must return a signature from one of the configured verification keys, using the verification algorithm and
-application tag. This example explicitly requires status and request method/URL coverage. A nonempty response, or any
+The server must return a signature whose key ID is trusted by the verification resolver, using the configured algorithm
+and application tag. This example explicitly requires status and request method/URL coverage. A nonempty response, or any
 response carrying Content-Digest, also requires a signed digest of the response's content. A digest of request content
 selected using ``;req`` does not satisfy this requirement. Missing signatures, untrusted keys, insufficient configured
 coverage, and body mismatches raise ``InvalidSignature`` before later response hooks or the caller receive the response.
@@ -154,7 +166,7 @@ For signing only::
             "origin": "https://api.example.com",
             "signature_algorithm": algorithms.ED25519,
             "key_id": "client-1",
-            "signing_key": client_private_key,
+            "key_resolver": client_key_resolver,
             "tag": "example-api",
         },
     )
@@ -168,7 +180,7 @@ For verification only::
         verify_options={
             "origin": "https://api.example.com",
             "signature_algorithm": algorithms.ED25519,
-            "verification_keys": {"server-1": server_public_key},
+            "key_resolver": server_key_resolver,
             "expect_tag": "example-api",
             "require_components": ("@status",),
         },
