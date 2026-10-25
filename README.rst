@@ -131,7 +131,7 @@ Signing only or verification only
 
 The first argument, ``mode``, selects which hooks are installed. All other arguments are keyword-only:
 
-* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both containers.
+* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both ``sign_options`` and ``verify_options``.
 * ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX2 handling.
 * ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verify_options``. Requests are sent without signing.
 
@@ -166,10 +166,11 @@ For verification only::
         response = client.get("https://api.example.com/items")
         results = response.extensions["http_message_signatures"]
 
-The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply containers only for the enabled
-operations. Missing containers or containers for a disabled operation raise ``ValueError``; missing required entries
-raise ``TypeError`` at construction. No dummy keys or IDs are needed. Disabled handlers are not constructed, and their
-hook lists are empty.
+The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply a ``sign_options`` dictionary
+when signing requests and a ``verify_options`` dictionary when verifying responses. Omit the dictionary for any disabled
+operation. Omitting a required dictionary or supplying one for a disabled operation raises ``ValueError``; missing required
+dictionary entries raise ``TypeError`` at construction. No dummy keys or IDs are needed. Disabled handlers are not
+constructed, and their hook lists are empty.
 
 .. warning::
 
