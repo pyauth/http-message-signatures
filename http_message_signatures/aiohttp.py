@@ -22,8 +22,6 @@ from ._messages import _HeaderFields, _Request, _Response
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .structures import VerifyResult
 
-__all__ = ["SignatureMiddleware", "SignatureMiddlewareMode", "SigningOptions", "VerificationOptions"]
-
 
 class SigningOptions(_SigningOptions):
     """Configuration for request signing with SignatureMiddleware.
