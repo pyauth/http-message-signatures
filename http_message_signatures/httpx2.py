@@ -20,7 +20,7 @@ class SigningOptions(_SigningOptions):
 
     ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
     required. Other entries are optional ``HTTPMessageSigner.sign()`` keywords.
-    The hooks supply ``body``; the base signer supplies defaults for omitted options.
+    SignatureHooks supplies ``body``; ``HTTPMessageSigner.sign()`` supplies defaults for omitted options.
     """
 
 
@@ -29,7 +29,7 @@ class VerificationOptions(_VerificationOptions):
 
     ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
     Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
-    The hooks supply ``body``; the base verifier supplies defaults for omitted options.
+    SignatureHooks supplies ``body``; ``HTTPMessageVerifier.verify()`` supplies defaults for omitted options.
     """
 
 

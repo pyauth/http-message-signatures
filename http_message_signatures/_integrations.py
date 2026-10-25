@@ -1,4 +1,4 @@
-"""Configuration shared by client adapters; base methods own signature defaults."""
+"""Client adapter configuration; HTTPMessageSigner and HTTPMessageVerifier supply signature defaults."""
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -17,7 +17,7 @@ class _SigningConfiguration(TypedDict):
 
 
 class _SigningOptions(_SigningConfiguration, total=False):
-    """Fields shared by the integrations' public signing option types."""
+    """Fields shared by the aiohttp and HTTPX2 SigningOptions types."""
 
     created: datetime | None
     expires: datetime | None
@@ -37,7 +37,7 @@ class _VerificationConfiguration(TypedDict):
 
 
 class _VerificationOptions(_VerificationConfiguration, total=False):
-    """Fields shared by the integrations' public verification option types."""
+    """Fields shared by the aiohttp and HTTPX2 VerificationOptions types."""
 
     max_age: timedelta | None
     expect_tag: str | None

@@ -28,7 +28,7 @@ class SigningOptions(_SigningOptions):
 
     ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
     required. Other entries are optional ``HTTPMessageSigner.sign()`` keywords.
-    The middleware supplies ``body``; the base signer supplies defaults for omitted options.
+    SignatureMiddleware supplies ``body``; ``HTTPMessageSigner.sign()`` supplies defaults for omitted options.
     """
 
 
@@ -37,7 +37,7 @@ class VerificationOptions(_VerificationOptions):
 
     ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
     Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
-    The middleware supplies ``body``; the base verifier supplies defaults for omitted options.
+    SignatureMiddleware supplies ``body``; ``HTTPMessageVerifier.verify()`` supplies defaults for omitted options.
     """
 
 
@@ -78,8 +78,9 @@ class _BodyWriter(AbstractStreamWriter):
 
 
 class _BufferedProtocol(BaseProtocol):
-    # The verified buffer has no connection. It must not pause or resume a
-    # pooled connection that aiohttp may already have assigned to another request.
+    # aiohttp.StreamReader uses these methods for connection flow control.
+    # This protocol serves a body buffered in memory. The methods do nothing
+    # because aiohttp may have reused the original connection.
     def pause_reading(self) -> None:
         pass
 
@@ -88,8 +89,9 @@ class _BufferedProtocol(BaseProtocol):
 
 
 def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.StreamReader:
-    # aiohttp has no public facility to defer decoding until after verification.
-    # Its payload parser consumes the verified body without HTTP framing.
+    # aiohttp.ClientResponse has no method for decompressing a body after reading it.
+    # HttpPayloadParser decompresses the verified bytes into a new StreamReader;
+    # aiohttp has already removed HTTP chunk framing.
     loop = asyncio.get_running_loop()
     limit, _ = response.content.get_read_buffer_limits()
     content = aiohttp.StreamReader(_BufferedProtocol(loop), limit, loop=loop)
@@ -109,8 +111,9 @@ def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.S
 
 
 def _request_view(request: aiohttp.ClientRequest) -> _Request:
-    # aiohttp serializes outgoing field values as UTF-8, with surrogate escapes
-    # for received bytes. The core represents those wire bytes as Latin-1.
+    # aiohttp writes header values as UTF-8. This adapter converts those bytes
+    # to Latin-1 strings so HTTPSignatureComponentResolver can recover them
+    # for ;bs coverage.
     headers = _HeaderFields(
         lambda: (
             (name, value.encode("utf-8", "surrogateescape").decode("latin-1"))
@@ -147,13 +150,14 @@ class SignatureMiddleware(_SignatureAdapter):
     The middleware rejects ``compress=`` because aiohttp applies it after signing.
 
     Each operation uses its own origin, algorithm, and key resolver. The middleware
-    forwards supplied signature options to the base methods, which own their
-    defaults and reject unknown keywords. Use ``use_existing_digest=True`` to
+    forwards signing options to ``HTTPMessageSigner.sign()`` and verification options
+    to ``HTTPMessageVerifier.verify()``. These methods supply defaults for omitted
+    options and reject unknown keywords. Use ``use_existing_digest=True`` to
     accept a supplied digest. The middleware also permits digest reuse when the
     same instance signs the same request again, unless you set the option to False.
-    The base signer always checks a reused digest against the buffered content.
+    ``HTTPMessageSigner.sign()`` checks reused digests against the buffered content.
 
-    The verifier requires a signed digest for nonempty responses or responses with
+    HTTPMessageVerifier requires a signed digest for nonempty responses or responses with
     Content-Digest. Use ``require_components`` for other coverage requirements.
     Call ``verification_results(response)`` to retrieve successful verification results.
     Failed verification closes the response before aiohttp updates its cookie jar.
