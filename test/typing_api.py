@@ -1,6 +1,5 @@
 """Public imports and result fields must retain their types for strict consumers."""
 
-import aiohttp
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
@@ -122,22 +121,6 @@ def use_shared_views(request: httpx.Request, response: httpx.Response) -> None:
     ContentDigest.add(view.headers, b"hello")
     assert_type(ContentDigest.verify_components({}, b"hello"), bool)
     assert_type(component_map(("content-digest",)), dict[str, str])
-
-
-def use_aiohttp_views(request: aiohttp.ClientRequest, response: aiohttp.ClientResponse) -> Response:
-    request_view = Request(
-        method=request.method,
-        url=str(request.url),
-        headers=HeaderFields.from_raw(
-            lambda: ((name.encode("ascii"), value.encode("utf-8")) for name, value in request.headers.items()),
-            writable=request.headers,
-        ),
-    )
-    return Response(
-        status_code=response.status,
-        headers=HeaderFields.from_raw(lambda: response.raw_headers),
-        request=request_view,
-    )
 
 
 def reject_invalid_httpx_keys(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:

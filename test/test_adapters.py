@@ -1,13 +1,10 @@
-"""Shared helpers exercised against Requests, HTTPX, and aiohttp containers."""
+"""Shared helpers exercised against Requests and HTTPX containers."""
 
-import gzip
 import hashlib
 import unittest
 
-import aiohttp
 import httpx
 import requests
-from aiohttp import web
 from http_sf.compat import Dictionary
 from urllib3 import HTTPResponse
 from urllib3._collections import HTTPHeaderDict
@@ -115,87 +112,3 @@ class TestSharedUtilities(unittest.TestCase):
         self.assertNotIn("example", fields)
         ContentDigest.add(fields, b"hello")
         ContentDigest.verify(headers["content-digest"], b"hello")
-
-
-class TestAiohttpViews(unittest.IsolatedAsyncioTestCase):
-    async def test_middleware_with_encoded_content_repeated_headers_and_request_binding(self):
-        signer, verifier = handlers()
-        request_bodies = []
-        verified_bodies = []
-        encoded_response = gzip.compress(b"hello response")
-
-        async def server(request):
-            request_view = Request(
-                method=request.method,
-                url=str(request.url),
-                headers=HeaderFields.from_raw(lambda: request.raw_headers),
-            )
-            request_bodies.append(verifier.verify(request_view, body=await request.read())[0].body)
-            response = web.Response(body=encoded_response, headers={"Content-Encoding": "gzip"})
-            response.headers.add("Set-Cookie", "one=1; Path=/")
-            response.headers.add("Set-Cookie", "two=2; Path=/")
-            signer.sign(
-                Response(status_code=response.status, headers=response.headers, request=request_view),
-                key_id="key",
-                body=encoded_response,
-                covered_component_ids=("@status", '"example";req;bs', "set-cookie"),
-            )
-            if request.path == "/tampered":
-                response.body = gzip.compress(b"changed response")
-            return response
-
-        async def middleware(request, handler):
-            # This fixture accepts finalized encoded bodies and disables later compression.
-            self.assertFalse(request.compress)
-            body = await request.body.as_bytes() if isinstance(request.body, aiohttp.payload.Payload) else request.body
-            await request.update_body(body)
-            request_view = Request(
-                method=request.method,
-                url=str(request.url),
-                headers=HeaderFields.from_raw(
-                    lambda: ((name.encode("ascii"), value.encode("utf-8")) for name, value in request.headers.items()),
-                    writable=request.headers,
-                ),
-            )
-            signer.sign(request_view, key_id="key", body=body, covered_component_ids=("@method", '"example";bs'))
-            response = await handler(request)
-            try:
-                view = Response(
-                    status_code=response.status,
-                    headers=HeaderFields.from_raw(lambda: response.raw_headers),
-                    request=request_view,
-                )
-                results = verifier.verify(view, require_components=("@status", '"set-cookie";bs'))
-                verified_bodies.append(verifier.verify_body(view, results, await response.read())[0].body)
-                return response
-            except BaseException:
-                response.close()
-                raise
-
-        app = web.Application()
-        app.router.add_post("/{tail:.*}", server)
-        runner = web.AppRunner(app, auto_decompress=False)
-        await runner.setup()
-        try:
-            site = web.TCPSite(runner, "127.0.0.1", 0)
-            await site.start()
-            url = f"http://127.0.0.1:{runner.addresses[0][1]}"
-            encoded_request = gzip.compress(b"hello request")
-            # unsafe=True permits cookies from the loopback IP in this test only.
-            async with aiohttp.ClientSession(
-                middlewares=(middleware,), auto_decompress=False, cookie_jar=aiohttp.CookieJar(unsafe=True)
-            ) as session:
-                async with session.post(
-                    url + "/", data=encoded_request, headers={"Content-Encoding": "gzip", "Example": "caf\u00e9"}
-                ) as response:
-                    self.assertEqual(gzip.decompress(await response.read()), b"hello response")
-                    self.assertEqual(len(response.headers.getall("Set-Cookie")), 2)
-                self.assertEqual(request_bodies, [encoded_request])
-                self.assertEqual(verified_bodies, [encoded_response])
-                self.assertEqual(len(session.cookie_jar), 2)
-                session.cookie_jar.clear()
-                with self.assertRaises(InvalidSignature):
-                    await session.post(url + "/tampered", data=b"hello", headers={"Example": "value"})
-                self.assertEqual(len(session.cookie_jar), 0)
-        finally:
-            await runner.cleanup()

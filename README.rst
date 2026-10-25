@@ -48,8 +48,9 @@ Synopsis
     verifier.verify(request)
 
 The base API reads no body implicitly. Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
-and cover Content-Digest, or to ``verify()`` to validate the signed digest. The HTTPX integration below manages these
-bytes automatically. The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
+and cover Content-Digest, or to ``verify()`` to validate the signed digest. Digest generation refuses an existing
+Content-Digest without modifying headers. The HTTPX integration below manages these bytes automatically.
+The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
 provides a Requests integration.
 
 .. admonition:: See what is signed
@@ -150,8 +151,7 @@ digest requirement. A present digest of empty content is verified. ``Content-Dig
 ``Repr-Digest``; this distinction also applies to HEAD and partial responses.
 
 ``signer_class`` and ``verifier_class`` can be overridden on a ``SignatureHooks`` subclass to use base subclasses.
-For example, customize ``HTTPMessageVerifier.max_clock_skew`` there. To generate SHA-512 digests, subclass
-``ContentDigest`` with ``algorithm = "sha-512"`` and assign it to the signer's ``content_digest_class``.
+For example, customize ``HTTPMessageVerifier.max_clock_skew`` there.
 Additional signer keywords are forwarded unchanged. For verifier-specific subclass options, set entries in
 ``signatures.verification_options`` before using the hooks; no method signatures are inspected at runtime.
 The configured signature algorithm is never selected from untrusted message metadata.
@@ -203,13 +203,6 @@ Repeated headers and cookies
 The integration adapts HTTPX's ``headers.raw`` so original field lines, order, and bytes reach the base implementation.
 It does not use HTTPX's comma-joined ``headers.items()`` or alter HTTPX's own header container. This supports binary
 wrapping (``;bs``), multiple Set-Cookie lines, repeated signature fields, and request fields referenced by a response.
-For direct calls to the base API with HTTPX objects, use the same adapter::
-
-    from http_message_signatures.httpx import adapt_message
-
-    results = verifier.verify(adapt_message(response))
-
-This direct call does not capture or verify a body unless you provide its encoded bytes through ``body=``.
 
 .. warning::
 
@@ -217,97 +210,6 @@ This direct call does not capture or verify a body unless you provide its encode
  even when Set-Cookie coverage is required. These hooks therefore do not provide authenticated automatic cookie
  persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX response
  lifecycle, such as an HTTPX transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
-
-Shared integration utilities
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The body support is independent of HTTPX and can also serve Requests, aiohttp, or server integrations::
-
-    signer.sign(message, key_id="client-1", body=encoded_body)
-    results = verifier.verify(message, body=encoded_body, require_components=("@method",))
-
-``sign()`` and ``prepare()`` add Content-Digest from supplied bytes and add digest coverage if needed. An existing
-Content-Digest, regardless of spelling or value, causes ``HTTPMessageSignaturesException`` before any headers change.
-This avoids invalidating earlier signatures or appending another digest field to containers whose assignment adds lines.
-An explicitly selected digest member is preserved. Without ``body=``, these methods retain their header-only behavior;
-``prepare()`` does not modify the message in that case. To reuse a precomputed digest, validate it against available
-content and sign with explicit digest coverage, omitting ``body=``::
-
-    from http_message_signatures import ContentDigest
-
-    ContentDigest.verify(message.headers["Content-Digest"], encoded_body)
-    signer.sign(message, key_id="client-1", covered_component_ids=("@method", "content-digest"))
-
-For external signing, keep the prepared digest and message content unchanged through ``apply()`` and sending.
-The base API does not check the provenance of supplied bytes. ``sign()`` now always passes the ``body`` keyword to
-``prepare()``, including ``None``. Subclasses overriding ``prepare()`` must accept this keyword or forward ``**kwargs``;
-this is a breaking change to the recently introduced preparation API.
-
-Clients that authenticate headers before reading content can call ``verify_body(message, results, encoded_body)`` after
-``verify()``. This completes digest validation without repeating cryptographic signature verification. Pass only results
-from verification of that unchanged message and its own encoded content. ``ContentDigest.create()``,
-``ContentDigest.add()``, and ``ContentDigest.verify()`` provide shared SHA-256/SHA-512 field helpers; ``add()`` refuses an
-existing field, and dictionary-member validation uses ``key=``. ``verify()`` accepts string or ASCII byte field values.
-Malformed, duplicate, unsupported, wrongly typed, and mismatched digests fail validation. ``MappingKeyResolver`` supplies
-a reusable resolver with separate ``public_keys`` and ``private_keys`` mappings, including for HMAC.
-
-``http_message_signatures.components`` supplies component parsing and normalized identities. ``component_map()`` rejects
-duplicates and maps each normalized identity to its supplied spelling, so parameter order does not affect coverage
-comparisons. ``ContentDigest.verify_components()`` accepts authenticated covered components and returns whether a digest
-was validated. Passing a subset lets an adapter retain its own coverage policy. For example, Requests can validate only
-its required digest member, even if another digest component was also signed::
-
-    from http_message_signatures import ContentDigest
-    from http_message_signatures.components import component_map
-
-    required = ('"content-digest";key="sha-256"',)
-    results = verifier.verify(message, require_components=required)
-    for result in results:
-        covered = component_map(tuple(result.covered_components))
-        selected = {covered[key]: result.covered_components[covered[key]] for key in component_map(required)}
-        ContentDigest.verify_components(selected, encoded_body)
-
-In contrast, ``verify(body=...)`` and ``verify_body()`` validate every covered digest of the message and require signed
-digest coverage when content or a Content-Digest field is present. All helpers use the supplied bytes; they never read,
-rewind, or decode a client stream. A Requests adapter can therefore retain its precomputed-digest streaming path and
-validation of existing digests, while sharing parsing, hashing, coverage comparison, and key resolution. Its body
-normalization, date handling, signature selection, coverage/nonce defaults, and auth lifecycle stay in that integration.
-
-Message and header views
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-``http_message_signatures.messages`` supplies ``Request``, ``Response``, and ``HeaderFields``. These small views expose
-the core's expected attributes without importing a client library. ``HeaderFields`` takes a callable returning all
-field lines in order; ``from_raw()`` accepts byte pairs and preserves field bytes with Latin-1. Supply ``writable=``
-with the underlying header container for signing; its mutations must be reflected by the callable. Without it the view
-is read-only. Method, encoded URL, and status are captured when constructing a view; rebuild it if those change.
-
-HTTPX's ``adapt_message()`` uses these views. For Requests responses, use the original field lines from
-``response.raw.headers.items()`` instead of the combined ``response.headers``. For aiohttp responses, use
-``response.raw_headers`` and map ``status`` to ``status_code``::
-
-    from http_message_signatures.messages import HeaderFields, Response
-
-    message = Response(
-        status_code=response.status,
-        headers=HeaderFields.from_raw(lambda: response.raw_headers),
-        request=prepared_request_view,
-    )
-    results = verifier.verify(message)
-    results = verifier.verify_body(message, results, await response.read())
-
-This aiohttp example requires ``auto_decompress=False`` so ``read()`` yields the encoded content covered by Content-Digest.
-Decode it only after verification. A future aiohttp integration can use client middleware to sign the final prepared
-request and verify the response before returning from the middleware. Preserve the prepared request view for ``;req``
-components. Outgoing aiohttp header strings use UTF-8; an outgoing raw-field callable must encode them accordingly
-before passing them through ``HeaderFields.from_raw()``. Incoming ``raw_headers`` already contain the original bytes.
-
-Body acquisition and compression remain adapter responsibilities: buffer a payload asynchronously, use
-`ClientRequest.update_body() <https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientRequest.update_body>`_
-when replacing it, and sign the bytes that will be sent. Automatic request compression
-occurs later, so prepare any encoded content before hashing and disable subsequent compression. The shared helpers
-provide no incremental body verification. Tests exercise these views with all three libraries, including an aiohttp
-middleware round trip; this release supplies the HTTPX hooks, not a packaged aiohttp middleware.
 
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -318,6 +220,10 @@ Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous cl
 It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
+
+``sign()`` now always passes the ``body`` keyword to ``prepare()``, including ``None``. Subclasses overriding
+``prepare()`` must accept this keyword or forward ``**kwargs``; this is a breaking change to the recently introduced
+preparation API.
 
 This example expects an asynchronous ``sign_base`` function that signs the supplied bytes with Ed25519 and
 returns the raw 64-byte signature. The client must use the private key identified by ``key_id``::
