@@ -262,10 +262,12 @@ class HTTPSignatureKeyResolver:
 class MappingKeyResolver(HTTPSignatureKeyResolver):
     """Resolve locally configured keys without a custom resolver subclass.
 
-    Public and private mappings are separate, including for HMAC. Unknown public
-    keys return ``None``; unknown private keys raise ``KeyError``. Keys may be PEM
+    Public and private mappings are separate, including for HMAC. For unknown key IDs,
+    ``resolve_public_key()`` returns ``None`` and ``resolve_private_key()`` raises
+    ``KeyError``. Keys may be PEM
     bytes, cryptography key objects, or shared secret bytes, as for the base resolver.
-    The mappings are copied so subsequent caller mutations do not change trust.
+    The constructor copies the mappings, so changes to the supplied mappings do not
+    affect which keys this resolver trusts.
     """
 
     def __init__(self, *, public_keys: Mapping[str, VerificationKey], private_keys: Mapping[str, SigningKey]) -> None:

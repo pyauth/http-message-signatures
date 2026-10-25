@@ -44,16 +44,16 @@ Synopsis
     verifier.verify(request, body=request.body)
 
 Signing Content-Digest and checking it against the body protects the body against tampering.
-Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
-and cover Content-Digest, or to ``verify()`` to validate the signed digest. The HTTPX2 integration below manages these
-bytes automatically.
+Supply content bytes before decoding as ``body=``. With this argument, ``sign()`` generates Content-Digest if absent
+and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
+The HTTPX2 hooks below read and supply these bytes automatically.
 
 Signing a message with an existing Content-Digest requires ``allow_existing_digest=True`` on ``sign()`` or
-``prepare()``. With ``body=`` supplied, the existing digest is validated against those bytes and its coverage is added.
-Without ``body=``, the digest's format and algorithms are checked, but the caller remains responsible for its match
-to the content and must include it in ``covered_component_ids`` to sign it. Existing digest field lines are
-preserved. A malformed digest or a digest that does not match supplied content raises an error without replacement.
-If ``allow_existing_digest=True`` is supplied with neither a digest nor body bytes, signing raises an error.
+``prepare()``. With ``body=`` supplied, these methods validate the existing digest against those bytes and add digest
+coverage to the signature. Without ``body=``, they check only the digest's format and algorithms; you must ensure
+the digest matches the content and include it in ``covered_component_ids`` to sign it. Both methods preserve existing
+digest field lines and raise an error if the digest is malformed or does not match supplied content.
+They also raise an error if you supply ``allow_existing_digest=True`` with neither a digest nor body bytes.
 
 The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
 provides a Requests integration.
@@ -77,7 +77,7 @@ provides a Requests integration.
  * algorithm: (same as signature_algorithm above)
  * covered_components: A mapping of component names to their values, as covered by the signature
  * parameters: A mapping of signature parameters to their values, as covered by the signature
- * body: Content bytes before decoding after successful digest validation, or ``None`` when no digest was validated.
+ * body: Content bytes that the verifier validated against a signed digest, before decoding; otherwise ``None``.
 
 HTTPX2 integration
 ~~~~~~~~~~~~~~~~~~
@@ -88,8 +88,8 @@ Install the optional dependency::
 
 ``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2 event hooks. The default mode
 enables both operations. Configure each operation independently in ``sign_options`` and ``verify_options``, including
-its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance. Each resolver is passed directly to the base signer
-or verifier and looks up keys when a message is processed. Signing and verification can use different algorithms and
+its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance. The hooks pass each resolver directly to the base signer
+or verifier, which calls it to look up keys when processing a message. Signing and verification can use different algorithms and
 resolvers, or share one resolver. For example, these custom resolvers load keys on demand from application key stores::
 
     import httpx2
@@ -131,11 +131,12 @@ resolvers, or share one resolver. For example, these custom resolvers load keys 
         results = response.extensions["http_message_signatures"]
 
 The server must return a signature whose key ID is trusted by the verification resolver, using the configured algorithm
-and application tag. This example explicitly requires status and request method/URL coverage. A nonempty response, or any
-response carrying Content-Digest, also requires a signed digest of the response's content. A digest of request content
-selected using ``;req`` does not satisfy this requirement. Missing signatures, untrusted keys, insufficient configured
-coverage, and body mismatches raise ``InvalidSignature`` before later response hooks or the caller receive the response.
-Normal HTTP status handling remains with the application; signed error responses are verified too.
+and application tag. This example configures the verifier to require status and request method/URL coverage. The hooks
+also require a signed digest of the response's content if the response is nonempty or carries Content-Digest.
+A digest of request content selected using ``;req`` does not satisfy this requirement. The verifier raises
+``InvalidSignature`` for missing signatures, untrusted keys, insufficient configured coverage, or body mismatches before
+later response hooks or your code receive the response. The hooks verify signed error responses too; your application
+decides how to handle HTTP status codes.
 
 Use the async hook collection with ``AsyncClient``::
 
@@ -146,7 +147,7 @@ Use the async hook collection with ``AsyncClient``::
 Signing only or verification only
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The first argument, ``mode``, selects which hooks are installed. All other arguments are keyword-only:
+The first argument, ``mode``, selects which hooks ``SignatureHooks`` includes in its hook lists. All other arguments are keyword-only:
 
 * ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both ``sign_options`` and ``verify_options``.
 * ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX2 handling.
@@ -188,9 +189,9 @@ when signing requests and a ``verify_options`` dictionary when verifying respons
 operation.
 
 To accept a supplied request digest, set ``"allow_existing_digest": True`` in ``sign_options``. The hooks always
-validate it against the buffered request body. When retrying a request previously signed by the same hooks, this
-option is injected automatically unless explicitly set to ``False``. Redirects that retain the body can reuse the
-digest; a changed body requires a new digest.
+validate it against the buffered request body. When retrying a request previously signed by the same hooks, the
+hooks inject this option automatically unless you explicitly set it to ``False``. The hooks also allow digest reuse on
+redirects that retain the body. If you change the body, remove or replace its existing digest before signing again.
 
 .. warning::
 
@@ -204,8 +205,8 @@ Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
-``prepare()`` builds the RFC 9421 signature base without reading a private key. It leaves the message unchanged unless
-``body=`` is supplied to generate its digest.
+``prepare()`` builds the RFC 9421 signature base without reading a private key. When you supply ``body=``, it generates
+Content-Digest if absent and adds digest coverage to the signature.
 It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.

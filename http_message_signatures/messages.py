@@ -6,7 +6,7 @@ from typing import Protocol
 
 
 class Headers(Protocol):
-    """Header operations used by the core; items must retain repeated field lines."""
+    """Header interface whose ``items()`` implementations must retain repeated field lines."""
 
     def items(self) -> Iterable[tuple[str, str]]: ...
     def __iter__(self) -> Iterator[str]: ...
@@ -16,11 +16,12 @@ class Headers(Protocol):
 
 
 class HeaderFields:
-    """Read live field lines, with optional writes to their underlying container.
+    """A live view of field lines, with optional writes to their underlying container.
 
-    ``fields`` returns all string field lines in order. For incoming byte pairs,
-    use ``from_raw()``. Supply ``writable`` only when its mutations are reflected
-    by ``fields``; omitting it creates a view for verification only.
+    Supply a ``fields`` callback that returns all string field lines in order.
+    For incoming byte pairs, use ``from_raw()``. Supply ``writable`` only if
+    ``fields`` reflects changes made to that mapping. Without ``writable``,
+    this view allows verification only.
     """
 
     def __init__(
@@ -39,7 +40,7 @@ class HeaderFields:
         *,
         writable: MutableMapping[str, str] | None = None,
     ) -> "HeaderFields":
-        """Preserve header bytes using ASCII names and Latin-1 field values."""
+        """The returned view preserves header bytes using ASCII names and Latin-1 values."""
         return cls(
             lambda: ((name.decode("ascii"), value.decode("latin-1")) for name, value in fields()),
             writable=writable,

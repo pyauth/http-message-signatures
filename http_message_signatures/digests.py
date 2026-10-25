@@ -20,11 +20,11 @@ def is_content_digest(component: Item) -> bool:
 
 
 class ContentDigest:
-    """Generate and verify SHA-256/SHA-512 digests of content before decoding.
+    """This class generates and verifies SHA-256/SHA-512 digests of encoded content.
 
     Subclass and set ``algorithm`` to select the outgoing digest algorithm.
-    Verification accepts either supported algorithm and checks every supplied
-    member. Dictionary-member coverage can be verified with ``key=``.
+    ``verify()`` accepts either supported algorithm and checks every supplied
+    member. To verify a single dictionary member, pass its value and ``key=``.
     """
 
     algorithm = "sha-256"
@@ -37,7 +37,7 @@ class ContentDigest:
 
     @classmethod
     def create(cls, body: bytes) -> str:
-        """Serialize a digest for the supplied content, including empty content."""
+        """This method computes and serializes a digest, including for empty content."""
         cls._check_body(body)
         if cls.algorithm not in cls._hashers:
             raise HTTPMessageSignaturesException(f"Unsupported content digest algorithm {cls.algorithm!r}")
@@ -48,14 +48,14 @@ class ContentDigest:
 
     @classmethod
     def add(cls, headers: Headers, body: bytes) -> None:
-        """Add a digest, refusing any existing Content-Digest field without mutation."""
+        """This method adds Content-Digest, or raises without changes if it is present."""
         if any(name.lower() == "content-digest" for name, _ in headers.items()):
             raise HTTPMessageSignaturesException("Cannot add Content-Digest: the field is already present")
         headers["Content-Digest"] = cls.create(body)
 
     @classmethod
     def prepare(cls, headers: Headers, body: bytes | None, *, allow_existing_digest: bool) -> None:
-        """Prepare or explicitly reuse a digest, leaving existing field lines intact."""
+        """This method generates or validates a digest, preserving existing field lines."""
         if not isinstance(allow_existing_digest, bool):
             raise TypeError("allow_existing_digest must be True or False")
         if body is not None:
@@ -108,7 +108,7 @@ class ContentDigest:
 
     @classmethod
     def verify(cls, value: str | bytes, body: bytes, *, key: str | None = None) -> None:
-        """Validate a field or selected member; raise InvalidSignature on failure."""
+        """This method validates a field or member, raising InvalidSignature on failure."""
         cls._check_body(body)
         for algorithm, digest in cls._parse(value, key=key).items():
             if not hmac.compare_digest(digest, cls._hashers[algorithm](body).digest()):
@@ -116,10 +116,10 @@ class ContentDigest:
 
     @classmethod
     def verify_components(cls, covered_components: Mapping[str, str], body: bytes) -> bool:
-        """Validate this message's digest components in an authenticated mapping.
+        """This method validates digest components from an authenticated mapping.
 
         Pass all of VerifyResult.covered_components, or a subset selected by the
-        caller's coverage policy. Return whether a digest was validated. Request
+        caller's coverage policy. The method returns whether it validated a digest. Request
         components qualified with ``req`` do not cover a response's body.
         """
         cls._check_body(body)

@@ -37,8 +37,8 @@ class VerifyResult(NamedTuple):
     :ivar covered_components: Serialized component identifiers mapped to signed
         values, including the generated ``\"@signature-params\"`` entry.
     :ivar parameters: Signed signature metadata, such as ``keyid`` and ``created``.
-    :ivar body: Validated content bytes before decoding when body verification was
-        requested and a digest was covered; otherwise ``None``.
+    :ivar body: Content bytes that the verifier validated against a signed digest,
+        before decoding; otherwise ``None``.
     :ivar nonce: Signed nonce, or ``None`` when omitted.
     """
 

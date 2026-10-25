@@ -236,14 +236,16 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             automatically receive ``bs``; explicit invalid flags are rejected.
         :param append_if_signature_exists: Preserve existing signatures and add a
             new label. Otherwise replace existing signature headers.
-        :param body: Optional content bytes before decoding. Generate Content-Digest
-            and add its coverage when supplied, including for empty content.
-        :param allow_existing_digest: Permit an existing Content-Digest without
-            replacing it. With ``body``, validate it against those bytes and add
-            digest coverage. Without ``body``, check its format and algorithms;
-            body validation remains the caller's responsibility and coverage is
-            controlled by ``covered_component_ids``. If neither a digest nor
-            ``body`` is available, this option raises an error.
+        :param body: Optional content bytes before decoding. When supplied,
+            ``sign()`` generates Content-Digest if absent and adds digest coverage
+            to the signature, including when ``body=b""``.
+        :param allow_existing_digest: Whether ``sign()`` may reuse an existing
+            Content-Digest. When true, ``sign()`` preserves the field and validates
+            it against ``body`` if supplied. Without ``body``, ``sign()`` checks
+            only the digest's format and algorithms; you must ensure it matches
+            the content and include it in ``covered_component_ids`` to sign it.
+            If this option is true but neither a digest nor ``body`` is available,
+            ``sign()`` raises an error.
         :raises HTTPMessageSignaturesException: A component or signature parameter
             is invalid or an existing signature cannot be appended to.
 
@@ -290,12 +292,10 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         Arguments have the same meaning and defaults as in ``sign()``. Creation
         time is captured here, before any remote signing delay. Header append or
         replacement policy is selected later in ``apply()``.
-        Supplying ``body`` sets Content-Digest and adds digest coverage. Otherwise
-        the message is not modified. Keep the supplied bytes associated with the
-        message; this method does not read or validate its body independently.
-        An existing Content-Digest requires ``allow_existing_digest=True``, even
-        when ``body`` is omitted. Without ``body``, it is checked for valid format
-        and algorithms but not checked against content or added to coverage.
+        ``prepare()`` handles ``body`` and ``allow_existing_digest`` as documented
+        for ``sign()``. It changes the message only when it generates a digest.
+        Supply bytes that match the message's content; ``prepare()`` does not read
+        the message's body to check that you supplied the correct bytes.
 
         :returns: Immutable signing input for a synchronous or asynchronous signer.
             Sign ``signature_base`` with the configured algorithm and the key
@@ -561,12 +561,15 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             selecting among multiple signatures unless label-only selection is enabled.
         :param expect_label: Also select this signature dictionary label. Labels
             are not signed; normally ``expect_tag`` must be supplied with this option.
-        :param require_components: Additional components required on each selected
-            signature. Uses the signing component syntax and ignores parameter order.
-            No coverage profile is imposed when omitted.
-        :param body: Optional content bytes before decoding. Validate their signed
-            Content-Digest and return them in each result's ``body`` field.
-            Nonempty content or a present digest requires signed digest coverage.
+        :param require_components: Components that ``verify()`` requires every
+            selected signature to cover. Use the same component syntax as for
+            signing. ``verify()`` ignores parameter order when comparing components
+            and adds no coverage requirements for this option when it is omitted.
+        :param body: Optional content bytes before decoding. When supplied,
+            ``verify()`` validates the signed Content-Digest against these bytes
+            and returns them in each result's ``body`` field. It requires every
+            selected signature to cover the digest unless the content is empty
+            and Content-Digest is absent; in that case, each result's ``body`` is ``None``.
         :returns: A list of :class:`~http_message_signatures.VerifyResult` objects.
             Every selected signature must verify; no partial result is returned.
         :raises InvalidSignature: A signature is missing, malformed, expired,
@@ -622,7 +625,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         return verify_results
 
     def verify_body(self, message, results: Sequence[VerifyResult], body: bytes) -> list[VerifyResult]:
-        """Complete body validation after ``verify()`` has authenticated headers."""
+        """This method validates body digests after ``verify()`` has authenticated headers."""
         self.content_digest_class._check_body(body)
         needs_digest = bool(body) or "content-digest" in get_header_fields(message.headers)
         verified = []

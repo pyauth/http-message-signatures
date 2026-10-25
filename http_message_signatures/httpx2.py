@@ -36,7 +36,8 @@ class SigningOptions(_SigningConfiguration, total=False):
     """Request signing configuration and optional base signer keywords.
 
     ``origin``, ``signature_algorithm``, ``key_id``, and ``key_resolver`` are
-    required. The hooks manage ``body``; omitted signing options use base defaults.
+    required. The hooks supply ``body``; the base signer supplies defaults for
+    omitted signing options.
     """
 
     created: datetime | None
@@ -60,8 +61,8 @@ class VerificationOptions(_VerificationConfiguration, total=False):
     """Response verification configuration and optional base verifier keywords.
 
     ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
-    The hooks manage ``body``; omitted verification options use base defaults.
-    No configuration is inferred from SigningOptions.
+    The hooks supply ``body``; the base verifier supplies defaults for omitted
+    verification options. The hooks do not infer these options from SigningOptions.
     """
 
     max_age: timedelta | None
@@ -79,7 +80,7 @@ def adapt_message(message: httpx2.Response) -> Response: ...
 
 
 def adapt_message(message: httpx2.Request | httpx2.Response) -> Request | Response:
-    """Expose original header lines to the base signer/verifier.
+    """This function exposes original header lines to the base signer/verifier.
 
     Header writes reach the original message. Response request components use
     the same adapter. Use this for direct base-API calls on HTTPX2 objects;
@@ -138,38 +139,41 @@ class SignatureHooks:
         ``signature_algorithm``, and ``key_resolver``, plus optional
         ``HTTPMessageVerifier.verify()`` keywords. Required when verifying responses.
 
-    Each origin is an HTTP origin including its scheme and port. Signing checks
-    its origin before sending; verification checks its origin when the response
-    arrives. Algorithms and key resolvers are independent. Each resolver is passed
-    unchanged to the underlying signer or verifier. Keys are resolved when each
-    message is signed or verified, using the base HTTPSignatureKeyResolver interface.
+    Each origin is an HTTP origin including its scheme and port. The signing hook
+    checks the request's origin before HTTPX2 sends it; the verification hook checks
+    it when the response arrives. The hooks pass each configured algorithm and key
+    resolver to the corresponding signer or verifier. The signer and verifier look
+    up keys when processing each message, using the HTTPSignatureKeyResolver interface.
     Key loading, caching, and trust policy belong to the supplied resolver.
 
-    Options are captured at construction; component sequences are copied.
-    Signature keywords are forwarded independently. Omitted signature options use
-    the underlying method defaults; explicit ``None`` is passed through.
-    Set ``expect_tag`` separately from the signing ``tag``. Unknown
-    keywords raise ``TypeError`` from the underlying method when its hook runs.
-    Missing containers or containers for a disabled operation raise ``ValueError``.
-    Missing required entries raise ``TypeError`` at construction. Disabled handlers
-    are not constructed. The hooks manage ``body`` for both operations.
+    The constructor copies the option dictionaries and their component sequences.
+    The hooks forward supplied options, including explicit ``None``, to the
+    corresponding base methods. Those methods supply defaults for omitted options
+    and raise ``TypeError`` for unknown keywords when the hook runs.
+    Set ``expect_tag`` separately from the signing ``tag``.
+    The constructor raises ``ValueError`` for missing option dictionaries or
+    dictionaries for disabled operations, and ``TypeError`` for missing required
+    entries. It constructs only enabled handlers. The hooks supply ``body`` for
+    both operations.
 
-    Install ``event_hooks`` on Client or ``async_event_hooks`` on AsyncClient.
-    Each collection installs only the operations enabled by ``mode``.
-    Signing belongs after request-mutating hooks; verification belongs before
-    response consumers. Signing buffers requests and verification buffers responses,
-    even with stream().
-    Signing rejects a supplied Content-Digest unless ``allow_existing_digest=True``
-    is configured. Requests previously signed by these hooks may reuse their digest
-    on retries and redirects, unless that option is explicitly False. Reused digests
-    are validated against the current body; changed content requires a new digest.
-    Response content is buffered and verified before decoding; normal
-    HTTPX2 content decoding is preserved. Successful verification results are
-    stored in ``response.extensions["http_message_signatures"]``.
+    Pass ``event_hooks`` to Client or ``async_event_hooks`` to AsyncClient.
+    Each collection contains only the operations enabled by ``mode``.
+    Place the signing hook after hooks that modify requests, and the verification
+    hook before hooks that consume responses. The signing hook buffers requests;
+    the verification hook buffers responses, even when you use ``stream()``.
+    The signing hook rejects a supplied Content-Digest unless you configure
+    ``allow_existing_digest=True``. It allows digest reuse on retries and redirects
+    for requests previously signed by the same hooks, unless you explicitly set
+    that option to ``False``. It validates reused digests against the current body.
+    If you change the body, remove or replace its existing digest before signing again.
+    The verification hook buffers and verifies response content before HTTPX2 decodes
+    it, preserving normal HTTPX2 content decoding. The hook stores successful results
+    in ``response.extensions["http_message_signatures"]``.
 
-    When verifying, nonempty responses and responses with Content-Digest require signed digest
-    coverage. Other coverage is controlled by the base ``require_components``
-    option. No nonce, expiration, status, or request-binding policy is added.
+    The verification hook requires signed digest coverage for nonempty responses
+    and responses with Content-Digest. Use ``require_components`` to require other
+    coverage. The hooks add no nonce, expiration, status, or request-binding policy
+    beyond the base verifier's checks and your configuration.
 
     HTTPX2 stores cookies before response hooks. Failed verification does not undo
     cookie changes, so these hooks do not authenticate the client's cookie jar.
@@ -276,7 +280,7 @@ class SignatureHooks:
             raise HTTPMessageSignaturesException("Request origin is not authorized for these signature keys")
 
     def sign_request(self, request: httpx2.Request) -> None:
-        """Buffer and sign a prepared request, including its current body."""
+        """This hook buffers and signs a prepared request, including its current body."""
         if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request, self._sign_origin)
@@ -284,7 +288,7 @@ class SignatureHooks:
         self._sign(request, body, self.signer)
 
     async def sign_request_async(self, request: httpx2.Request) -> None:
-        """Async request hook; await body consumption before signing."""
+        """This async hook reads the complete request body before signing the request."""
         if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
         self._check_origin(request, self._sign_origin)
@@ -311,7 +315,7 @@ class SignatureHooks:
         return response.content
 
     def verify_response(self, response: httpx2.Response) -> None:
-        """Authenticate headers and the complete encoded body before returning."""
+        """This hook verifies headers and the complete encoded body before returning."""
         verifier = self.verifier
         if verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")

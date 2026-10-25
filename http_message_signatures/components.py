@@ -10,7 +10,7 @@ from .exceptions import HTTPMessageSignaturesException
 
 
 def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
-    """Parse lowercase names or serialized String items, preserving parameter order."""
+    """This function parses names or serialized String items, preserving parameter order."""
     if isinstance(component_ids, (str, bytes, bytearray)):
         raise HTTPMessageSignaturesException(
             'covered_component_ids must be a sequence of component strings, such as ("date",)'
@@ -28,5 +28,5 @@ def parse_component_ids(component_ids: Sequence[str]) -> list[Item]:
 
 
 def component_identity(node: Item) -> tuple[Any, frozenset[tuple[str, Any]]]:
-    """Compare component identities without changing their signed parameter order."""
+    """The returned identity ignores parameter order without changing the signed item."""
     return node.value, frozenset(node.params.items())
