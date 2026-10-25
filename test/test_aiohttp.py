@@ -206,30 +206,34 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
         raw_deflate = compressor.compress(PLAIN) + compressor.flush()
         cases = (
-            (None, PLAIN),
-            ("identity", PLAIN),
-            ("unknown", gzip.compress(PLAIN)),
-            ("gzip, deflate", PLAIN),
-            ("GZip", gzip.compress(PLAIN)),
-            ("gzip", gzip.compress(PLAIN[:5]) + gzip.compress(PLAIN[5:])),
-            ("gzip", b""),
-            ("deflate", raw_deflate),
+            ((), PLAIN),
+            (("identity",), PLAIN),
+            (("unknown",), gzip.compress(PLAIN)),
+            (("gzip, deflate",), PLAIN),
+            (("GZip",), gzip.compress(PLAIN)),
+            (("gzip",), gzip.compress(PLAIN[:5]) + gzip.compress(PLAIN[5:])),
+            (("gzip",), b""),
+            (("deflate",), raw_deflate),
+            (("gzip", "identity"), gzip.compress(PLAIN)),
+            (("\N{NO-BREAK SPACE}gzip\N{NO-BREAK SPACE}",), gzip.compress(PLAIN)),
+            (("unknown" * 1500,), PLAIN),
         )
         middleware = self.middleware(SignatureMiddlewareMode.VERIFY_RESPONSE)
         async with (
             aiohttp.ClientSession() as native,
             aiohttp.ClientSession(**middleware.session_kwargs) as verified,
         ):
-            for encoding, body in cases:
-                with self.subTest(encoding=encoding, empty=not body):
+            for encodings, body in cases:
+                with self.subTest(encodings=encodings, empty=not body):
 
-                    async def endpoint(request, body=body, encoding=encoding):
-                        return await self.signed_response(request, body, encoding=encoding)
+                    async def endpoint(request, body=body, encodings=encodings):
+                        headers = [("Content-Encoding", encoding) for encoding in encodings]
+                        return await self.signed_response(request, body, headers=headers)
 
                     self.endpoint = endpoint
-                    async with native.get(self.origin) as response:
+                    async with native.get(self.origin, max_line_size=20000, max_field_size=20000) as response:
                         expected = await response.read()
-                    async with verified.get(self.origin) as response:
+                    async with verified.get(self.origin, max_line_size=20000, max_field_size=20000) as response:
                         self.assertEqual(await response.read(), expected)
                         self.assertEqual(middleware.verification_results(response)[0].body, body)
 
