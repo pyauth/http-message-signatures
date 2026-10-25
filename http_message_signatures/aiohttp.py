@@ -183,6 +183,10 @@ class SignatureMiddleware(_SignatureAdapter):
             verify_options=verify_options,
         )
         self.mode = mode
+        # The set tracks requests signed by this middleware for digest reuse on retries;
+        # the dictionary stores results for verification_results(response). Weak
+        # references prevent either collection from keeping messages alive and remove
+        # entries automatically when their request or response is garbage-collected.
         self._signed_requests: WeakSet[aiohttp.ClientRequest] = WeakSet()
         self._results: WeakKeyDictionary[aiohttp.ClientResponse, list[VerifyResult]] = WeakKeyDictionary()
 
