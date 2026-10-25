@@ -9,10 +9,10 @@ API documentation
    :undoc-members:
    :inherited-members:
 
-HTTPX
-=====
+HTTPX2
+======
 
-.. automodule:: http_message_signatures.httpx
+.. automodule:: http_message_signatures.httpx2
    :members:
 
 Shared integration helpers

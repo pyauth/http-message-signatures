@@ -1,4 +1,4 @@
-"""Buffered request signing and response verification for HTTPX."""
+"""Buffered request signing and response verification for HTTPX2."""
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ from enum import Enum
 from io import BytesIO
 from typing import Any, TypedDict, overload
 
-import httpx
+import httpx2
 
 from .algorithms import HTTPSignatureAlgorithm
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
@@ -68,28 +68,28 @@ class VerificationOptions(_VerificationConfiguration, total=False):
 
 
 @overload
-def adapt_message(message: httpx.Request) -> Request: ...
+def adapt_message(message: httpx2.Request) -> Request: ...
 
 
 @overload
-def adapt_message(message: httpx.Response) -> Response: ...
+def adapt_message(message: httpx2.Response) -> Response: ...
 
 
-def adapt_message(message: httpx.Request | httpx.Response) -> Request | Response:
+def adapt_message(message: httpx2.Request | httpx2.Response) -> Request | Response:
     """Expose original header lines to the base signer/verifier.
 
     Header writes reach the original message. Response request components use
-    the same adapter. Use this for direct base-API calls on HTTPX objects;
+    the same adapter. Use this for direct base-API calls on HTTPX2 objects;
     SignatureHooks applies it automatically. A response must have a request.
     """
     headers = HeaderFields.from_raw(lambda: message.headers.raw, writable=message.headers)
-    if isinstance(message, httpx.Request):
+    if isinstance(message, httpx2.Request):
         return Request(method=message.method, url=str(message.url), headers=headers)
     return Response(status_code=message.status_code, headers=headers, request=adapt_message(message.request))
 
 
-class _SyncCapture(httpx.SyncByteStream):
-    def __init__(self, stream: httpx.SyncByteStream, content: BytesIO):
+class _SyncCapture(httpx2.SyncByteStream):
+    def __init__(self, stream: httpx2.SyncByteStream, content: BytesIO):
         self.stream = stream
         self.content = content
 
@@ -102,8 +102,8 @@ class _SyncCapture(httpx.SyncByteStream):
         self.stream.close()
 
 
-class _AsyncCapture(httpx.AsyncByteStream):
-    def __init__(self, stream: httpx.AsyncByteStream, content: BytesIO):
+class _AsyncCapture(httpx2.AsyncByteStream):
+    def __init__(self, stream: httpx2.AsyncByteStream, content: BytesIO):
         self.stream = stream
         self.content = content
 
@@ -117,7 +117,7 @@ class _AsyncCapture(httpx.AsyncByteStream):
 
 
 class SignatureHooks:
-    """Sign requests, verify responses, or both through HTTPX event hooks.
+    """Sign requests, verify responses, or both through HTTPX2 event hooks.
 
     :param mode: Operations to enable; defaults to signing and verification.
     :param sign_options: SigningOptions containing ``origin``,
@@ -150,14 +150,14 @@ class SignatureHooks:
     Signing rejects requests with an existing Content-Digest, including redirected
     requests that inherit that field. Build a fresh request to follow a redirect.
     Response content is captured before decoding for digest validation; normal
-    HTTPX content decoding is preserved. Successful verification results are
+    HTTPX2 content decoding is preserved. Successful verification results are
     stored in ``response.extensions["http_message_signatures"]``.
 
     When verifying, nonempty responses and responses with Content-Digest require signed digest
     coverage. Other coverage is controlled by the base ``require_components``
     option. No nonce, expiration, status, or request-binding policy is added.
 
-    HTTPX stores cookies before response hooks. Failed verification does not undo
+    HTTPX2 stores cookies before response hooks. Failed verification does not undo
     cookie changes, so these hooks do not authenticate the client's cookie jar.
     """
 
@@ -226,7 +226,7 @@ class SignatureHooks:
 
     @staticmethod
     def _parse_origin(origin: str) -> tuple[str, str, int | None]:
-        url = httpx.URL(origin)
+        url = httpx2.URL(origin)
         if (
             not url.is_absolute_url
             or url.scheme not in {"http", "https"}
@@ -240,7 +240,7 @@ class SignatureHooks:
 
     @property
     def event_hooks(self) -> dict[str, list[Callable[..., None]]]:
-        """Fresh hook lists for ``httpx.Client``."""
+        """Fresh hook lists for ``httpx2.Client``."""
         return {
             "request": [self.sign_request] if self.signer is not None else [],
             "response": [self.verify_response] if self.verifier is not None else [],
@@ -248,19 +248,19 @@ class SignatureHooks:
 
     @property
     def async_event_hooks(self) -> dict[str, list[Callable[..., Awaitable[None]]]]:
-        """Fresh async hook lists for ``httpx.AsyncClient``."""
+        """Fresh async hook lists for ``httpx2.AsyncClient``."""
         return {
             "request": [self.sign_request_async] if self.signer is not None else [],
             "response": [self.verify_response_async] if self.verifier is not None else [],
         }
 
     @staticmethod
-    def _check_origin(request: httpx.Request, origin: tuple[str, str, int | None] | None) -> None:
+    def _check_origin(request: httpx2.Request, origin: tuple[str, str, int | None] | None) -> None:
         url = request.url
         if (url.scheme, url.host, url.port) != origin:
             raise HTTPMessageSignaturesException("Request origin is not authorized for these signature keys")
 
-    def sign_request(self, request: httpx.Request) -> None:
+    def sign_request(self, request: httpx2.Request) -> None:
         """Buffer and sign a prepared request, including its current body."""
         if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
@@ -268,7 +268,7 @@ class SignatureHooks:
         body = request.read()
         self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
 
-    async def sign_request_async(self, request: httpx.Request) -> None:
+    async def sign_request_async(self, request: httpx2.Request) -> None:
         """Async request hook; await body consumption before signing."""
         if self.signer is None:
             raise HTTPMessageSignaturesException("Request signing is disabled in this mode")
@@ -276,19 +276,19 @@ class SignatureHooks:
         body = await request.aread()
         self.signer.sign(adapt_message(request), body=body, **self._sign_kwargs)
 
-    def _verify_headers(self, response: httpx.Response, verifier: HTTPMessageVerifier):
+    def _verify_headers(self, response: httpx2.Response, verifier: HTTPMessageVerifier):
         response.extensions.pop("http_message_signatures", None)
         self._check_origin(response.request, self._verify_origin)
         message = adapt_message(response)
         return message, verifier.verify(message, **self._verify_kwargs)
 
     @staticmethod
-    def _buffered_body(response: httpx.Response) -> bytes:
+    def _buffered_body(response: httpx2.Response) -> bytes:
         if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
             raise InvalidSignature("Encoded response was already consumed; verify before reading or decoding its body")
         return response.content
 
-    def verify_response(self, response: httpx.Response) -> None:
+    def verify_response(self, response: httpx2.Response) -> None:
         """Authenticate headers and the complete encoded body before returning."""
         if self.verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
@@ -297,7 +297,7 @@ class SignatureHooks:
             if response.is_stream_consumed:
                 body = self._buffered_body(response)
             else:
-                if not isinstance(response.stream, httpx.SyncByteStream):
+                if not isinstance(response.stream, httpx2.SyncByteStream):
                     raise TypeError("Use async_event_hooks with an asynchronous response stream")
                 with BytesIO() as content:
                     response.stream = _SyncCapture(response.stream, content)
@@ -308,7 +308,7 @@ class SignatureHooks:
             response.close()
             raise
 
-    async def verify_response_async(self, response: httpx.Response) -> None:
+    async def verify_response_async(self, response: httpx2.Response) -> None:
         """Async response hook with the same buffering and verification contract."""
         if self.verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
@@ -317,7 +317,7 @@ class SignatureHooks:
             if response.is_stream_consumed:
                 body = self._buffered_body(response)
             else:
-                if not isinstance(response.stream, httpx.AsyncByteStream):
+                if not isinstance(response.stream, httpx2.AsyncByteStream):
                     raise TypeError("Use event_hooks with a synchronous response stream")
                 with BytesIO() as content:
                     response.stream = _AsyncCapture(response.stream, content)

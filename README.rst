@@ -49,7 +49,7 @@ Synopsis
 
 The base API reads no body implicitly. Pass ``body=`` with content bytes before decoding to ``sign()`` to generate
 and cover Content-Digest, or to ``verify()`` to validate the signed digest. Digest generation refuses an existing
-Content-Digest without modifying headers. The HTTPX integration below manages these bytes automatically.
+Content-Digest without modifying headers. The HTTPX2 integration below manages these bytes automatically.
 The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
 provides a Requests integration.
 
@@ -74,21 +74,21 @@ provides a Requests integration.
  * parameters: A mapping of signature parameters to their values, as covered by the signature
  * body: Content bytes before decoding after successful digest validation, or ``None`` when no digest was validated.
 
-HTTPX integration
-~~~~~~~~~~~~~~~~~
+HTTPX2 integration
+~~~~~~~~~~~~~~~~~~
 
 Install the optional dependency::
 
-    pip install 'http-message-signatures[httpx]'
+    pip install 'http-message-signatures[httpx2]'
 
-``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX event hooks. The default mode
+``SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2 event hooks. The default mode
 enables both operations. Configure each operation independently in ``sign_options`` and ``verify_options``, including
 its origin, algorithm, and keys. PEM bytes and cryptography key objects work for asymmetric algorithms; HMAC uses shared
 secret bytes. Signing and verification can use different algorithms and keys::
 
-    import httpx
+    import httpx2
     from http_message_signatures import algorithms
-    from http_message_signatures.httpx import SignatureHooks, SignatureHooksMode
+    from http_message_signatures.httpx2 import SignatureHooks, SignatureHooksMode
 
     signatures = SignatureHooks(
         sign_options={
@@ -107,7 +107,7 @@ secret bytes. Signing and verification can use different algorithms and keys::
         },
     )
 
-    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
         response = client.post("https://api.example.com/items", json={"hello": "world"})
         response.raise_for_status()
         data = response.json()
@@ -122,7 +122,7 @@ Normal HTTP status handling remains with the application; signed error responses
 
 Use the async hook collection with ``AsyncClient``::
 
-    async with httpx.AsyncClient(event_hooks=signatures.async_event_hooks) as client:
+    async with httpx2.AsyncClient(event_hooks=signatures.async_event_hooks) as client:
         response = await client.post("https://api.example.com/items", json={"hello": "world"})
         data = response.json()
 
@@ -132,7 +132,7 @@ Signing only or verification only
 The first argument, ``mode``, selects which hooks are installed. All other arguments are keyword-only:
 
 * ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both containers.
-* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX handling.
+* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX2 handling.
 * ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verify_options``. Requests are sent without signing.
 
 For signing only::
@@ -147,7 +147,7 @@ For signing only::
             "tag": "example-api",
         },
     )
-    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
         response = client.post("https://api.example.com/items", json={"hello": "world"})
 
 For verification only::
@@ -162,7 +162,7 @@ For verification only::
             "require_components": ("@status",),
         },
     )
-    with httpx.Client(event_hooks=signatures.event_hooks) as client:
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
         response = client.get("https://api.example.com/items")
         results = response.extensions["http_message_signatures"]
 
@@ -173,11 +173,11 @@ hook lists are empty.
 
 .. warning::
 
- When response verification is enabled, HTTPX updates its client cookie jar before running the verification hook.
+ When response verification is enabled, HTTPX2 updates its client cookie jar before running the verification hook.
  Verification failure does not undo cookie changes,
  even when Set-Cookie coverage is required. These hooks therefore do not provide authenticated automatic cookie
- persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX response
- lifecycle, such as an HTTPX transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
+ persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX2 response
+ lifecycle, such as an HTTPX2 transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
 
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

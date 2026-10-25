@@ -30,8 +30,8 @@ dependencies = [
 Homepage = "https://github.com/pyauth/http-message-signatures"
 
 [project.optional-dependencies]
-httpx = ["httpx >= 0.28.1, < 1"]
-docs = ["sphinx >= 7", "furo", "sphinx-copybutton", "httpx >= 0.28.1, < 1"]
+httpx2 = ["httpx2"]
+docs = ["sphinx >= 7", "furo", "sphinx-copybutton", "httpx2"]
 tests = [
     "coverage",
     "build",
@@ -39,7 +39,7 @@ tests = [
     "mypy",
     "typing_extensions",
     "requests",
-    "httpx >= 0.28.1, < 1",
+    "httpx2",
     "ruff",
 ]
 

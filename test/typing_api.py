@@ -1,6 +1,6 @@
 """Public imports and result fields must retain their types for strict consumers."""
 
-import httpx
+import httpx2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
 
@@ -28,7 +28,7 @@ from http_message_signatures.algorithms import (
     RSA_V1_5_SHA256,
 )
 from http_message_signatures.components import component_map
-from http_message_signatures.httpx import (
+from http_message_signatures.httpx2 import (
     SignatureHooks,
     SignatureHooksMode,
     SigningOptions,
@@ -91,7 +91,7 @@ resolver_class: type[HTTPSignatureComponentResolver] = HTTPSignatureComponentRes
 exception_class: type[HTTPMessageSignaturesException] = InvalidSignature
 
 
-def configure_httpx(secret: bytes) -> SignatureHooks:
+def configure_httpx2(secret: bytes) -> SignatureHooks:
     keys = MappingKeyResolver(public_keys={"server": secret}, private_keys={"client": secret})
     assert_type(keys.resolve_private_key("client"), SigningKey)
     assert_type(keys.resolve_public_key("server"), VerificationKey | None)
@@ -200,7 +200,7 @@ def reject_invalid_options(secret: bytes) -> None:
     SignatureHooks(origin="https://example.com", sign_options=signing)  # type: ignore[call-arg]
 
 
-def configure_httpx_keys(signing_key: SigningKey, verification_key: VerificationKey) -> SignatureHooks:
+def configure_httpx2_keys(signing_key: SigningKey, verification_key: VerificationKey) -> SignatureHooks:
     return SignatureHooks(
         sign_options={
             "origin": "https://example.com",
@@ -216,7 +216,7 @@ def configure_httpx_keys(signing_key: SigningKey, verification_key: Verification
     )
 
 
-def use_shared_views(request: httpx.Request, response: httpx.Response) -> None:
+def use_shared_views(request: httpx2.Request, response: httpx2.Response) -> None:
     assert_type(adapt_message(request), Request)
     assert_type(adapt_message(response), Response)
     fields = HeaderFields.from_raw(lambda: request.headers.raw, writable=request.headers)
@@ -226,7 +226,7 @@ def use_shared_views(request: httpx.Request, response: httpx.Response) -> None:
     assert_type(component_map(("content-digest",)), dict[str, str])
 
 
-def reject_invalid_httpx_keys(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:
+def reject_invalid_httpx2_keys(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:
     # Strict mypy rejects unused ignores, so these check that invalid keys remain errors.
     signing = SigningOptions(
         origin="https://example.com",

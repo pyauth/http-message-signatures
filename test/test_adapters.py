@@ -1,9 +1,9 @@
-"""Shared helpers exercised against Requests and HTTPX containers."""
+"""Shared helpers exercised against Requests and HTTPX2 containers."""
 
 import hashlib
 import unittest
 
-import httpx
+import httpx2
 import requests
 from http_sf.compat import Dictionary
 from urllib3 import HTTPResponse
@@ -19,7 +19,7 @@ from http_message_signatures import (
     algorithms,
 )
 from http_message_signatures.components import component_map
-from http_message_signatures.httpx import adapt_message
+from http_message_signatures.httpx2 import adapt_message
 from http_message_signatures.messages import HeaderFields, Request, Response
 
 
@@ -68,12 +68,12 @@ class TestSharedUtilities(unittest.TestCase):
         self.assertFalse(ContentDigest.verify_components({'"content-digest";req': value}, request.body))
         ContentDigest.verify(ContentDigest.create(b"hello").encode("ascii"), b"hello")
 
-    def test_requests_raw_response_preserves_httpx_signature(self):
+    def test_requests_raw_response_preserves_httpx2_signature(self):
         signer, verifier = handlers()
         request = requests.Request("GET", "https://example.com/").prepare()
-        outgoing = httpx.Response(
+        outgoing = httpx2.Response(
             200,
-            request=httpx.Request(request.method, request.url),
+            request=httpx2.Request(request.method, request.url),
             content=b"hello",
             headers=[(b"Set-Cookie", b"one=1"), (b"Set-Cookie", b"two=2"), (b"Example", b"caf\xc3\xa9")],
         )
@@ -103,7 +103,7 @@ class TestSharedUtilities(unittest.TestCase):
             message.headers["Example"] = "modified"
 
     def test_header_view_tracks_mutations(self):
-        headers = httpx.Headers([("Example", "first"), ("Example", "second")])
+        headers = httpx2.Headers([("Example", "first"), ("Example", "second")])
         fields = HeaderFields.from_raw(lambda: headers.raw, writable=headers)
         self.assertEqual(list(fields.items()), [("Example", "first"), ("Example", "second")])
         fields["Example"] = "replacement"

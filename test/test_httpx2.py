@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from http_sf.compat import Dictionary
 
@@ -19,7 +19,7 @@ from http_message_signatures import (
     algorithms,
 )
 from http_message_signatures.exceptions import InvalidSignature
-from http_message_signatures.httpx import (
+from http_message_signatures.httpx2 import (
     SignatureHooks,
     SignatureHooksMode,
     SigningOptions,
@@ -37,7 +37,7 @@ VERIFY_OPTIONS = VerificationOptions(
 )
 
 
-class SyncBody(httpx.SyncByteStream):
+class SyncBody(httpx2.SyncByteStream):
     def __init__(self, body):
         self.body = body
         self.closed = False
@@ -52,7 +52,7 @@ class SyncBody(httpx.SyncByteStream):
         self.closed = True
 
 
-class AsyncBody(httpx.AsyncByteStream):
+class AsyncBody(httpx2.AsyncByteStream):
     def __init__(self, body):
         self.body = body
         self.closed = False
@@ -87,7 +87,7 @@ class SignatureTestCase(unittest.TestCase):
         self, request, body=b'{"ok":true}', *, async_mode=False, headers=(), components=("@status",), **options
     ):
         stream = AsyncBody(body) if async_mode else SyncBody(body)
-        response = httpx.Response(200, request=request, headers=headers, stream=stream)
+        response = httpx2.Response(200, request=request, headers=headers, stream=stream)
         self.signer.sign(
             adapt_message(response), key_id="server", covered_component_ids=components, body=body, **options
         )
@@ -179,13 +179,13 @@ class TestContentDigest(SignatureTestCase):
 
         signer = Signer(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=self.keys)
         for body in (None, b"hello"):
-            request = httpx.Request("POST", ORIGIN, content=b"hello")
+            request = httpx2.Request("POST", ORIGIN, content=b"hello")
             signer.sign(adapt_message(request), key_id="client", body=body)
             self.verifier.verify(adapt_message(request), body=body)
         self.assertEqual(received, [None, b"hello"])
 
     def test_base_body_signing_is_opt_in(self):
-        request = httpx.Request("POST", ORIGIN, content=b"hello")
+        request = httpx2.Request("POST", ORIGIN, content=b"hello")
         message = adapt_message(request)
         self.signer.sign(message, key_id="client")
         self.assertNotIn("content-digest", request.headers)
@@ -200,7 +200,7 @@ class TestContentDigest(SignatureTestCase):
         self.assertNotIn("expires", result.parameters)
 
     def test_required_components_use_semantic_parameter_identity(self):
-        request = httpx.Request("POST", ORIGIN, content=b"hello")
+        request = httpx2.Request("POST", ORIGIN, content=b"hello")
         message = adapt_message(request)
         self.signer.sign(
             message,
@@ -219,15 +219,15 @@ class TestContentDigest(SignatureTestCase):
             self.verifier.verify(message, require_components=("@method", '"@method"'))
 
     def test_response_request_digest_does_not_cover_response_body(self):
-        request = httpx.Request("POST", ORIGIN, content=b"request")
+        request = httpx2.Request("POST", ORIGIN, content=b"request")
         self.signer.sign(adapt_message(request), key_id="client", body=request.content)
-        response = httpx.Response(200, request=request, content=b"response")
+        response = httpx2.Response(200, request=request, content=b"response")
         self.signer.sign(adapt_message(response), key_id="server", covered_component_ids=('"content-digest";req',))
         with self.assertRaisesRegex(InvalidSignature, "signed Content-Digest"):
             self.verifier.verify(adapt_message(response), body=response.content)
 
     def test_empty_body_and_unsigned_digest(self):
-        response = httpx.Response(204, request=httpx.Request("GET", ORIGIN), content=b"")
+        response = httpx2.Response(204, request=httpx2.Request("GET", ORIGIN), content=b"")
         message = adapt_message(response)
         self.signer.sign(message, key_id="server", covered_component_ids=("@status",))
         self.assertIsNone(self.verifier.verify(message, body=b"")[0].body)
@@ -236,7 +236,7 @@ class TestContentDigest(SignatureTestCase):
             self.verifier.verify(message, body=b"")
 
     def test_each_selected_signature_must_cover_body(self):
-        response = httpx.Response(200, request=httpx.Request("GET", ORIGIN), content=b"hello")
+        response = httpx2.Response(200, request=httpx2.Request("GET", ORIGIN), content=b"hello")
         message = adapt_message(response)
         self.signer.sign(message, key_id="server", body=b"hello", covered_component_ids=("@status",), tag="api")
         self.signer.sign(
@@ -270,10 +270,10 @@ class TestSignatureHooks(SignatureTestCase):
             result = self.verifier.verify(adapt_message(request), body=request.content, expect_tag="out")[0]
             self.assertEqual(result.body, b"hello")
             self.assertNotIn("alg", result.parameters)
-            return httpx.Response(200, headers={"Signature": "invalid", "Content-Digest": "invalid"}, stream=stream)
+            return httpx2.Response(200, headers={"Signature": "invalid", "Content-Digest": "invalid"}, stream=stream)
 
         with (
-            httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client,
+            httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client,
             client.stream("POST", ORIGIN, content=SyncBody(b"hello")) as response,
         ):
             self.assertFalse(response.is_stream_consumed)
@@ -309,7 +309,7 @@ class TestSignatureHooks(SignatureTestCase):
             streams.append(response.stream)
             return response
 
-        with httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+        with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
             with client.stream("POST", ORIGIN, content=b"unsigned request") as response:
                 self.assertTrue(response.is_stream_consumed)
                 self.assertEqual(response.extensions["http_message_signatures"][0].body, b'{"ok":true}')
@@ -372,7 +372,7 @@ class TestSignatureHooks(SignatureTestCase):
             verify_options=VERIFY_OPTIONS,
         )
         upload = SyncBody(b"hello")
-        request = httpx.Request("POST", ORIGIN, stream=upload)
+        request = httpx2.Request("POST", ORIGIN, stream=upload)
         response = self.response(request)
         with self.assertRaisesRegex(HTTPMessageSignaturesException, "signing is disabled"):
             verify_only.sign_request(request)
@@ -399,7 +399,7 @@ class TestSignatureHooks(SignatureTestCase):
 
         event_hooks = hooks.event_hooks
         event_hooks["response"].append(consumer)
-        with httpx.Client(transport=httpx.MockTransport(server), event_hooks=event_hooks) as client:
+        with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=event_hooks) as client:
             response = client.post(ORIGIN, json={"hello": "world"})
         self.assertEqual(response.json(), {"ok": True})
         self.assertTrue(observed[0].closed)
@@ -408,8 +408,8 @@ class TestSignatureHooks(SignatureTestCase):
     def test_gzip_uses_encoded_digest_and_preserves_decoding(self):
         hooks = self.hooks()
         encoded = gzip.compress(b'{"ok":true}')
-        with httpx.Client(
-            transport=httpx.MockTransport(
+        with httpx2.Client(
+            transport=httpx2.MockTransport(
                 lambda request: self.response(request, encoded, headers={"Content-Encoding": "gzip"})
             ),
             event_hooks=hooks.event_hooks,
@@ -432,7 +432,7 @@ class TestSignatureHooks(SignatureTestCase):
         event_hooks = hooks.event_hooks
         event_hooks["response"].append(lambda response: consumed.append(response))
         with (
-            httpx.Client(transport=httpx.MockTransport(server), event_hooks=event_hooks) as client,
+            httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=event_hooks) as client,
             self.assertRaisesRegex(InvalidSignature, "does not match"),
         ):
             client.get(ORIGIN)
@@ -450,7 +450,7 @@ class TestSignatureHooks(SignatureTestCase):
             return response
 
         with (
-            httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client,
+            httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client,
             self.assertRaises(InvalidSignature),
         ):
             client.get(ORIGIN)
@@ -466,9 +466,9 @@ class TestSignatureHooks(SignatureTestCase):
             headers["Set-Cookie"] = "b=2; Path=/"
             message = SimpleNamespace(status_code=200, request=adapt_message(request), headers=headers)
             self.signer.sign(message, key_id="server", covered_component_ids=("@status", "set-cookie"), body=b"hello")
-            return httpx.Response(200, headers=list(headers.items()), stream=SyncBody(b"hello"))
+            return httpx2.Response(200, headers=list(headers.items()), stream=SyncBody(b"hello"))
 
-        with httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+        with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
             response = client.get(ORIGIN)
         result = response.extensions["http_message_signatures"][0]
         self.assertIn('"set-cookie";bs', result.covered_components)
@@ -476,7 +476,7 @@ class TestSignatureHooks(SignatureTestCase):
         self.assertEqual(response.headers["set-cookie"], "a=1; Path=/, b=2; Path=/")
 
     def test_raw_header_bytes_and_request_context(self):
-        request = httpx.Request("GET", ORIGIN, headers=[(b"Example", b"caf\xc3\xa9"), (b"Example", b"second")])
+        request = httpx2.Request("GET", ORIGIN, headers=[(b"Example", b"caf\xc3\xa9"), (b"Example", b"second")])
         message = adapt_message(request)
         self.signer.sign(message, key_id="client", covered_component_ids=('"example";bs',))
         headers = HTTPMessage()
@@ -489,7 +489,7 @@ class TestSignatureHooks(SignatureTestCase):
         self.assertIn('"example";req;bs', response.extensions["http_message_signatures"][0].covered_components)
 
     def test_repeated_field_normalization_and_signature_fields(self):
-        request = httpx.Request("GET", ORIGIN, headers=[("Example", " one "), ("Example", "\ttwo\t")])
+        request = httpx2.Request("GET", ORIGIN, headers=[("Example", " one "), ("Example", "\ttwo\t")])
         message = adapt_message(request)
         self.signer.sign(message, key_id="client", covered_component_ids=("example",), tag="test")
         self.signer.sign(
@@ -503,7 +503,7 @@ class TestSignatureHooks(SignatureTestCase):
         # Two dictionary members carried in separate original field lines.
         inputs = self.signer._parse_signature_dictionary(request.headers["Signature-Input"])
         signatures = self.signer._parse_signature_dictionary(request.headers["Signature"])
-        request.headers = httpx.Headers(
+        request.headers = httpx2.Headers(
             [
                 ("Example", " one "),
                 ("Example", "\ttwo\t"),
@@ -533,8 +533,8 @@ class TestSignatureHooks(SignatureTestCase):
                 )
             return response
 
-        with httpx.Client(
-            transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks, follow_redirects=True
+        with httpx2.Client(
+            transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks, follow_redirects=True
         ) as client:
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"):
                 client.post(ORIGIN, content=b"original")
@@ -546,12 +546,12 @@ class TestSignatureHooks(SignatureTestCase):
         hooks = self.hooks()
         stream = SyncBody(b"secret")
         with self.assertRaises(HTTPMessageSignaturesException):
-            hooks.sign_request(httpx.Request("POST", "https://other.example/", stream=stream))
+            hooks.sign_request(httpx2.Request("POST", "https://other.example/", stream=stream))
         self.assertEqual(stream.reads, 0)
         for destination in ("http://example.com", "https://example.com:8443"):
             with self.subTest(destination=destination), self.assertRaises(HTTPMessageSignaturesException):
-                hooks.sign_request(httpx.Request("GET", destination))
-        hooks.sign_request(httpx.Request("GET", "https://example.com:443/"))
+                hooks.sign_request(httpx2.Request("GET", destination))
+        hooks.sign_request(httpx2.Request("GET", "https://example.com:443/"))
 
     def test_streamed_upload_redirect_refuses_inherited_digest(self):
         upload = SyncBody(b"streamed upload")
@@ -569,8 +569,8 @@ class TestSignatureHooks(SignatureTestCase):
             return response
 
         with (
-            httpx.Client(
-                transport=httpx.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
+            httpx2.Client(
+                transport=httpx2.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
             ) as client,
             self.assertRaisesRegex(HTTPMessageSignaturesException, "already present"),
         ):
@@ -592,8 +592,8 @@ class TestSignatureHooks(SignatureTestCase):
             return response
 
         with (
-            httpx.Client(
-                transport=httpx.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
+            httpx2.Client(
+                transport=httpx2.MockTransport(server), event_hooks=self.hooks().event_hooks, follow_redirects=True
             ) as client,
             self.assertRaises(HTTPMessageSignaturesException),
         ):
@@ -616,7 +616,7 @@ class TestSignatureHooks(SignatureTestCase):
                 "require_components": ("@status",),
             },
         )
-        request = httpx.Request("GET", ORIGIN)
+        request = httpx2.Request("GET", ORIGIN)
         hooks.sign_request(request)
         result = self.verifier.verify(adapt_message(request), expect_tag="outgoing-api")[0]
         self.assertEqual(result.label, "outgoing")
@@ -634,7 +634,7 @@ class TestSignatureHooks(SignatureTestCase):
             sent = []
             with (
                 self.subTest(option=name),
-                httpx.Client(transport=httpx.MockTransport(sent.append), event_hooks=hooks.event_hooks) as client,
+                httpx2.Client(transport=httpx2.MockTransport(sent.append), event_hooks=hooks.event_hooks) as client,
                 self.assertRaisesRegex(TypeError, rf"HTTPMessageSigner.sign\(\).*'{name}'"),
             ):
                 client.get(ORIGIN)
@@ -644,7 +644,7 @@ class TestSignatureHooks(SignatureTestCase):
         for name in ("max_ag", "tag", "include_alg", "key_id", "signing_key"):
             with self.subTest(option=name):
                 hooks = self.hooks(verify_options={name: None})
-                response = self.response(httpx.Request("GET", ORIGIN))
+                response = self.response(httpx2.Request("GET", ORIGIN))
                 stream = response.stream
                 with self.assertRaisesRegex(TypeError, rf"HTTPMessageVerifier.verify\(\).*'{name}'"):
                     hooks.verify_response(response)
@@ -669,7 +669,7 @@ class TestSignatureHooks(SignatureTestCase):
             sign_options=SIGN_OPTIONS,
             verify_options={**VERIFY_OPTIONS, "max_age": None},
         )
-        response = self.response(httpx.Request("GET", ORIGIN))
+        response = self.response(httpx2.Request("GET", ORIGIN))
         stream = response.stream
         with self.assertRaisesRegex(TypeError, r"Verifier.verify\(\).*'max_age'"):
             hooks.verify_response(response)
@@ -694,7 +694,7 @@ class TestSignatureHooks(SignatureTestCase):
         verification["max_age"] = timedelta(seconds=1)
         self.assertEqual(hooks.sign_options, {**SIGN_OPTIONS, "tag": "out", "nonce": None, "include_alg": False})
         self.assertEqual(hooks.verify_options, {**VERIFY_OPTIONS, "expect_tag": None, "max_age": None})
-        request = httpx.Request("GET", ORIGIN)
+        request = httpx2.Request("GET", ORIGIN)
         hooks.sign_request(request)
         self.verifier.verify(adapt_message(request), expect_tag="out", body=b"")
         hooks.verify_response(self.response(request, created=datetime(2020, 1, 1, tzinfo=timezone.utc)))
@@ -711,7 +711,7 @@ class TestSignatureHooks(SignatureTestCase):
 
         hooks = Hooks(sign_options=SIGN_OPTIONS, verify_options=VERIFY_OPTIONS)
         response = self.response(
-            httpx.Request("GET", ORIGIN), created=datetime.now(timezone.utc) - timedelta(minutes=1)
+            httpx2.Request("GET", ORIGIN), created=datetime.now(timezone.utc) - timedelta(minutes=1)
         )
         with self.assertRaises(InvalidSignature):
             hooks.verify_response(response)
@@ -737,20 +737,20 @@ class TestSignatureHooks(SignatureTestCase):
             sign_options={**SIGN_OPTIONS, "include_alg": False, "signing_context": "out"},
             verify_options={**VERIFY_OPTIONS, "max_age": None, "verification_context": "in"},
         )
-        request = httpx.Request("GET", ORIGIN)
+        request = httpx2.Request("GET", ORIGIN)
         hooks.sign_request(request)
         hooks.verify_response(self.response(request))
         self.assertEqual(observed[0], ("sign", "out", {"key_id": "client", "body": b"", "include_alg": False}))
         self.assertEqual(observed[1], ("verify", "in", {"max_age": None}))
         defaults = Hooks(sign_options=SIGN_OPTIONS, verify_options=VERIFY_OPTIONS)
-        request = httpx.Request("GET", ORIGIN)
+        request = httpx2.Request("GET", ORIGIN)
         defaults.sign_request(request)
         defaults.verify_response(self.response(request))
         self.assertEqual(observed[2], ("sign", None, {"key_id": "client", "body": b""}))
         self.assertEqual(observed[3], ("verify", None, {}))
         with self.assertRaisesRegex(TypeError, r"HTTPMessageSigner.sign\(\).*'max_ag'"):
             Hooks(sign_options={**SIGN_OPTIONS, "max_ag": None}, verify_options=VERIFY_OPTIONS).sign_request(
-                httpx.Request("GET", ORIGIN)
+                httpx2.Request("GET", ORIGIN)
             )
 
     def test_asymmetric_keys_and_untrusted_key_id(self):
@@ -768,11 +768,11 @@ class TestSignatureHooks(SignatureTestCase):
         )
         signer = HTTPMessageSigner(signature_algorithm=algorithms.ED25519, key_resolver=keys)
         verifier = HTTPMessageVerifier(signature_algorithm=algorithms.ED25519, key_resolver=keys)
-        request = httpx.Request("POST", ORIGIN, content=b"hello")
+        request = httpx2.Request("POST", ORIGIN, content=b"hello")
         hooks.sign_request(request)
         verifier.verify(adapt_message(request), body=request.content)
         for key_id in ("server", "unknown"):
-            response = httpx.Response(200, request=request, content=b"ok")
+            response = httpx2.Response(200, request=request, content=b"ok")
             signer.sign(adapt_message(response), key_id=key_id, body=b"ok", covered_component_ids=("@status",))
             if key_id == "server":
                 hooks.verify_response(response)
@@ -802,7 +802,7 @@ class TestSignatureHooks(SignatureTestCase):
                     if request.url.path == "/wrong-algorithm":
                         return self.response(request, async_mode=async_mode)
                     stream = AsyncBody(b"response") if async_mode else SyncBody(b"response")
-                    response = httpx.Response(200, request=request, stream=stream)
+                    response = httpx2.Response(200, request=request, stream=stream)
                     server_signer.sign(
                         adapt_message(response), key_id="server", covered_component_ids=("@status",), body=b"response"
                     )
@@ -811,8 +811,8 @@ class TestSignatureHooks(SignatureTestCase):
                 if async_mode:
 
                     async def run(hooks, server):
-                        async with httpx.AsyncClient(
-                            transport=httpx.MockTransport(server), event_hooks=hooks.async_event_hooks
+                        async with httpx2.AsyncClient(
+                            transport=httpx2.MockTransport(server), event_hooks=hooks.async_event_hooks
                         ) as client:
                             response = await client.post(ORIGIN, content=b"request")
                             with self.assertRaises(InvalidSignature):
@@ -821,7 +821,7 @@ class TestSignatureHooks(SignatureTestCase):
 
                     response = asyncio.run(run(hooks, server))
                 else:
-                    with httpx.Client(transport=httpx.MockTransport(server), event_hooks=hooks.event_hooks) as client:
+                    with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=hooks.event_hooks) as client:
                         response = client.post(ORIGIN, content=b"request")
                         with self.assertRaises(InvalidSignature):
                             client.post(ORIGIN + "/wrong-algorithm", content=b"request")
@@ -831,15 +831,15 @@ class TestSignatureHooks(SignatureTestCase):
     def test_each_operation_checks_its_own_origin(self):
         verification_origin = "https://other.example"
         hooks = self.hooks(verify_options={"origin": verification_origin})
-        hooks.sign_request(httpx.Request("GET", ORIGIN))
-        response = self.response(httpx.Request("GET", verification_origin))
+        hooks.sign_request(httpx2.Request("GET", ORIGIN))
+        response = self.response(httpx2.Request("GET", verification_origin))
         hooks.verify_response(response)
         self.assertIn("http_message_signatures", response.extensions)
         upload = SyncBody(b"secret")
         with self.assertRaises(HTTPMessageSignaturesException):
-            hooks.sign_request(httpx.Request("POST", verification_origin, stream=upload))
+            hooks.sign_request(httpx2.Request("POST", verification_origin, stream=upload))
         self.assertEqual(upload.reads, 0)
-        response = self.response(httpx.Request("GET", ORIGIN))
+        response = self.response(httpx2.Request("GET", ORIGIN))
         stream = response.stream
         with self.assertRaises(HTTPMessageSignaturesException):
             hooks.verify_response(response)
@@ -852,20 +852,20 @@ class TestSignatureHooks(SignatureTestCase):
 
     def test_buffered_response_and_unrecoverable_encoded_response(self):
         hooks = self.hooks()
-        request = httpx.Request("GET", ORIGIN)
-        response = httpx.Response(200, request=request, content=b"hello")
+        request = httpx2.Request("GET", ORIGIN)
+        response = httpx2.Response(200, request=request, content=b"hello")
         self.signer.sign(adapt_message(response), key_id="server", body=b"hello", covered_component_ids=("@status",))
         hooks.verify_response(response)
         encoded = gzip.compress(b"hello")
-        response = httpx.Response(200, request=request, headers={"Content-Encoding": "gzip"}, content=encoded)
+        response = httpx2.Response(200, request=request, headers={"Content-Encoding": "gzip"}, content=encoded)
         self.signer.sign(adapt_message(response), key_id="server", body=encoded, covered_component_ids=("@status",))
         with self.assertRaisesRegex(InvalidSignature, "already consumed"):
             hooks.verify_response(response)
 
     def test_stream_api_is_buffered_before_yield(self):
         with (
-            httpx.Client(
-                transport=httpx.MockTransport(lambda request: self.response(request)),
+            httpx2.Client(
+                transport=httpx2.MockTransport(lambda request: self.response(request)),
                 event_hooks=self.hooks().event_hooks,
             ) as client,
             client.stream("GET", ORIGIN) as response,
@@ -877,7 +877,7 @@ class TestSignatureHooks(SignatureTestCase):
     def test_empty_responses_and_signed_errors(self):
         for method, status, body in (("HEAD", 200, b""), ("GET", 204, b""), ("GET", 304, b""), ("GET", 400, b"error")):
             with self.subTest(method=method, status=status):
-                request = httpx.Request(method, ORIGIN)
+                request = httpx2.Request(method, ORIGIN)
                 response = self.response(request, body)
                 response.status_code = status
                 self.signer.sign(
@@ -892,7 +892,7 @@ class TestSignatureHooks(SignatureTestCase):
             response.headers["Signature"] = "bad"
             return response
 
-        with httpx.Client(transport=httpx.MockTransport(server), event_hooks=self.hooks().event_hooks) as client:
+        with httpx2.Client(transport=httpx2.MockTransport(server), event_hooks=self.hooks().event_hooks) as client:
             with self.assertRaises(InvalidSignature):
                 client.get(ORIGIN)
             self.assertEqual(client.cookies.get("session"), "unverified")
@@ -910,11 +910,11 @@ class TestAsyncSignatureHooks(SignatureTestCase):
             async def unsigned_server(request):
                 result = self.verifier.verify(adapt_message(request), body=request.content, expect_tag="out")[0]
                 self.assertEqual(result.body, b"hello")
-                return httpx.Response(200, stream=unsigned_stream)
+                return httpx2.Response(200, stream=unsigned_stream)
 
             async with (
-                httpx.AsyncClient(
-                    transport=httpx.MockTransport(unsigned_server), event_hooks=sign_only.async_event_hooks
+                httpx2.AsyncClient(
+                    transport=httpx2.MockTransport(unsigned_server), event_hooks=sign_only.async_event_hooks
                 ) as client,
                 client.stream("POST", ORIGIN, content=AsyncBody(b"hello")) as response,
             ):
@@ -934,14 +934,14 @@ class TestAsyncSignatureHooks(SignatureTestCase):
                     request, gzip.compress(b"hello"), async_mode=True, headers={"Content-Encoding": "gzip"}, tag="in"
                 )
 
-            async with httpx.AsyncClient(
-                transport=httpx.MockTransport(signed_server), event_hooks=verify_only.async_event_hooks
+            async with httpx2.AsyncClient(
+                transport=httpx2.MockTransport(signed_server), event_hooks=verify_only.async_event_hooks
             ) as client:
                 response = await client.get(ORIGIN)
                 self.assertEqual(response.content, b"hello")
                 self.assertEqual(gzip.decompress(response.extensions["http_message_signatures"][0].body), b"hello")
             upload = AsyncBody(b"unused")
-            request = httpx.Request("POST", ORIGIN, stream=upload)
+            request = httpx2.Request("POST", ORIGIN, stream=upload)
             response = self.response(request, async_mode=True)
             with self.assertRaisesRegex(HTTPMessageSignaturesException, "signing is disabled"):
                 await verify_only.sign_request_async(request)
@@ -972,8 +972,8 @@ class TestAsyncSignatureHooks(SignatureTestCase):
                 streams.append(response.stream)
                 return response
 
-            async with httpx.AsyncClient(
-                transport=httpx.MockTransport(server), event_hooks=hooks.async_event_hooks
+            async with httpx2.AsyncClient(
+                transport=httpx2.MockTransport(server), event_hooks=hooks.async_event_hooks
             ) as client:
                 responses = await asyncio.gather(
                     *(client.post(ORIGIN, content=AsyncBody(str(i).encode())) for i in range(6))
@@ -997,8 +997,8 @@ class TestAsyncSignatureHooks(SignatureTestCase):
                 streams.append(response.stream)
                 return response
 
-            async with httpx.AsyncClient(
-                transport=httpx.MockTransport(server), event_hooks=self.hooks().async_event_hooks
+            async with httpx2.AsyncClient(
+                transport=httpx2.MockTransport(server), event_hooks=self.hooks().async_event_hooks
             ) as client:
                 with self.assertRaises(InvalidSignature):
                     await client.get(ORIGIN)
@@ -1013,7 +1013,7 @@ class TestAsyncSignatureHooks(SignatureTestCase):
                 raise asyncio.CancelledError()
 
         async def run():
-            request = httpx.Request("GET", ORIGIN)
+            request = httpx2.Request("GET", ORIGIN)
             response = self.response(request, async_mode=True)
             stream = CancelledBody(b"")
             response.stream = stream
