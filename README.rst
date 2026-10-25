@@ -20,6 +20,9 @@ Installation
 Synopsis
 --------
 
+Pass ``covered_component_ids`` to choose which components the signer covers. This example adds Content-Type to the
+default request components and explicitly includes Content-Digest:
+
 .. code-block:: python
 
     import requests
@@ -38,7 +41,12 @@ Synopsis
     request = request.prepare()
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    signer.sign(request, key_id="my-key", body=request.body)
+    signer.sign(
+        request,
+        key_id="my-key",
+        covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest"),
+        body=request.body,
+    )
 
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request, body=request.body)
