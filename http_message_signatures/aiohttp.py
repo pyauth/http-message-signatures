@@ -12,7 +12,7 @@ from aiohttp.abc import AbstractStreamWriter
 from aiohttp.base_protocol import BaseProtocol
 from aiohttp.compression_utils import ZLibCompressor
 from aiohttp.http_exceptions import ContentEncodingError
-from aiohttp.http_parser import HeadersParser, HttpPayloadParser
+from aiohttp.http_parser import HeadersParser, HttpPayloadParser, HttpResponseParser, HttpResponseParserPy
 from aiohttp.payload import BytesPayload, Payload
 from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
@@ -82,8 +82,8 @@ class _BodyWriter(AbstractStreamWriter):
 
 
 class _CompressedPayload(BytesPayload):
-    def __init__(self, body: bytes, content_encoding: str, content_type: str | None):
-        super().__init__(body, content_type=content_type)
+    def __init__(self, body: bytes, content_encoding: str, headers: CIMultiDict[str]):
+        super().__init__(body, headers=headers)
         self.content_encoding = content_encoding
 
 
@@ -99,10 +99,12 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
     # aiohttp resolves compress=True to an encoding name before middleware runs.
     encoding = cast(str, request.compress) if request.compress else None
     compressor = ZLibCompressor(encoding=encoding) if encoding else None
+    # Use aiohttp's validation and the same limit as ClientRequest.write_bytes().
+    content_length = request._get_content_length()
     with BytesIO() as content:
         writer = _BodyWriter(content, compressor)
         if isinstance(payload, Payload):
-            await payload.write_with_length(writer, None)
+            await payload.write_with_length(writer, content_length)
         else:
             await writer.write(payload)
         if compressor is not None:
@@ -111,10 +113,13 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
         body = content.getvalue()
 
     if encoding:
-        await request.update_body(_CompressedPayload(body, encoding, request.headers.get("Content-Type")))
+        headers = payload.headers if isinstance(payload, Payload) else CIMultiDict()
+        await request.update_body(_CompressedPayload(body, encoding, headers))
         request.compress = None
     elif isinstance(payload, Payload):
-        await request.update_body(body)
+        await request.update_body(BytesPayload(body, headers=payload.headers))
+        if content_length is not None:
+            request.headers["Content-Length"] = str(content_length)
     return body
 
 
@@ -136,7 +141,9 @@ def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.S
     loop = asyncio.get_running_loop()
     limit, _ = response.content.get_read_buffer_limits()
     content = aiohttp.StreamReader(_BufferedProtocol(loop), limit, loop=loop)
-    encoding = response.headers.get("Content-Encoding", "").strip().lower()
+    # Match the active aiohttp parser: Python selects the first field, C the last.
+    encodings = response.headers.getall("Content-Encoding", ("",))
+    encoding = encodings[0 if HttpResponseParser is HttpResponseParserPy else -1].lower()
     try:
         parser = HttpPayloadParser(
             content,
@@ -151,6 +158,12 @@ def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.S
     return content
 
 
+class _ProxyRequest(_Request):
+    @property
+    def request_target(self) -> str:
+        return self.url
+
+
 def _request_view(request: aiohttp.ClientRequest) -> _Request:
     # aiohttp writes header values as UTF-8. This adapter converts those bytes
     # to Latin-1 strings so HTTPSignatureComponentResolver can recover them
@@ -162,7 +175,10 @@ def _request_view(request: aiohttp.ClientRequest) -> _Request:
         ),
         writable=request.headers,
     )
-    return _Request(method=request.method, url=str(request.url), headers=headers)
+    # ClientRequest.send() uses absolute form for HTTP forward proxies;
+    # HTTPS tunnels and CONNECT retain the resolver's normal target forms.
+    view = _ProxyRequest if request.proxy and not request.is_ssl() and request.method != "CONNECT" else _Request
+    return view(method=request.method, url=str(request.url), headers=headers)
 
 
 class SignatureMiddleware(_SignatureAdapter):
@@ -301,7 +317,14 @@ class SignatureMiddleware(_SignatureAdapter):
         except BaseException:
             if response is not None:
                 response.close()
-            await request.close()
+            try:
+                await request.close()
+            finally:
+                # ClientRequest.close() waits for its writer, but does not close
+                # a payload whose preparation failed before that writer started.
+                payload = request.body
+                if isinstance(payload, Payload):
+                    await payload.close()
             raise
 
     def verification_results(self, response: aiohttp.ClientResponse) -> list[VerifyResult]:

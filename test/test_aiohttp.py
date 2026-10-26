@@ -3,6 +3,7 @@ import gzip
 import io
 import unittest
 import zlib
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import aiohttp
@@ -46,7 +47,12 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
     async def dispatch(self, request):
         body = await request.read()
-        view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
+        view = SimpleNamespace(
+            method=request.method,
+            url=str(request.url),
+            headers=_HeaderFields.from_raw(lambda: request.raw_headers),
+            request_target=request.raw_path,
+        )
         if "Signature" in request.headers:
             self.verifier.verify(view, body=body)
         self.requests.append((request, body))
@@ -66,7 +72,12 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         response.content_type = "application/json"
         if encoding:
             response.headers["Content-Encoding"] = encoding
-        request_view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
+        request_view = SimpleNamespace(
+            method=request.method,
+            url=str(request.url),
+            headers=_HeaderFields.from_raw(lambda: request.raw_headers),
+            request_target=request.raw_path,
+        )
         fields = _HeaderFields(
             lambda: ((name, value.encode("utf-8").decode("latin-1")) for name, value in response.headers.items()),
             writable=response.headers,
@@ -181,6 +192,36 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                 await client.get(self.origin)
             self.assertFalse(client.cookie_jar)
 
+    async def test_repeated_content_encoding_matches_native_aiohttp(self):
+        encoded = gzip.compress(PLAIN)
+        encodings = ()
+
+        async def endpoint(request):
+            return await self.signed_response(
+                request,
+                encoded,
+                headers=[("Content-Encoding", encoding) for encoding in encodings],
+                components=("@status", '"content-encoding";bs'),
+            )
+
+        self.endpoint = endpoint
+        middleware = self.middleware(
+            SignatureMiddlewareMode.VERIFY_RESPONSE,
+            verify_options={"require_components": ("@status", '"content-encoding";bs')},
+        )
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as verified,
+        ):
+            for encodings in (("identity", "gzip"), ("gzip", "identity"), ("gzip", "gzip")):
+                with self.subTest(encodings=encodings):
+                    async with native.get(self.origin) as response:
+                        expected = await response.read()
+                    async with verified.get(self.origin) as response:
+                        self.assertEqual(await response.read(), expected)
+                        self.assertEqual(tuple(response.headers.getall("Content-Encoding")), encodings)
+                        self.assertEqual(middleware.verification_results(response)[0].body, encoded)
+
     async def test_decoded_streams_large_bodies_and_connection_reuse(self):
         plain = b"buffered content\n" * 100000
         for encoding, encode in ((None, lambda b: b), ("gzip", gzip.compress), ("deflate", zlib.compress)):
@@ -273,6 +314,30 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(body, expected)
                         for header in ("Content-Type", "Content-Encoding", "Content-Length", "Transfer-Encoding"):
                             self.assertEqual(request.headers.get(header), original.headers.get(header))
+                        ContentDigest.verify(request.headers["Content-Digest"], body)
+
+    async def test_explicit_content_length_matches_native_aiohttp(self):
+        async def chunks():
+            yield b"ab"
+            yield b"cdef"
+
+        middleware = self.middleware()
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as signed,
+        ):
+            for length in (0, 3, 6):
+                for make_body in (lambda: b"abcdef", lambda: io.BytesIO(b"abcdef"), chunks):
+                    with self.subTest(length=length, body=make_body):
+                        for client in (native, signed):
+                            async with client.post(
+                                self.origin, data=make_body(), headers={"Content-Length": str(length)}
+                            ) as response:
+                                await response.read()
+                        (original, expected), (request, body) = self.requests[-2:]
+                        self.assertEqual(body, expected)
+                        self.assertEqual(body, b"abcdef"[:length])
+                        self.assertEqual(request.headers["Content-Length"], original.headers["Content-Length"])
                         ContentDigest.verify(request.headers["Content-Digest"], body)
 
     async def test_empty_compressed_stream(self):
@@ -399,24 +464,64 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                             first = gzip.decompress(first) if compression == "gzip" else zlib.decompress(first)
                         self.assertEqual(first, b"redirected upload")
 
-    async def test_compressed_redirect_preserves_content_type(self):
+    async def test_redirect_preserves_payload_headers(self):
         async def endpoint(request):
             if request.path == "/redirect":
-                return await self.signed_response(request, status=307, headers={"Location": "/destination"})
+                return await self.signed_response(request, status=status, headers={"Location": "/destination"})
             return await self.signed_response(request)
 
+        def multipart():
+            payload = aiohttp.MultipartWriter("mixed", boundary="test-boundary")
+            payload.append(PLAIN)
+            return payload
+
         self.endpoint = endpoint
-        middleware = self.middleware(
-            sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type", "content-encoding")}
+        middleware = self.middleware(sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type")})
+        factories = (
+            lambda: aiohttp.JsonPayload({"message": "hello"}),
+            multipart,
+            lambda: aiohttp.BytesPayload(PLAIN, content_type="application/custom", headers={"X-Payload": "metadata"}),
         )
-        async with (
-            aiohttp.ClientSession(**middleware.session_kwargs) as client,
-            client.post(self.origin + "/redirect", json={"message": "hello"}, compress="gzip") as response,
-        ):
-            await response.read()
-        for request, body in self.requests:
-            self.assertEqual(request.headers["Content-Type"], "application/json")
-            self.assertEqual(gzip.decompress(body), b'{"message": "hello"}')
+        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+            for status in (307, 308):
+                for compression in (None, "gzip", "deflate"):
+                    for make_payload in factories:
+                        payload = make_payload()
+                        with self.subTest(status=status, compression=compression, content_type=payload.content_type):
+                            async with client.post(
+                                self.origin + "/redirect", data=payload, compress=compression
+                            ) as response:
+                                await response.read()
+                            (first, original), (second, replayed) = self.requests[-2:]
+                            self.assertEqual(original, replayed)
+                            for name, value in payload.headers.items():
+                                self.assertEqual(first.headers[name], value)
+                                self.assertEqual(second.headers[name], value)
+
+    async def test_forward_proxy_request_target_and_response_binding(self):
+        components = ("@status", '"@request-target";req')
+
+        async def endpoint(request):
+            return await self.signed_response(request, components=components)
+
+        self.endpoint = endpoint
+        for proxy in (None, self.origin):
+            origin = "http://target.example" if proxy else self.origin
+            path = "/resource%2Fname?x=1&x=2"
+            middleware = self.middleware(
+                sign_options={"origin": origin, "covered_component_ids": ("@method", "@request-target")},
+                verify_options={"origin": origin, "require_components": components},
+            )
+            with self.subTest(proxy=proxy):
+                async with (
+                    aiohttp.ClientSession(**middleware.session_kwargs) as client,
+                    client.post(origin + path, data=PLAIN, proxy=proxy) as response,
+                ):
+                    result = middleware.verification_results(response)[0]
+                    target = origin + path if proxy else path
+                    self.assertEqual(self.requests[-1][0].raw_path, target)
+                    self.assertEqual(result.covered_components['"@request-target";req'], target)
+                    self.assertEqual(await response.read(), PLAIN)
 
     async def test_cross_origin_redirect_is_blocked(self):
         async def endpoint(request):
@@ -560,7 +665,7 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                         )
                     self.assertTrue(payload.closed)
 
-    async def test_compression_failure_discards_partial_body_and_closes_payload(self):
+    async def test_buffering_failure_discards_partial_body_and_closes_payload(self):
         class FailingPayload(aiohttp.BytesPayload):
             closed = False
 
@@ -571,15 +676,23 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
             async def close(self):
                 self.closed = True
 
+        async def check_cleanup(request, handler):
+            try:
+                return await handler(request)
+            finally:
+                # Check before ClientSession's own error cleanup can hide a leak.
+                self.assertTrue(payload.closed)
+
         middleware = self.middleware()
-        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            for failure in (asyncio.CancelledError(), RuntimeError("upload failed")):
-                with self.subTest(failure=type(failure).__name__):
-                    payload = FailingPayload(b"body")
-                    with patch.object(ZLibCompressor, "flush") as flush, self.assertRaises(type(failure)):
-                        await client.post(self.origin, data=payload, compress="gzip")
-                    flush.assert_not_called()
-                    self.assertTrue(payload.closed)
+        options = {**middleware.session_kwargs, "middlewares": (check_cleanup, middleware)}
+        async with aiohttp.ClientSession(**options) as client:
+            for compression in (None, "gzip"):
+                for failure in (asyncio.CancelledError(), RuntimeError("upload failed")):
+                    with self.subTest(compression=compression, failure=type(failure).__name__):
+                        payload = FailingPayload(b"body")
+                        with patch.object(ZLibCompressor, "flush") as flush, self.assertRaises(type(failure)):
+                            await client.post(self.origin, data=payload, compress=compression)
+                        flush.assert_not_called()
         self.assertFalse(self.requests)
 
     async def test_unsigned_responses_and_unsigned_digests_are_rejected(self):
