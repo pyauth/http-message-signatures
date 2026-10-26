@@ -82,8 +82,8 @@ class _BodyWriter(AbstractStreamWriter):
 
 
 class _CompressedPayload(BytesPayload):
-    def __init__(self, body: bytes, content_encoding: str, content_type: str | None):
-        super().__init__(body, content_type=content_type)
+    def __init__(self, body: bytes, content_encoding: str, headers: CIMultiDict[str]):
+        super().__init__(body, headers=headers)
         self.content_encoding = content_encoding
 
 
@@ -113,10 +113,11 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
         body = content.getvalue()
 
     if encoding:
-        await request.update_body(_CompressedPayload(body, encoding, request.headers.get("Content-Type")))
+        headers = payload.headers if isinstance(payload, Payload) else CIMultiDict()
+        await request.update_body(_CompressedPayload(body, encoding, headers))
         request.compress = None
     elif isinstance(payload, Payload):
-        await request.update_body(body)
+        await request.update_body(BytesPayload(body, headers=payload.headers))
         if content_length is not None:
             request.headers["Content-Length"] = str(content_length)
     return body

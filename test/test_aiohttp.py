@@ -423,24 +423,39 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                             first = gzip.decompress(first) if compression == "gzip" else zlib.decompress(first)
                         self.assertEqual(first, b"redirected upload")
 
-    async def test_compressed_redirect_preserves_content_type(self):
+    async def test_redirect_preserves_payload_headers(self):
         async def endpoint(request):
             if request.path == "/redirect":
-                return await self.signed_response(request, status=307, headers={"Location": "/destination"})
+                return await self.signed_response(request, status=status, headers={"Location": "/destination"})
             return await self.signed_response(request)
 
+        def multipart():
+            payload = aiohttp.MultipartWriter("mixed", boundary="test-boundary")
+            payload.append(PLAIN)
+            return payload
+
         self.endpoint = endpoint
-        middleware = self.middleware(
-            sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type", "content-encoding")}
+        middleware = self.middleware(sign_options={"covered_component_ids": ("@method", "@target-uri", "content-type")})
+        factories = (
+            lambda: aiohttp.JsonPayload({"message": "hello"}),
+            multipart,
+            lambda: aiohttp.BytesPayload(PLAIN, content_type="application/custom", headers={"X-Payload": "metadata"}),
         )
-        async with (
-            aiohttp.ClientSession(**middleware.session_kwargs) as client,
-            client.post(self.origin + "/redirect", json={"message": "hello"}, compress="gzip") as response,
-        ):
-            await response.read()
-        for request, body in self.requests:
-            self.assertEqual(request.headers["Content-Type"], "application/json")
-            self.assertEqual(gzip.decompress(body), b'{"message": "hello"}')
+        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+            for status in (307, 308):
+                for compression in (None, "gzip", "deflate"):
+                    for make_payload in factories:
+                        payload = make_payload()
+                        with self.subTest(status=status, compression=compression, content_type=payload.content_type):
+                            async with client.post(
+                                self.origin + "/redirect", data=payload, compress=compression
+                            ) as response:
+                                await response.read()
+                            (first, original), (second, replayed) = self.requests[-2:]
+                            self.assertEqual(original, replayed)
+                            for name, value in payload.headers.items():
+                                self.assertEqual(first.headers[name], value)
+                                self.assertEqual(second.headers[name], value)
 
     async def test_cross_origin_redirect_is_blocked(self):
         async def endpoint(request):
