@@ -77,7 +77,15 @@ They also raise an error if you supply ``use_existing_digest=True`` with neither
  * parameters: A mapping of signature parameters to their values, as covered by the signature
  * body: Content bytes that the verifier validated against a signed digest, before decoding; otherwise ``None``.
 
-Three integrations are available: aiohttp, HTTPX2, and `Requests <https://github.com/pyauth/requests-http-signature>`_.
+Integrations
+------------
+
+Three integrations are available: `Requests <https://github.com/pyauth/requests-http-signature>`_, HTTPX2, and aiohttp.
+
+Requests
+~~~~~~~~
+
+See https://github.com/pyauth/requests-http-signature.
 
 HTTPX2 integration
 ~~~~~~~~~~~~~~~~~~
