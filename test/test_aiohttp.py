@@ -3,6 +3,7 @@ import gzip
 import io
 import unittest
 import zlib
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import aiohttp
@@ -46,7 +47,12 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
 
     async def dispatch(self, request):
         body = await request.read()
-        view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
+        view = SimpleNamespace(
+            method=request.method,
+            url=str(request.url),
+            headers=_HeaderFields.from_raw(lambda: request.raw_headers),
+            request_target=request.raw_path,
+        )
         if "Signature" in request.headers:
             self.verifier.verify(view, body=body)
         self.requests.append((request, body))
@@ -66,7 +72,12 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         response.content_type = "application/json"
         if encoding:
             response.headers["Content-Encoding"] = encoding
-        request_view = _Request(request.method, str(request.url), _HeaderFields.from_raw(lambda: request.raw_headers))
+        request_view = SimpleNamespace(
+            method=request.method,
+            url=str(request.url),
+            headers=_HeaderFields.from_raw(lambda: request.raw_headers),
+            request_target=request.raw_path,
+        )
         fields = _HeaderFields(
             lambda: ((name, value.encode("utf-8").decode("latin-1")) for name, value in response.headers.items()),
             writable=response.headers,
@@ -456,6 +467,31 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                             for name, value in payload.headers.items():
                                 self.assertEqual(first.headers[name], value)
                                 self.assertEqual(second.headers[name], value)
+
+    async def test_forward_proxy_request_target_and_response_binding(self):
+        components = ("@status", '"@request-target";req')
+
+        async def endpoint(request):
+            return await self.signed_response(request, components=components)
+
+        self.endpoint = endpoint
+        for proxy in (None, self.origin):
+            origin = "http://target.example" if proxy else self.origin
+            path = "/resource%2Fname?x=1&x=2"
+            middleware = self.middleware(
+                sign_options={"origin": origin, "covered_component_ids": ("@method", "@request-target")},
+                verify_options={"origin": origin, "require_components": components},
+            )
+            with self.subTest(proxy=proxy):
+                async with (
+                    aiohttp.ClientSession(**middleware.session_kwargs) as client,
+                    client.post(origin + path, data=PLAIN, proxy=proxy) as response,
+                ):
+                    result = middleware.verification_results(response)[0]
+                    target = origin + path if proxy else path
+                    self.assertEqual(self.requests[-1][0].raw_path, target)
+                    self.assertEqual(result.covered_components['"@request-target";req'], target)
+                    self.assertEqual(await response.read(), PLAIN)
 
     async def test_cross_origin_redirect_is_blocked(self):
         async def endpoint(request):

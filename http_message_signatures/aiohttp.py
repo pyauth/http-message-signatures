@@ -156,6 +156,12 @@ def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.S
     return content
 
 
+class _ProxyRequest(_Request):
+    @property
+    def request_target(self) -> str:
+        return self.url
+
+
 def _request_view(request: aiohttp.ClientRequest) -> _Request:
     # aiohttp writes header values as UTF-8. This adapter converts those bytes
     # to Latin-1 strings so HTTPSignatureComponentResolver can recover them
@@ -167,7 +173,10 @@ def _request_view(request: aiohttp.ClientRequest) -> _Request:
         ),
         writable=request.headers,
     )
-    return _Request(method=request.method, url=str(request.url), headers=headers)
+    # ClientRequest.send() uses absolute form for HTTP forward proxies;
+    # HTTPS tunnels and CONNECT retain the resolver's normal target forms.
+    view = _ProxyRequest if request.proxy and not request.is_ssl() and request.method != "CONNECT" else _Request
+    return view(method=request.method, url=str(request.url), headers=headers)
 
 
 class SignatureMiddleware(_SignatureAdapter):
