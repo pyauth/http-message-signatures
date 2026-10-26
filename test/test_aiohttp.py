@@ -275,6 +275,30 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(request.headers.get(header), original.headers.get(header))
                         ContentDigest.verify(request.headers["Content-Digest"], body)
 
+    async def test_explicit_content_length_matches_native_aiohttp(self):
+        async def chunks():
+            yield b"ab"
+            yield b"cdef"
+
+        middleware = self.middleware()
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as signed,
+        ):
+            for length in (0, 3, 6):
+                for make_body in (lambda: b"abcdef", lambda: io.BytesIO(b"abcdef"), chunks):
+                    with self.subTest(length=length, body=make_body):
+                        for client in (native, signed):
+                            async with client.post(
+                                self.origin, data=make_body(), headers={"Content-Length": str(length)}
+                            ) as response:
+                                await response.read()
+                        (original, expected), (request, body) = self.requests[-2:]
+                        self.assertEqual(body, expected)
+                        self.assertEqual(body, b"abcdef"[:length])
+                        self.assertEqual(request.headers["Content-Length"], original.headers["Content-Length"])
+                        ContentDigest.verify(request.headers["Content-Digest"], body)
+
     async def test_empty_compressed_stream(self):
         async def chunks():
             yield b""

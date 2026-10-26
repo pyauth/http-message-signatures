@@ -99,10 +99,12 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
     # aiohttp resolves compress=True to an encoding name before middleware runs.
     encoding = cast(str, request.compress) if request.compress else None
     compressor = ZLibCompressor(encoding=encoding) if encoding else None
+    # Use aiohttp's validation and the same limit as ClientRequest.write_bytes().
+    content_length = request._get_content_length()
     with BytesIO() as content:
         writer = _BodyWriter(content, compressor)
         if isinstance(payload, Payload):
-            await payload.write_with_length(writer, None)
+            await payload.write_with_length(writer, content_length)
         else:
             await writer.write(payload)
         if compressor is not None:
@@ -115,6 +117,8 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
         request.compress = None
     elif isinstance(payload, Payload):
         await request.update_body(body)
+        if content_length is not None:
+            request.headers["Content-Length"] = str(content_length)
     return body
 
 
