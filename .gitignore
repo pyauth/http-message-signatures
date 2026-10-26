@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 /build/
 /dist/
+/.local/
 /docs/html/
 /.eggs/
 /*/version.py
