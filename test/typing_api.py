@@ -1,6 +1,8 @@
 """Public imports and result fields must retain their types for strict consumers."""
 
+import aiohttp
 import httpx2
+from aiohttp import web
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
 
@@ -20,6 +22,16 @@ from http_message_signatures import (
     VerifyResult,
     algorithms,
 )
+from http_message_signatures.aiohttp import (
+    ServerSignatureMiddleware,
+    ServerSignatureMiddlewareMode,
+    ServerSigningOptions,
+    ServerVerificationOptions,
+    SignatureMiddleware,
+    SignatureMiddlewareMode,
+)
+from http_message_signatures.aiohttp import SigningOptions as AiohttpSigningOptions
+from http_message_signatures.aiohttp import VerificationOptions as AiohttpVerificationOptions
 from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
     ED25519,
@@ -34,6 +46,47 @@ from http_message_signatures.httpx2 import (
     VerificationOptions,
     adapt_message,
 )
+
+
+async def aiohttp_example(keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
+    signatures = SignatureMiddleware(
+        SignatureMiddlewareMode.VERIFY_RESPONSE,
+        verify_options=AiohttpVerificationOptions(
+            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_resolver=keys
+        ),
+    )
+    async with (
+        aiohttp.ClientSession(**signatures.session_kwargs) as client,
+        client.get("https://example.com") as response,
+    ):
+        assert_type(await response.read(), bytes)
+        assert_type(signatures.mode, SignatureMiddlewareMode)
+        return signatures.verification_results(response)
+
+
+def aiohttp_server_example(keys: HTTPSignatureKeyResolver) -> web.Application:
+    signatures = ServerSignatureMiddleware(
+        ServerSignatureMiddlewareMode.VERIFY_REQUEST_SIGN_RESPONSE,
+        sign_options=ServerSigningOptions(
+            signature_algorithm=HMAC_SHA256,
+            key_id="server",
+            key_resolver=keys,
+            covered_component_ids=("@status",),
+        ),
+        verify_options=ServerVerificationOptions(signature_algorithm=HMAC_SHA256, key_resolver=keys),
+    )
+    assert_type(signatures.mode, ServerSignatureMiddlewareMode)
+
+    async def handler(request: web.Request) -> web.Response:
+        assert_type(signatures.verification_results(request), list[VerifyResult])
+        return web.Response(body=await request.read())
+
+    options = signatures.application_kwargs
+    options["handler_args"]["keepalive_timeout"] = 30.0
+    app = web.Application(**options)
+    app.router.add_post("/", handler)
+    app.on_response_prepare.append(signatures.on_response_prepare)
+    return app
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:
@@ -223,6 +276,15 @@ def use_adapted_messages(request: httpx2.Request, response: httpx2.Response) -> 
     assert_type(adapt_message(response).status_code, int)
     ContentDigest.add(view.headers, b"hello")
     assert_type(ContentDigest.verify_components({}, b"hello"), bool)
+
+
+def configure_aiohttp_signing(keys: HTTPSignatureKeyResolver) -> SignatureMiddleware:
+    return SignatureMiddleware(
+        SignatureMiddlewareMode.SIGN_REQUEST,
+        sign_options=AiohttpSigningOptions(
+            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_id="client", key_resolver=keys
+        ),
+    )
 
 
 def reject_invalid_httpx2_resolvers(private_key: Ed25519PrivateKey, public_key: Ed25519PublicKey) -> None:

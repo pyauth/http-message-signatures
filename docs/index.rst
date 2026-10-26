@@ -15,6 +15,12 @@ HTTPX2
 .. automodule:: http_message_signatures.httpx2
    :members:
 
+aiohttp integration
+===================
+
+.. automodule:: http_message_signatures.aiohttp
+   :members:
+
 Algorithms
 ==========
 

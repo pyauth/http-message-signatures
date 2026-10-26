@@ -31,7 +31,8 @@ Homepage = "https://github.com/pyauth/http-message-signatures"
 
 [project.optional-dependencies]
 httpx2 = ["httpx2"]
-docs = ["sphinx >= 7", "furo", "sphinx-copybutton", "httpx2"]
+aiohttp = ["aiohttp >= 3.14"]
+docs = ["sphinx >= 7", "furo", "sphinx-copybutton", "httpx2", "aiohttp >= 3.14"]
 tests = [
     "coverage",
     "build",
@@ -40,6 +41,7 @@ tests = [
     "typing_extensions",
     "requests",
     "httpx2",
+    "aiohttp >= 3.14",
     "ruff",
 ]
 
