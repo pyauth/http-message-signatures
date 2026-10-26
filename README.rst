@@ -333,7 +333,6 @@ Retain its ``handler_args={"auto_decompress": False}`` setting when adding other
 verifies signature headers and encoded content before decoding or invoking the handler. It buffers both encoded and
 decoded request content, applying ``request.client_max_size`` to each; zero retains aiohttp's unlimited setting.
 Handlers can then use ``read()``, ``text()``, ``json()``, ``post()``, ``multipart()``, and ``content`` normally.
-As with aiohttp itself, direct stream reads consume content; they do not make subsequent high-level reads repeatable.
 ``verification_results(request)`` returns successful results with encoded content in ``VerifyResult.body``.
 
 Place trusted proxy middleware before signature verification and body consumers after it. The middleware captures
