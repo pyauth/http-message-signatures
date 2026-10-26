@@ -192,6 +192,36 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                 await client.get(self.origin)
             self.assertFalse(client.cookie_jar)
 
+    async def test_repeated_content_encoding_matches_native_aiohttp(self):
+        encoded = gzip.compress(PLAIN)
+        encodings = ()
+
+        async def endpoint(request):
+            return await self.signed_response(
+                request,
+                encoded,
+                headers=[("Content-Encoding", encoding) for encoding in encodings],
+                components=("@status", '"content-encoding";bs'),
+            )
+
+        self.endpoint = endpoint
+        middleware = self.middleware(
+            SignatureMiddlewareMode.VERIFY_RESPONSE,
+            verify_options={"require_components": ("@status", '"content-encoding";bs')},
+        )
+        async with (
+            aiohttp.ClientSession() as native,
+            aiohttp.ClientSession(**middleware.session_kwargs) as verified,
+        ):
+            for encodings in (("identity", "gzip"), ("gzip", "identity"), ("gzip", "gzip")):
+                with self.subTest(encodings=encodings):
+                    async with native.get(self.origin) as response:
+                        expected = await response.read()
+                    async with verified.get(self.origin) as response:
+                        self.assertEqual(await response.read(), expected)
+                        self.assertEqual(tuple(response.headers.getall("Content-Encoding")), encodings)
+                        self.assertEqual(middleware.verification_results(response)[0].body, encoded)
+
     async def test_decoded_streams_large_bodies_and_connection_reuse(self):
         plain = b"buffered content\n" * 100000
         for encoding, encode in ((None, lambda b: b), ("gzip", gzip.compress), ("deflate", zlib.compress)):

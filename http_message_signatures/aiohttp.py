@@ -12,7 +12,7 @@ from aiohttp.abc import AbstractStreamWriter
 from aiohttp.base_protocol import BaseProtocol
 from aiohttp.compression_utils import ZLibCompressor
 from aiohttp.http_exceptions import ContentEncodingError
-from aiohttp.http_parser import HeadersParser, HttpPayloadParser
+from aiohttp.http_parser import HeadersParser, HttpPayloadParser, HttpResponseParser, HttpResponseParserPy
 from aiohttp.payload import BytesPayload, Payload
 from aiohttp.streams import EmptyStreamReader
 from multidict import CIMultiDict
@@ -141,7 +141,9 @@ def _decoded_content(response: aiohttp.ClientResponse, body: bytes) -> aiohttp.S
     loop = asyncio.get_running_loop()
     limit, _ = response.content.get_read_buffer_limits()
     content = aiohttp.StreamReader(_BufferedProtocol(loop), limit, loop=loop)
-    encoding = response.headers.get("Content-Encoding", "").strip().lower()
+    # Match the active aiohttp parser: Python selects the first field, C the last.
+    encodings = response.headers.getall("Content-Encoding", ("",))
+    encoding = encodings[0 if HttpResponseParser is HttpResponseParserPy else -1].lower()
     try:
         parser = HttpPayloadParser(
             content,
