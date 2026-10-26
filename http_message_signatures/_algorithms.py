@@ -110,13 +110,10 @@ class HMAC_SHA256(HTTPSignatureAlgorithm):
         hasher.verify(signature)
 
 
-class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
-    """ECDSA P-256 with SHA-256, using PEM bytes or cryptography EC key objects.
-
-    ``password`` decrypts an encrypted PEM private key when provided.
-    """
-
-    algorithm_id = "ecdsa-p256-sha256"
+class _ECDSA(HTTPSignatureAlgorithm, PEMKeyLoader):
+    _curve: type[ec.EllipticCurve]
+    _hash: type[hashes.HashAlgorithm]
+    _coordinate_size: int
 
     def __init__(self, public_key=None, private_key=None, password=None):
         self.load_pem_keys(public_key=public_key, private_key=private_key, password=password)
@@ -124,22 +121,22 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
             raise HTTPMessageSignaturesException("Unexpected public key type")
         if self.private_key and not isinstance(self.private_key, ec.EllipticCurvePrivateKey):
             raise HTTPMessageSignaturesException("Unexpected private key type")
-        if self.public_key and not isinstance(self.public_key.curve, ec.SECP256R1):
+        if self.public_key and not isinstance(self.public_key.curve, self._curve):
             raise HTTPMessageSignaturesException("Unexpected elliptic curve type in public key")
-        if self.private_key and not isinstance(self.private_key.curve, ec.SECP256R1):
+        if self.private_key and not isinstance(self.private_key.curve, self._curve):
             raise HTTPMessageSignaturesException("Unexpected elliptic curve type in private key")
-        self.signature_algorithm = ec.ECDSA(hashes.SHA256())
+        self.signature_algorithm = ec.ECDSA(self._hash())
 
     def sign(self, message: bytes):
         der_sig = self.private_key.sign(message, signature_algorithm=self.signature_algorithm)
         return self.signature_from_der(der_sig)
 
-    @staticmethod
-    def signature_from_der(signature: bytes) -> bytes:
-        """Convert a DER-encoded ECDSA P-256 signature to RFC 9421 signature bytes.
+    @classmethod
+    def signature_from_der(cls, signature: bytes) -> bytes:
+        """Convert a DER-encoded ECDSA signature to RFC 9421 signature bytes.
 
-        Returns the 64-byte concatenation of unsigned, big-endian ``r`` and ``s``,
-        each padded to 32 bytes (RFC 9421 section 3.3.4). Use this for a remote
+        Returns the concatenation of unsigned, big-endian ``r`` and ``s``, each
+        padded to 32 bytes for P-256 or 48 bytes for P-384. Use this for a remote
         signer's DER output before calling ``HTTPMessageSigner.apply()``.
         Malformed DER or integers that do not fit raise
         :class:`~http_message_signatures.HTTPMessageSignaturesException`.
@@ -147,17 +144,43 @@ class ECDSA_P256_SHA256(HTTPSignatureAlgorithm, PEMKeyLoader):
         """
         try:
             r, s = decode_dss_signature(signature)
-            return r.to_bytes(32, byteorder="big") + s.to_bytes(32, byteorder="big")
+            return r.to_bytes(cls._coordinate_size, byteorder="big") + s.to_bytes(cls._coordinate_size, byteorder="big")
         except (ValueError, TypeError, OverflowError) as e:
-            raise HTTPMessageSignaturesException("Invalid DER-encoded ECDSA P-256 signature") from e
+            raise HTTPMessageSignaturesException(f"Invalid DER-encoded {cls.algorithm_id} signature") from e
 
     def verify(self, signature: bytes, message: bytes):
-        if len(signature) != 64:
+        if len(signature) != 2 * self._coordinate_size:
             raise HTTPMessageSignaturesException("Unexpected signature length")
-        r = int.from_bytes(signature[:32], byteorder="big")
-        s = int.from_bytes(signature[32:], byteorder="big")
+        r = int.from_bytes(signature[: self._coordinate_size], byteorder="big")
+        s = int.from_bytes(signature[self._coordinate_size :], byteorder="big")
         der_sig = encode_dss_signature(r, s)
         self.public_key.verify(signature=der_sig, data=message, signature_algorithm=self.signature_algorithm)
+
+
+class ECDSA_P256_SHA256(_ECDSA):
+    """ECDSA P-256 with SHA-256, using PEM bytes or cryptography EC key objects.
+
+    Signatures contain 64 bytes as defined in RFC 9421 section 3.3.4.
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
+    algorithm_id = "ecdsa-p256-sha256"
+    _curve = ec.SECP256R1
+    _hash = hashes.SHA256
+    _coordinate_size = 32
+
+
+class ECDSA_P384_SHA384(_ECDSA):
+    """ECDSA P-384 with SHA-384, using PEM bytes or cryptography EC key objects.
+
+    Signatures contain 96 bytes as defined in RFC 9421 section 3.3.5.
+    ``password`` decrypts an encrypted PEM private key when provided.
+    """
+
+    algorithm_id = "ecdsa-p384-sha384"
+    _curve = ec.SECP384R1
+    _hash = hashes.SHA384
+    _coordinate_size = 48
 
 
 class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
