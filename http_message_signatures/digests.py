@@ -2,7 +2,9 @@
 
 import hashlib
 import hmac
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import ClassVar
 
 import http_sf
@@ -12,6 +14,10 @@ from ._components import _parse_component_ids
 from ._messages import _Headers
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .structures import get_header_fields
+
+_digest_cache: ContextVar[tuple[bytes, dict[tuple[type, str], bytes]] | None] = ContextVar(
+    "_digest_cache", default=None
+)
 
 
 def _is_content_digest(component: Item) -> bool:
@@ -34,6 +40,32 @@ class ContentDigest:
     def _check_body(body: bytes) -> None:
         if not isinstance(body, bytes):
             raise HTTPMessageSignaturesException("body must contain bytes before content decoding")
+
+    @classmethod
+    @contextmanager
+    def _cache_digests(cls, body: bytes) -> Iterator[None]:
+        # Scope hashes to this body and verification call without changing the
+        # arguments passed to subclass overrides of verify() or verify_components().
+        current = _digest_cache.get()
+        if current is not None and current[0] is body:
+            yield
+            return
+        token = _digest_cache.set((body, {}))
+        try:
+            yield
+        finally:
+            _digest_cache.reset(token)
+
+    @classmethod
+    def _compute_digest(cls, algorithm: str, body: bytes) -> bytes:
+        current = _digest_cache.get()
+        if current is None or current[0] is not body:
+            return cls._hashers[algorithm](body).digest()
+        hashes = current[1]
+        key = (cls, algorithm)
+        if key not in hashes:
+            hashes[key] = cls._hashers[algorithm](body).digest()
+        return hashes[key]
 
     @classmethod
     def create(cls, body: bytes) -> str:
@@ -111,7 +143,7 @@ class ContentDigest:
         """This method validates a field or member, raising InvalidSignature on failure."""
         cls._check_body(body)
         for algorithm, digest in cls._parse(value, key=key).items():
-            if not hmac.compare_digest(digest, cls._hashers[algorithm](body).digest()):
+            if not hmac.compare_digest(digest, cls._compute_digest(algorithm, body)):
                 raise InvalidSignature("Content-Digest does not match the message body")
 
     @classmethod
@@ -124,9 +156,10 @@ class ContentDigest:
         """
         cls._check_body(body)
         verified = False
-        for identifier, value in covered_components.items():
-            node = _parse_component_ids((identifier,))[0]
-            if _is_content_digest(node):
-                cls.verify(value, body, key=node.params.get("key"))
-                verified = True
+        with cls._cache_digests(body):
+            for identifier, value in covered_components.items():
+                node = _parse_component_ids((identifier,))[0]
+                if _is_content_digest(node):
+                    cls.verify(value, body, key=node.params.get("key"))
+                    verified = True
         return verified
