@@ -410,10 +410,6 @@ of ``r`` and ``s``, each padded to 32 bytes. Convert DER output using the algori
     signature = algorithms.ECDSA_P256_SHA256.signature_from_der(der_signature)
     signer.apply(request, prepared, signature)
 
-For P-384/SHA-384, select ``algorithms.ECDSA_P384_SHA384`` for signing and verification.
-Its ``signature_from_der()`` helper produces the 96-byte signature required by RFC 9421, with each integer
-padded to 48 bytes. Both ECDSA algorithms accept PEM bytes or cryptography elliptic-curve key objects.
-
 Retain the prepared object and associate each remote result with its input. Use a trusted signing service and protect
 queued signing input against modification and disclosure: the base contains covered header and URL values.
 ``apply()`` compares the message's current signature base with the prepared bytes and rejects changes before writing
