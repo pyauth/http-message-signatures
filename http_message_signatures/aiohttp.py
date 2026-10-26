@@ -16,7 +16,7 @@ from aiohttp.compression_utils import ZLibCompressor
 from aiohttp.helpers import must_be_empty_body
 from aiohttp.http_exceptions import ContentEncodingError
 from aiohttp.http_parser import HeadersParser, HttpPayloadParser, HttpResponseParser, HttpResponseParserPy
-from aiohttp.payload import BytesPayload, Payload
+from aiohttp.payload import BytesPayload, JsonPayload, Payload, StringPayload
 from aiohttp.streams import EmptyStreamReader
 from aiohttp.typedefs import Handler, Middleware
 from multidict import CIMultiDict
@@ -112,6 +112,12 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
     compressor = ZLibCompressor(encoding=encoding) if encoding else None
     # Use aiohttp's validation and the same limit as ClientRequest.write_bytes().
     content_length = request._get_content_length()
+    if not encoding and type(payload) in (BytesPayload, StringPayload, JsonPayload):
+        # These native payloads write their stored bytes, limited by Content-Length.
+        # Custom payloads must still run their writer; mutable inputs must be copied.
+        body = await cast(BytesPayload, payload).as_bytes()
+        if isinstance(body, bytes):
+            return body if content_length is None else body[:content_length]
     with BytesIO() as content:
         writer = _BodyWriter(content, compressor)
         if isinstance(payload, Payload):
@@ -157,7 +163,7 @@ class _DecodedStream(aiohttp.StreamReader):
         return super().feed_data(data)
 
 
-def _decoded_content(
+async def _decoded_content(
     message: aiohttp.ClientResponse | web.Request, body: bytes, *, max_size: int = 0
 ) -> aiohttp.StreamReader:
     # aiohttp has no public method for decompressing a body after reading it.
@@ -168,14 +174,21 @@ def _decoded_content(
     # Match the active aiohttp parser: Python selects the first field, C the last.
     encodings = message.headers.getall("Content-Encoding", ("",))
     encoding = encodings[0 if HttpResponseParser is HttpResponseParserPy else -1].lower()
+    decode = encoding in {"gzip", "deflate", "br", "zstd"}
     try:
         parser = HttpPayloadParser(
             content,
             compression=encoding,
-            auto_decompress=encoding in {"gzip", "deflate", "br", "zstd"},
+            auto_decompress=decode,
             headers_parser=HeadersParser(),
         )
-        parser.feed_data(body)
+        if decode:
+            # Bound the input suffix that decompression may copy between output chunks.
+            for offset in range(0, len(body), 65536):
+                parser.feed_data(body[offset : offset + 65536])
+                await asyncio.sleep(0)
+        else:
+            parser.feed_data(body)
         parser.feed_eof()
     except ContentEncodingError as exc:
         if isinstance(message, web.Request):
@@ -329,7 +342,7 @@ class SignatureMiddleware(_SignatureAdapter):
                     )
                 results = self.verifier.verify_body(message, results, body)
                 if not empty:
-                    response.content = _decoded_content(response, body)
+                    response.content = await _decoded_content(response, body)
                 self._results[response] = results
             return response
         except BaseException:
@@ -523,7 +536,7 @@ class ServerSignatureMiddleware(_SignatureConfiguration):
             raise web.HTTPRequestEntityTooLarge(max_size=request.client_max_size, actual_size=len(body))
         results = self.verifier.verify_body(state.message, results, body)
         if not empty:
-            replay = _decoded_content(request, body, max_size=request.client_max_size)
+            replay = await _decoded_content(request, body, max_size=request.client_max_size)
             # Request has no public body replacement API. Clear the encoded read
             # cache and cached content property so every native reader sees replay.
             request._payload = replay

@@ -1,6 +1,7 @@
 import asyncio
 import gzip
 import io
+import random
 import unittest
 import zlib
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from aiohttp.compression_utils import ZLibCompressor, ZLibDecompressor
 from aiohttp.test_utils import TestServer
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from multidict import CIMultiDict
+from yarl import URL
 
 from http_message_signatures import (
     ContentDigest,
@@ -23,13 +25,74 @@ from http_message_signatures import (
     algorithms,
 )
 from http_message_signatures._messages import _HeaderFields, _Request, _Response
-from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
+from http_message_signatures.aiohttp import (
+    SignatureMiddleware,
+    SignatureMiddlewareMode,
+    _buffer_request,
+    _decoded_content,
+    _DecodedStream,
+)
 
 SECRET = b"local-tests-only-shared-secret"
 PLAIN = b'{"verified": true}'
 
 
 class AiohttpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_decoding_bounds_compressed_input_and_yields(self):
+        body = random.Random(0).randbytes(1024 * 1024)
+        decompress = ZLibDecompressor.decompress_sync
+        inputs = []
+        checkpoints = []
+
+        def record(decoder, data, max_length=0):
+            inputs.append(len(data) + len(decoder._decompressor.unconsumed_tail))
+            return decompress(decoder, data, max_length)
+
+        for encoding, encoded in (("gzip", gzip.compress(body)), ("deflate", zlib.compress(body))):
+            with self.subTest(encoding=encoding):
+                inputs.clear()
+                checkpoints.clear()
+                message = SimpleNamespace(
+                    headers=CIMultiDict({"Content-Encoding": encoding}), content=_DecodedStream(65536, 0)
+                )
+                asyncio.get_running_loop().call_soon(lambda: checkpoints.append(len(inputs)))
+                with patch.object(ZLibDecompressor, "decompress_sync", record):
+                    content = await _decoded_content(message, encoded)
+                self.assertEqual(await content.read(), body)
+                self.assertLessEqual(max(inputs), 65536)
+                self.assertTrue(checkpoints)
+                self.assertLess(checkpoints[0], len(inputs))
+
+    async def test_buffered_request_bytes_are_reused_on_retries(self):
+        for payload in (
+            aiohttp.BytesPayload(b"body" * 1024, headers={"X-Payload": "kept"}),
+            aiohttp.StringPayload("hello"),
+            aiohttp.JsonPayload({"hello": "world"}),
+        ):
+            with self.subTest(payload=type(payload).__name__):
+                request = aiohttp.ClientRequest("POST", URL(self.origin), data=payload)
+                self.addAsyncCleanup(request.close)
+                original = await payload.as_bytes()
+                for _ in range(3):
+                    self.assertIs(await _buffer_request(request), original)
+                    self.assertIs(request.body, payload)
+                for name, value in payload.headers.items():
+                    self.assertEqual(request.headers[name], value)
+                request.headers["Content-Length"] = "2"
+                self.assertEqual(await _buffer_request(request), original[:2])
+                self.assertEqual(request.headers["Content-Length"], "2")
+
+    async def test_mutable_payload_is_frozen_before_signing(self):
+        for make_body in (bytearray, lambda value: memoryview(bytearray(value))):
+            with self.subTest(make_body=make_body):
+                original = make_body(b"hello")
+                request = aiohttp.ClientRequest("POST", URL(self.origin), data=aiohttp.BytesPayload(original))
+                self.addAsyncCleanup(request.close)
+                body = await _buffer_request(request)
+                original[0] = ord("x")
+                self.assertEqual(body, b"hello")
+                self.assertIs(await _buffer_request(request), body)
+
     async def asyncSetUp(self):
         self.keys = MappingKeyResolver(
             public_keys={"client": SECRET, "server": SECRET}, private_keys={"client": SECRET, "server": SECRET}
@@ -788,22 +851,31 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
         middleware = self.middleware()
         received = []
 
+        async def endpoint(request):
+            return await self.signed_response(request, gzip.compress(PLAIN), encoding="gzip")
+
         async def record(request, handler):
             response = await handler(request)
             received.append(response)
             return response
 
-        def cancel(*args):
-            raise asyncio.CancelledError
+        decompress = ZLibDecompressor.decompress_sync
 
+        def cancel_after_decoding(decoder, data, max_length=0):
+            decoded = decompress(decoder, data, max_length)
+            asyncio.get_running_loop().call_soon(task.cancel)
+            return decoded
+
+        self.endpoint = endpoint
         async with aiohttp.ClientSession(
             **{**middleware.session_kwargs, "middlewares": (middleware, record)}
         ) as client:
             with (
-                patch("http_message_signatures.aiohttp._decoded_content", cancel),
+                patch.object(ZLibDecompressor, "decompress_sync", cancel_after_decoding),
                 self.assertRaises(asyncio.CancelledError),
             ):
-                await client.get(self.origin)
+                task = asyncio.create_task(client.get(self.origin))
+                await task
         self.assertTrue(received[0].closed)
         with self.assertRaises(InvalidSignature):
             middleware.verification_results(received[0])
