@@ -1,8 +1,8 @@
-"""Client adapter configuration; HTTPMessageSigner and HTTPMessageVerifier supply signature defaults."""
+"""Adapter configuration; HTTPMessageSigner and HTTPMessageVerifier supply signature defaults."""
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from .algorithms import HTTPSignatureAlgorithm
 from .resolvers import HTTPSignatureKeyResolver
@@ -10,14 +10,13 @@ from .signatures import HTTPMessageSigner, HTTPMessageVerifier
 
 
 class _SigningConfiguration(TypedDict):
-    origin: str
     signature_algorithm: type[HTTPSignatureAlgorithm]
     key_id: str
     key_resolver: HTTPSignatureKeyResolver
 
 
-class _SigningOptions(_SigningConfiguration, total=False):
-    """Fields shared by the aiohttp and HTTPX2 SigningOptions types."""
+class _BaseSigningOptions(_SigningConfiguration, total=False):
+    """Signer configuration shared by client and server adapters."""
 
     created: datetime | None
     expires: datetime | None
@@ -31,13 +30,12 @@ class _SigningOptions(_SigningConfiguration, total=False):
 
 
 class _VerificationConfiguration(TypedDict):
-    origin: str
     signature_algorithm: type[HTTPSignatureAlgorithm]
     key_resolver: HTTPSignatureKeyResolver
 
 
-class _VerificationOptions(_VerificationConfiguration, total=False):
-    """Fields shared by the aiohttp and HTTPX2 VerificationOptions types."""
+class _BaseVerificationOptions(_VerificationConfiguration, total=False):
+    """Verifier configuration shared by client and server adapters."""
 
     max_age: timedelta | None
     expect_tag: str | None
@@ -45,10 +43,60 @@ class _VerificationOptions(_VerificationConfiguration, total=False):
     require_components: Sequence[str]
 
 
-class _SignatureAdapter:
+class _SigningOptions(_BaseSigningOptions):
+    origin: str
+
+
+class _VerificationOptions(_BaseVerificationOptions):
+    origin: str
+
+
+class _SignatureConfiguration:
     signer_class: type[HTTPMessageSigner] = HTTPMessageSigner
     verifier_class: type[HTTPMessageVerifier] = HTTPMessageVerifier
 
+    def __init__(
+        self,
+        *,
+        sign_options: _BaseSigningOptions | None,
+        verify_options: _BaseVerificationOptions | None,
+    ) -> None:
+        self.signer: HTTPMessageSigner | None = None
+        self.verifier: HTTPMessageVerifier | None = None
+        self._sign_kwargs: dict[str, Any] = {}
+        self._verify_kwargs: dict[str, Any] = {}
+        if sign_options is not None:
+            self._configure_signing(**sign_options)
+        if verify_options is not None:
+            self._configure_verification(**verify_options)
+
+    def _configure_signing(
+        self,
+        *,
+        signature_algorithm: type[HTTPSignatureAlgorithm],
+        key_id: str,
+        key_resolver: HTTPSignatureKeyResolver,
+        **options: Any,
+    ) -> None:
+        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
+        if "covered_component_ids" in options and not isinstance(options["covered_component_ids"], (str, bytes)):
+            options["covered_component_ids"] = tuple(options["covered_component_ids"])
+        self._sign_kwargs = {"key_id": key_id, **options}
+
+    def _configure_verification(
+        self,
+        *,
+        signature_algorithm: type[HTTPSignatureAlgorithm],
+        key_resolver: HTTPSignatureKeyResolver,
+        **options: Any,
+    ) -> None:
+        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
+        if "require_components" in options and not isinstance(options["require_components"], (str, bytes)):
+            options["require_components"] = tuple(options["require_components"])
+        self._verify_kwargs = options
+
+
+class _SignatureAdapter(_SignatureConfiguration):
     def __init__(
         self,
         *,
@@ -65,46 +113,21 @@ class _SignatureAdapter:
             raise ValueError("verify_options is required when verifying responses")
         if not verify_responses and verify_options is not None:
             raise ValueError("Verification configuration is not allowed in SIGN_REQUEST mode")
-        self.signer: HTTPMessageSigner | None = None
-        self.verifier: HTTPMessageVerifier | None = None
         self._sign_origin: tuple[str, str, int | None] | None = None
         self._verify_origin: tuple[str, str, int | None] | None = None
-        self._sign_kwargs: dict[str, Any] = {}
-        self._verify_kwargs: dict[str, Any] = {}
+        signing = verification = None
         if sign_options is not None:
-            self._configure_signing(**sign_options)
+            self._sign_origin, signing = self._client_options(**sign_options)
         if verify_options is not None:
-            self._configure_verification(**verify_options)
+            self._verify_origin, verification = self._client_options(**verify_options)
+        super().__init__(
+            sign_options=cast(_BaseSigningOptions | None, signing),
+            verify_options=cast(_BaseVerificationOptions | None, verification),
+        )
 
     @staticmethod
     def _parse_origin(origin: str) -> tuple[str, str, int | None]:
         raise NotImplementedError
 
-    def _configure_signing(
-        self,
-        *,
-        origin: str,
-        signature_algorithm: type[HTTPSignatureAlgorithm],
-        key_id: str,
-        key_resolver: HTTPSignatureKeyResolver,
-        **options: Any,
-    ) -> None:
-        self._sign_origin = self._parse_origin(origin)
-        self.signer = self.signer_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
-        if "covered_component_ids" in options and not isinstance(options["covered_component_ids"], (str, bytes)):
-            options["covered_component_ids"] = tuple(options["covered_component_ids"])
-        self._sign_kwargs = {"key_id": key_id, **options}
-
-    def _configure_verification(
-        self,
-        *,
-        origin: str,
-        signature_algorithm: type[HTTPSignatureAlgorithm],
-        key_resolver: HTTPSignatureKeyResolver,
-        **options: Any,
-    ) -> None:
-        self._verify_origin = self._parse_origin(origin)
-        self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
-        if "require_components" in options and not isinstance(options["require_components"], (str, bytes)):
-            options["require_components"] = tuple(options["require_components"])
-        self._verify_kwargs = options
+    def _client_options(self, *, origin: str, **options: Any) -> tuple[tuple[str, str, int | None], dict[str, Any]]:
+        return self._parse_origin(origin), options
