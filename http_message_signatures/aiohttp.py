@@ -315,7 +315,14 @@ class SignatureMiddleware(_SignatureAdapter):
         except BaseException:
             if response is not None:
                 response.close()
-            await request.close()
+            try:
+                await request.close()
+            finally:
+                # ClientRequest.close() waits for its writer, but does not close
+                # a payload whose preparation failed before that writer started.
+                payload = request.body
+                if isinstance(payload, Payload):
+                    await payload.close()
             raise
 
     def verification_results(self, response: aiohttp.ClientResponse) -> list[VerifyResult]:

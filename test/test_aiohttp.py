@@ -635,7 +635,7 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                         )
                     self.assertTrue(payload.closed)
 
-    async def test_compression_failure_discards_partial_body_and_closes_payload(self):
+    async def test_buffering_failure_discards_partial_body_and_closes_payload(self):
         class FailingPayload(aiohttp.BytesPayload):
             closed = False
 
@@ -646,15 +646,23 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
             async def close(self):
                 self.closed = True
 
+        async def check_cleanup(request, handler):
+            try:
+                return await handler(request)
+            finally:
+                # Check before ClientSession's own error cleanup can hide a leak.
+                self.assertTrue(payload.closed)
+
         middleware = self.middleware()
-        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            for failure in (asyncio.CancelledError(), RuntimeError("upload failed")):
-                with self.subTest(failure=type(failure).__name__):
-                    payload = FailingPayload(b"body")
-                    with patch.object(ZLibCompressor, "flush") as flush, self.assertRaises(type(failure)):
-                        await client.post(self.origin, data=payload, compress="gzip")
-                    flush.assert_not_called()
-                    self.assertTrue(payload.closed)
+        options = {**middleware.session_kwargs, "middlewares": (check_cleanup, middleware)}
+        async with aiohttp.ClientSession(**options) as client:
+            for compression in (None, "gzip"):
+                for failure in (asyncio.CancelledError(), RuntimeError("upload failed")):
+                    with self.subTest(compression=compression, failure=type(failure).__name__):
+                        payload = FailingPayload(b"body")
+                        with patch.object(ZLibCompressor, "flush") as flush, self.assertRaises(type(failure)):
+                            await client.post(self.origin, data=payload, compress=compression)
+                        flush.assert_not_called()
         self.assertFalse(self.requests)
 
     async def test_unsigned_responses_and_unsigned_digests_are_rejected(self):
