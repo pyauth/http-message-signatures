@@ -423,6 +423,51 @@ when choosing expiration times; an expired result will still be rejected by a ve
 existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
 signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
 
+Asynchronous verification
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``await verifier.verify_async(message, ...)`` when verification keys require asynchronous lookup.
+It accepts the same options and returns the same results as ``verify()``. Override
+``HTTPSignatureKeyResolver.resolve_public_key_async()`` to await your application's trusted key store::
+
+    from http_message_signatures import HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms
+
+    class AsyncKeyResolver(HTTPSignatureKeyResolver):
+        def __init__(self, trusted_key_store):
+            self.trusted_key_store = trusted_key_store
+
+        async def resolve_public_key_async(self, key_id):
+            return await self.trusted_key_store.load_public_key(key_id)
+
+    async def verify_request(request, trusted_key_store):
+        verifier = HTTPMessageVerifier(
+            signature_algorithm=algorithms.ED25519,
+            key_resolver=AsyncKeyResolver(trusted_key_store),
+        )
+        return await verifier.verify_async(request, body=request.body)
+
+Here, ``request`` is a prepared Requests request whose ``body`` contains content bytes before decoding.
+Keep the message and its associated request unchanged until verification returns. The resolver must enforce which
+keys are trusted; it must not treat an untrusted key ID as permission to fetch arbitrary URLs.
+
+To use ``verify_async()`` in HTTPX2's asynchronous response hooks or aiohttp's client or server middleware, set
+``async_verification=True`` in ``verify_options`` alongside the key resolver::
+
+    verify_options = {
+        "signature_algorithm": algorithms.ED25519,
+        "key_resolver": AsyncKeyResolver(trusted_key_store),
+        "async_verification": True,
+        "origin": "https://api.example.com",  # Client adapters only.
+    }
+
+Adapters call ``verify()`` by default, preserving custom overrides of that method and their defaults.
+Opting in selects ``verify_async()`` instead; custom verifiers must implement any additional verification policy
+in that method too. HTTPX2 requires ``async_event_hooks`` with ``AsyncClient`` when this option is enabled.
+Synchronous resolvers, including ``MappingKeyResolver``, also work with ``verify_async()``: the default
+``resolve_public_key_async()`` calls ``resolve_public_key()`` directly.
+Override the async method for lookups that would otherwise block the event loop. Signature verification and digest
+calculation remain synchronous, and task cancellation propagates to an asynchronous key lookup.
+
 Structured Field serialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

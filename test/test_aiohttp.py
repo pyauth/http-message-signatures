@@ -4,7 +4,7 @@ import io
 import unittest
 import zlib
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import aiohttp
 from aiohttp import web
@@ -108,6 +108,21 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                 **(verify_options or {}),
             }
         return SignatureMiddleware(mode, **options)
+
+    async def test_async_verification_key_resolution(self):
+        keys = MappingKeyResolver(public_keys={}, private_keys={})
+        middleware = self.middleware(
+            SignatureMiddlewareMode.VERIFY_RESPONSE,
+            verify_options={"key_resolver": keys, "async_verification": True},
+        )
+        with patch.object(keys, "resolve_public_key_async", AsyncMock(return_value=SECRET)) as lookup:
+            async with (
+                aiohttp.ClientSession(**middleware.session_kwargs) as client,
+                client.get(self.origin) as response,
+            ):
+                self.assertEqual(await response.read(), PLAIN)
+                self.assertEqual(middleware.verification_results(response)[0].body, PLAIN)
+                lookup.assert_awaited_once_with("server")
 
     async def test_modes_with_native_session(self):
         for mode in SignatureMiddlewareMode:

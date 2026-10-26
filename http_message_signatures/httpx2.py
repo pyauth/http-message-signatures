@@ -11,7 +11,7 @@ import httpx2
 from ._integrations import _SignatureAdapter, _SigningOptions, _VerificationOptions
 from ._messages import _HeaderFields, _Request, _Response
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
-from .signatures import HTTPMessageSigner, HTTPMessageVerifier
+from .signatures import HTTPMessageSigner
 from .structures import VerifyResult
 
 
@@ -28,8 +28,10 @@ class VerificationOptions(_VerificationOptions):
     """Configuration for response verification with SignatureHooks.
 
     ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
+    Set ``async_verification=True`` to use ``verify_async()`` with AsyncClient
+    and ``async_event_hooks``. By default, both hook collections call ``verify()``.
     Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
-    SignatureHooks supplies ``body``; ``HTTPMessageVerifier.verify()`` supplies defaults for omitted options.
+    SignatureHooks supplies ``body``; the selected verifier method supplies defaults for omitted options.
     """
 
 
@@ -230,11 +232,10 @@ class SignatureHooks(_SignatureAdapter):
         signer.sign(adapt_message(request), body=body, **options)
         request.extensions["http_message_signatures.signer"] = self._signing_marker
 
-    def _verify_headers(self, response: httpx2.Response, verifier: HTTPMessageVerifier):
+    def _verification_message(self, response: httpx2.Response):
         response.extensions.pop("http_message_signatures", None)
         self._check_origin(response.request, self._verify_origin)
-        message = adapt_message(response)
-        return message, verifier.verify(message, **self._verify_kwargs)
+        return adapt_message(response)
 
     @staticmethod
     def _buffered_body(response: httpx2.Response) -> bytes:
@@ -248,7 +249,12 @@ class SignatureHooks(_SignatureAdapter):
         if verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response, verifier)
+            message = self._verification_message(response)
+            if self._async_verification:
+                raise HTTPMessageSignaturesException(
+                    "async_verification=True requires async_event_hooks with AsyncClient"
+                )
+            results = verifier.verify(message, **self._verify_kwargs)
             if response.is_stream_consumed:
                 verified = verifier.verify_body(message, results, self._buffered_body(response))
             else:
@@ -269,7 +275,8 @@ class SignatureHooks(_SignatureAdapter):
         if verifier is None:
             raise HTTPMessageSignaturesException("Response verification is disabled in this mode")
         try:
-            message, results = self._verify_headers(response, verifier)
+            message = self._verification_message(response)
+            results = await self._verify_async(message)
             if response.is_stream_consumed:
                 verified = verifier.verify_body(message, results, self._buffered_body(response))
             else:

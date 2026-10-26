@@ -7,6 +7,7 @@ from typing import Any, TypedDict, cast
 from .algorithms import HTTPSignatureAlgorithm
 from .resolvers import HTTPSignatureKeyResolver
 from .signatures import HTTPMessageSigner, HTTPMessageVerifier
+from .structures import VerifyResult
 
 
 class _SigningConfiguration(TypedDict):
@@ -41,6 +42,7 @@ class _BaseVerificationOptions(_VerificationConfiguration, total=False):
     expect_tag: str | None
     expect_label: str | None
     require_components: Sequence[str]
+    async_verification: bool
 
 
 class _SigningOptions(_BaseSigningOptions):
@@ -88,12 +90,20 @@ class _SignatureConfiguration:
         *,
         signature_algorithm: type[HTTPSignatureAlgorithm],
         key_resolver: HTTPSignatureKeyResolver,
+        async_verification: bool = False,
         **options: Any,
     ) -> None:
+        self._async_verification = async_verification
         self.verifier = self.verifier_class(signature_algorithm=signature_algorithm, key_resolver=key_resolver)
         if "require_components" in options and not isinstance(options["require_components"], (str, bytes)):
             options["require_components"] = tuple(options["require_components"])
         self._verify_kwargs = options
+
+    async def _verify_async(self, message) -> list[VerifyResult]:
+        assert self.verifier is not None
+        if self._async_verification:
+            return await self.verifier.verify_async(message, **self._verify_kwargs)
+        return self.verifier.verify(message, **self._verify_kwargs)
 
 
 class _SignatureAdapter(_SignatureConfiguration):

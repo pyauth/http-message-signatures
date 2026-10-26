@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -884,6 +884,11 @@ class TestSignatureHooks(SignatureTestCase):
         )
         with self.assertRaises(InvalidSignature):
             hooks.verify_response(response)
+        response = self.response(
+            httpx2.Request("GET", ORIGIN), created=datetime.now(timezone.utc) - timedelta(minutes=1), async_mode=True
+        )
+        with self.assertRaises(InvalidSignature):
+            asyncio.run(hooks.verify_response_async(response))
 
     def test_forwarding_subclasses_accept_base_and_explicit_custom_options(self):
         observed = []
@@ -1077,6 +1082,54 @@ class TestSignatureHooks(SignatureTestCase):
 
 
 class TestAsyncSignatureHooks(SignatureTestCase):
+    def test_opt_in_preserves_async_verifier_defaults(self):
+        class Verifier(HTTPMessageVerifier):
+            async def verify_async(self, message, *, max_age=timedelta(seconds=1)):
+                return await super().verify_async(message, max_age=max_age)
+
+        class Hooks(SignatureHooks):
+            verifier_class = Verifier
+
+        hooks = Hooks(
+            SignatureHooksMode.VERIFY_RESPONSE,
+            verify_options={**VERIFY_OPTIONS, "async_verification": True},
+        )
+        response = self.response(
+            httpx2.Request("GET", ORIGIN), created=datetime.now(timezone.utc) - timedelta(minutes=1), async_mode=True
+        )
+        with self.assertRaisesRegex(InvalidSignature, "maximum allowable age"):
+            asyncio.run(hooks.verify_response_async(response))
+
+    def test_sync_hook_rejects_async_verification(self):
+        hooks = self.hooks(verify_options={"async_verification": True})
+        response = self.response(httpx2.Request("GET", ORIGIN))
+        response.extensions["http_message_signatures"] = "stale"
+        with self.assertRaisesRegex(HTTPMessageSignaturesException, "requires async_event_hooks"):
+            hooks.verify_response(response)
+        self.assertTrue(response.is_closed)
+        self.assertEqual(response.stream.reads, 0)
+        self.assertNotIn("http_message_signatures", response.extensions)
+
+    def test_async_key_resolution_and_failure_cleanup(self):
+        async def run():
+            keys = MappingKeyResolver(public_keys={}, private_keys={})
+            hooks = self.hooks(verify_options={"key_resolver": keys, "async_verification": True})
+            for key in (SECRET, None):
+                response = self.response(httpx2.Request("GET", ORIGIN), async_mode=True)
+                with patch.object(keys, "resolve_public_key_async", AsyncMock(return_value=key)) as lookup:
+                    if key is None:
+                        with self.assertRaises(InvalidSignature):
+                            await hooks.verify_response_async(response)
+                        self.assertEqual(response.stream.reads, 0)
+                        self.assertNotIn("http_message_signatures", response.extensions)
+                    else:
+                        await hooks.verify_response_async(response)
+                        self.assertEqual(response.extensions["http_message_signatures"][0].body, response.content)
+                    lookup.assert_awaited_once_with("server")
+                self.assertTrue(response.is_closed)
+
+        asyncio.run(run())
+
     def test_single_operation_modes(self):
         async def run():
             sign_only = SignatureHooks(

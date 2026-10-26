@@ -52,7 +52,7 @@ async def aiohttp_example(keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
     signatures = SignatureMiddleware(
         SignatureMiddlewareMode.VERIFY_RESPONSE,
         verify_options=AiohttpVerificationOptions(
-            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_resolver=keys
+            origin="https://example.com", signature_algorithm=HMAC_SHA256, key_resolver=keys, async_verification=True
         ),
     )
     async with (
@@ -73,7 +73,9 @@ def aiohttp_server_example(keys: HTTPSignatureKeyResolver) -> web.Application:
             key_resolver=keys,
             covered_component_ids=("@status",),
         ),
-        verify_options=ServerVerificationOptions(signature_algorithm=HMAC_SHA256, key_resolver=keys),
+        verify_options=ServerVerificationOptions(
+            signature_algorithm=HMAC_SHA256, key_resolver=keys, async_verification=True
+        ),
     )
     assert_type(signatures.mode, ServerSignatureMiddlewareMode)
 
@@ -87,6 +89,14 @@ def aiohttp_server_example(keys: HTTPSignatureKeyResolver) -> web.Application:
     app.router.add_post("/", handler)
     app.on_response_prepare.append(signatures.on_response_prepare)
     return app
+
+
+async def verify_async(request: httpx2.Request, keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
+    assert_type(await keys.resolve_public_key_async("key"), VerificationKey | None)
+    verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=keys)
+    results = await verifier.verify_async(adapt_message(request), body=request.content, require_components=("@method",))
+    assert_type(results, list[VerifyResult])
+    return results
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:
@@ -241,6 +251,8 @@ def reject_invalid_options(secret: bytes) -> None:
     signing["include_alg"] = "yes"  # type: ignore[typeddict-item]
     signing["use_existing_digest"] = "yes"  # type: ignore[typeddict-item]
     verification["max_age"] = 60  # type: ignore[typeddict-item]
+    verification["async_verification"] = True
+    verification["async_verification"] = "yes"  # type: ignore[typeddict-item]
     signing["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     verification["body"] = b"managed"  # type: ignore[typeddict-unknown-key]
     verification["key_id"] = "client"  # type: ignore[typeddict-unknown-key]

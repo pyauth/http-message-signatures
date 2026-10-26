@@ -107,6 +107,21 @@ class AiohttpServerTests(unittest.IsolatedAsyncioTestCase):
             options["verify_options"] = {**config, "require_components": RESPONSE_COMPONENTS}
         return SignatureMiddleware(mode, **options)
 
+    async def test_async_verification_key_resolution(self):
+        keys = MappingKeyResolver(public_keys={}, private_keys={})
+        signatures = self.middleware(verify_options={"key_resolver": keys, "async_verification": True})
+        server = await self.start(signatures)
+        client_signatures = self.client_middleware(server)
+        with patch.object(keys, "resolve_public_key_async", AsyncMock(return_value=SECRET)) as lookup:
+            async with (
+                aiohttp.ClientSession(**client_signatures.session_kwargs) as client,
+                client.post(server.make_url("/"), data=b"hello") as response,
+            ):
+                self.assertEqual(response.status, 200)
+                self.assertEqual(await response.read(), b"hello")
+                lookup.assert_awaited_once_with("key")
+                self.assertEqual(signatures.verification_results(self.seen[0])[0].body, b"hello")
+
     async def test_modes_and_connection_reuse(self):
         for mode in ServerSignatureMiddlewareMode:
             with self.subTest(mode=mode):

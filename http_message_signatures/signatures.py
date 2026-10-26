@@ -3,7 +3,7 @@ import datetime
 import logging
 from collections.abc import Sequence
 from functools import cache
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, NamedTuple, cast
 from warnings import warn
 
 import http_sf
@@ -13,7 +13,7 @@ from ._components import _component_identity, _parse_component_ids
 from .algorithms import HTTPSignatureAlgorithm
 from .digests import ContentDigest, _is_content_digest
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
-from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
+from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver, VerificationKey
 from .structures import (
     PreparedSignature,
     VerifyResult,
@@ -425,6 +425,22 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             message.headers[name] = value
 
 
+class _VerificationDefaults:
+    # Both base verification entry points use this single set of defaults.
+    max_age = datetime.timedelta(days=1)
+    expect_tag: str | None = None
+    expect_label: str | None = None
+    require_components: Sequence[str] = ()
+    body: bytes | None = None
+
+
+class _VerificationInput(NamedTuple):
+    sig_input: InnerList
+    signature: bytes
+    signature_base: bytes
+    result: VerifyResult
+
+
 class HTTPMessageVerifier(HTTPSignatureHandler):
     """Verify signatures using a configured algorithm and key resolver."""
 
@@ -505,7 +521,7 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         if n_sigs == 0:
             raise InvalidSignature("No signatures found matching the expected tag or label")
 
-    def _verify_one(self, *, label, sig_input, signature, message, max_age, component_resolver_factory=None):
+    def _prepare_verification(self, *, label, sig_input, signature, message, max_age, component_resolver_factory):
         self.validate_created_and_expires(sig_input, max_age=max_age)
         if "alg" in sig_input.params and sig_input.params["alg"] != self.signature_algorithm.algorithm_id:
             raise InvalidSignature("Unexpected algorithm specified in the signature")
@@ -517,22 +533,17 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         try:
             if self.key_resolver is None:
                 raise InvalidSignature("A key_resolver is required for verification")
-            key = self.key_resolver.resolve_public_key(sig_input.params["keyid"])
-            if key is None:
-                raise InvalidSignature("Unable to resolve verification key")
-            verifier = self.signature_algorithm(public_key=key)
             sig_base, sig_params_node, sig_elements = self._build_signature_base(
                 message,
                 covered_component_ids=list(sig_input),
                 signature_params=sig_input.params,
-                component_resolver=component_resolver_factory() if component_resolver_factory is not None else None,
+                component_resolver=component_resolver_factory(),
             )
-            verifier.verify(signature=signature.value, message=sig_base.encode())
         except InvalidSignature:
             raise
         except Exception as e:
             raise InvalidSignature(e) from e
-        return VerifyResult(
+        result = VerifyResult(
             label=label,
             algorithm=self.signature_algorithm,
             covered_components=sig_elements,
@@ -540,16 +551,26 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             body=None,
             nonce=sig_input.params.get("nonce"),
         )
+        return _VerificationInput(sig_input, signature.value, sig_base.encode(), result)
+
+    def _verify_one(self, prepared: _VerificationInput, key: VerificationKey | None, max_age) -> VerifyResult:
+        if key is None:
+            raise InvalidSignature("Unable to resolve verification key")
+        # Key resolution can take time, especially when it awaits network I/O.
+        self.validate_created_and_expires(prepared.sig_input, max_age=max_age)
+        verifier = self.signature_algorithm(public_key=key)
+        verifier.verify(signature=prepared.signature, message=prepared.signature_base)
+        return prepared.result
 
     def verify(
         self,
         message,
         *,
-        max_age: datetime.timedelta | None = datetime.timedelta(days=1),
-        expect_tag: str | None = None,
-        expect_label: str | None = None,
-        require_components: Sequence[str] = (),
-        body: bytes | None = None,
+        max_age: datetime.timedelta | None = _VerificationDefaults.max_age,
+        expect_tag: str | None = _VerificationDefaults.expect_tag,
+        expect_label: str | None = _VerificationDefaults.expect_label,
+        require_components: Sequence[str] = _VerificationDefaults.require_components,
+        body: bytes | None = _VerificationDefaults.body,
     ) -> list[VerifyResult]:
         """Return verified signatures matching the requested selection.
 
@@ -580,6 +601,52 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         message data. Without ``body``, digest validation remains the caller's
         responsibility. Authorization and replay detection are always caller policy.
         """
+        results = []
+        for prepared in self._verification_inputs(message, max_age, expect_tag, expect_label, require_components):
+            assert self.key_resolver is not None  # Checked during preparation.
+            try:
+                key = self.key_resolver.resolve_public_key(prepared.sig_input.params["keyid"])
+                results.append(self._verify_one(prepared, key, max_age))
+            except InvalidSignature:
+                raise
+            except Exception as exc:
+                raise InvalidSignature(exc) from exc
+        return self.verify_body(message, results, body) if body is not None else results
+
+    async def verify_async(
+        self,
+        message,
+        *,
+        max_age: datetime.timedelta | None = _VerificationDefaults.max_age,
+        expect_tag: str | None = _VerificationDefaults.expect_tag,
+        expect_label: str | None = _VerificationDefaults.expect_label,
+        require_components: Sequence[str] = _VerificationDefaults.require_components,
+        body: bytes | None = _VerificationDefaults.body,
+    ) -> list[VerifyResult]:
+        """Verify signatures while awaiting verification-key resolution.
+
+        Options, defaults, results, and exceptions are the same as for ``verify()``.
+        This method calls ``key_resolver.resolve_public_key_async()`` for each
+        selected signature. Cryptographic verification and digest calculation run
+        synchronously. Cancellation propagates to the key resolver.
+
+        Keep the message and its associated request unchanged until this method
+        returns. Supply a trusted resolver; a signed key ID is not authorization
+        to fetch an arbitrary URL or trust a key supplied by the message sender.
+        """
+        results = []
+        for prepared in self._verification_inputs(message, max_age, expect_tag, expect_label, require_components):
+            assert self.key_resolver is not None  # Checked during preparation.
+            try:
+                key = await self.key_resolver.resolve_public_key_async(prepared.sig_input.params["keyid"])
+                results.append(self._verify_one(prepared, key, max_age))
+            except InvalidSignature:
+                raise
+            except Exception as exc:
+                raise InvalidSignature(exc) from exc
+        return self.verify_body(message, results, body) if body is not None else results
+
+    def _verification_inputs(self, message, max_age, expect_tag, expect_label, require_components):
         if expect_tag is None and expect_label is not None:
             if self.allow_label_only_selection:
                 warn(
@@ -600,11 +667,10 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         def component_resolver_factory():
             return self.component_resolver_class(message)
 
-        verify_results = []
         for label, sig_input, signature in self._get_sig_inputs_and_signatures(
             message, expect_tag=expect_tag, expect_label=expect_label
         ):
-            verify_result = self._verify_one(
+            prepared = self._prepare_verification(
                 label=label,
                 sig_input=sig_input,
                 signature=signature,
@@ -614,15 +680,13 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             )
             if required:
                 covered = {
-                    _component_identity(node) for node in _parse_component_ids(tuple(verify_result.covered_components))
+                    _component_identity(node)
+                    for node in _parse_component_ids(tuple(prepared.result.covered_components))
                 }
                 for component in required:
                     if _component_identity(component) not in covered:
                         raise InvalidSignature(f"Required component {component} was not covered by the signature")
-            verify_results.append(verify_result)
-        if body is not None:
-            return self.verify_body(message, verify_results, body)
-        return verify_results
+            yield prepared
 
     def verify_body(self, message, results: Sequence[VerifyResult], body: bytes) -> list[VerifyResult]:
         """This method validates body digests after ``verify()`` has authenticated headers."""

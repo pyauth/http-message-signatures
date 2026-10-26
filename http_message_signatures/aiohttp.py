@@ -48,8 +48,9 @@ class VerificationOptions(_VerificationOptions):
     """Configuration for response verification with SignatureMiddleware.
 
     ``origin``, ``signature_algorithm``, and ``key_resolver`` are required.
+    Set ``async_verification=True`` to call ``verify_async()``; the default calls ``verify()``.
     Other entries are optional ``HTTPMessageVerifier.verify()`` keywords.
-    SignatureMiddleware supplies ``body``; ``HTTPMessageVerifier.verify()`` supplies defaults for omitted options.
+    SignatureMiddleware supplies ``body``; the selected verifier method supplies defaults for omitted options.
     """
 
 
@@ -318,7 +319,7 @@ class SignatureMiddleware(_SignatureAdapter):
                     headers=_HeaderFields.from_raw(lambda: response.raw_headers),
                     request=_request_view(request),
                 )
-                results = self.verifier.verify(message, **self._verify_kwargs)
+                results = await self._verify_async(message)
                 empty = isinstance(response.content, EmptyStreamReader)
                 if not empty and response.content.total_compressed_bytes is not None:
                     raise ValueError("Do not override auto_decompress=True when using signature verification")
@@ -366,9 +367,10 @@ class ServerSigningOptions(_BaseSigningOptions):
 class ServerVerificationOptions(_BaseVerificationOptions):
     """Request verification configuration for ServerSignatureMiddleware.
 
-    ``signature_algorithm`` and ``key_resolver`` are required. Other entries
-    are optional ``HTTPMessageVerifier.verify()`` keywords. The middleware
-    supplies ``body``; the verifier supplies omitted defaults.
+    ``signature_algorithm`` and ``key_resolver`` are required.
+    Set ``async_verification=True`` to call ``verify_async()``; the default calls ``verify()``.
+    Other entries are optional ``HTTPMessageVerifier.verify()`` keywords. The middleware
+    supplies ``body``; the selected verifier method supplies omitted defaults.
     """
 
 
@@ -515,7 +517,7 @@ class ServerSignatureMiddleware(_SignatureConfiguration):
         empty = isinstance(content, EmptyStreamReader)
         if not empty and content.total_compressed_bytes is not None:
             raise ValueError("Request verification requires handler_args={'auto_decompress': False}")
-        results = self.verifier.verify(state.message, **self._verify_kwargs)
+        results = await self._verify_async(state.message)
         body = await request.read()
         if not empty and len(body) != content.total_bytes:
             raise ValueError("Request body was partially consumed; install signature middleware before body readers")

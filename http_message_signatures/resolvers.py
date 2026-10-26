@@ -257,6 +257,14 @@ class HTTPSignatureKeyResolver:
         """Return the verification key for ``key_id``; ``None`` means unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")
 
+    async def resolve_public_key_async(self, key_id: str) -> VerificationKey | None:
+        """Return the verification key for ``verify_async()``; ``None`` means unavailable.
+
+        The default calls ``resolve_public_key()`` synchronously. Override this
+        method to await a key lookup without blocking the event loop.
+        """
+        return self.resolve_public_key(key_id)
+
     def resolve_private_key(self, key_id: str):
         """Return the signing key for ``key_id`` or raise if it is unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")
