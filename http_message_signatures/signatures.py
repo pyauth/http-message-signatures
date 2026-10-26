@@ -629,14 +629,10 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         self.content_digest_class._check_body(body)
         needs_digest = bool(body) or "content-digest" in get_header_fields(message.headers)
         verified = []
-        hashes: dict[str, bytes] = {}
-        for result in results:
-            if self.content_digest_class is ContentDigest:
-                digest_verified = self.content_digest_class._verify_components(result.covered_components, body, hashes)
-            else:
-                # Keep custom validation on its public override path.
+        with self.content_digest_class._cache_digests(body):
+            for result in results:
                 digest_verified = self.content_digest_class.verify_components(result.covered_components, body)
-            if needs_digest and not digest_verified:
-                raise InvalidSignature("The message body requires a signed Content-Digest")
-            verified.append(result._replace(body=body) if digest_verified else result)
+                if needs_digest and not digest_verified:
+                    raise InvalidSignature("The message body requires a signed Content-Digest")
+                verified.append(result._replace(body=body) if digest_verified else result)
         return verified

@@ -62,8 +62,8 @@ class TestSharedUtilities(unittest.TestCase):
             with self.assertRaisesRegex(InvalidSignature, "does not match"):
                 verifier.verify(request, expect_tag="test", body=b"changed")
 
-    def test_digest_overrides_and_individual_checks_are_preserved(self):
-        signer, verifier = handlers()
+    def test_cached_hashes_preserve_digest_overrides_and_individual_checks(self):
+        _, verifier = handlers()
         calls = []
 
         class CustomDigest(ContentDigest):
@@ -78,21 +78,21 @@ class TestSharedUtilities(unittest.TestCase):
                 return super().verify(value, body, key=key)
 
         verifier.content_digest_class = CustomDigest
+        signer, _ = handlers()
         body = b"hello"
         request = requests.Request("POST", "https://example.com/", data=body).prepare()
         signer.sign(request, key_id="key", body=body)
         result = verifier.verify(request)[0]
-        verifier.verify_body(request, [result, result], body)
-        self.assertEqual(calls, ["components", "digest", "components", "digest"])
         bad_digest = result._replace(covered_components={'"content-digest"': ContentDigest.create(b"other")})
         no_digest = result._replace(covered_components={'"@method"': "POST"})
-        for digest_class in (ContentDigest, CustomDigest):
-            with self.subTest(digest_class=digest_class):
-                verifier.content_digest_class = digest_class
-                with self.assertRaisesRegex(InvalidSignature, "does not match"):
-                    verifier.verify_body(request, [result, bad_digest], body)
-                with self.assertRaisesRegex(InvalidSignature, "requires a signed Content-Digest"):
-                    verifier.verify_body(request, [result, no_digest], body)
+        with self.assertRaisesRegex(InvalidSignature, "does not match"):
+            verifier.verify_body(request, [result, bad_digest], body)
+        self.assertEqual(calls, ["components", "digest", "components", "digest"])
+        with self.assertRaisesRegex(InvalidSignature, "requires a signed Content-Digest"):
+            verifier.verify_body(request, [result, no_digest], body)
+        with patch.dict(ContentDigest._hashers, {"sha-256": Mock(wraps=hashlib.sha256)}) as hashers:
+            verifier.verify_body(request, [result, result], body)
+            self.assertEqual(sum(call.args == (body,) for call in hashers["sha-256"].call_args_list), 1)
 
     def test_requests_raw_response_preserves_httpx2_signature(self):
         signer, verifier = handlers()
