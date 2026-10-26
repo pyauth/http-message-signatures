@@ -159,6 +159,15 @@ class AiohttpServerTests(unittest.IsolatedAsyncioTestCase):
                     await client.post(server.make_url("/"))
             self.assertEqual(set(sign.call_args.kwargs), {"key_id", "body"})
 
+    async def test_application_options_can_be_customized_without_changing_defaults(self):
+        signatures = self.middleware()
+        options = signatures.application_kwargs
+        options["middlewares"] = ()
+        options["handler_args"]["auto_decompress"] = True
+        fresh = signatures.application_kwargs
+        self.assertEqual(fresh["middlewares"], (signatures._middleware,))
+        self.assertEqual(fresh["handler_args"], {"auto_decompress": False})
+
     async def test_unknown_options_reach_base_methods(self):
         signatures = self.middleware(ServerSignatureMiddlewareMode.VERIFY_REQUEST, verify_options={"typo": True})
         server = await self.start(signatures)

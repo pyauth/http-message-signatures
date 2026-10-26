@@ -212,9 +212,9 @@ Install the optional dependency (aiohttp 3.14 or later)::
 
     pip install 'http-message-signatures[aiohttp]'
 
-``SignatureMiddleware`` works with the standard ``aiohttp.ClientSession``. Its ``sign_options`` and ``verify_options``
-dictionaries accept the same configuration as the HTTPX2 integration, including custom key resolvers and independent
-algorithms. Pass the middleware's ``session_kwargs`` to the session constructor::
+``http_message_signatures.aiohttp.SignatureMiddleware`` signs requests and verifies responses through
+``aiohttp.ClientSession``. Its ``sign_options`` and ``verify_options`` dictionaries accept custom key resolvers and
+independent algorithms. Pass ``session_kwargs`` to the session constructor::
 
     import aiohttp
     from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
@@ -236,7 +236,7 @@ algorithms. Pass the middleware's ``session_kwargs`` to the session constructor:
         },
     )
     async with aiohttp.ClientSession(**signatures.session_kwargs) as client:
-        async with client.post("https://api.example.com/items", json={"hello": "world"}) as response:
+        async with client.post("https://api.example.com/items", json={"hello": "world"}, allow_redirects=False) as response:
             response.raise_for_status()
             data = await response.json()
             results = signatures.verification_results(response)
@@ -246,38 +246,33 @@ The first constructor argument selects the mode. ``SignatureMiddlewareMode.SIGN_
 ``SignatureMiddlewareMode.SIGN_REQUEST_VERIFY_RESPONSE``, needs both dictionaries. The middleware forwards supplied
 signature options to the base signer and verifier; those methods provide defaults for omitted options.
 
-The middleware buffers complete request and response bodies. It generates request digests and validates response
-digests automatically, including for streaming uploads and downloads. To accept an existing request digest, set
-``"use_existing_digest": True`` in ``sign_options``. The middleware checks it against the buffered body. It also
-allows digest reuse when a retry invokes the same middleware on the same request, unless you set this option to ``False``.
-For compressed uploads, pass ``compress=True`` or an encoding such as ``compress="gzip"`` to aiohttp's request method.
-The middleware uses aiohttp's compressor while buffering the upload, then computes Content-Digest and signs the
-compressed bytes that aiohttp will send. Retries and redirects that preserve the body reuse those bytes without
-compressing them again. Streaming uploads are fully buffered before sending. You can also supply already encoded bytes
-with a Content-Encoding header without ``compress=``. An existing digest must describe the compressed content.
+Signing buffers the upload, generates Content-Digest, and signs the prepared request. aiohttp's ``compress=True`` and
+``compress="gzip"`` options work: the middleware uses aiohttp's compressor before signing. Retries and redirects reuse
+buffered content without recompressing it. To supply precompressed content yourself, send encoded bytes with
+Content-Encoding. Existing digests require ``"use_existing_digest": True`` in ``sign_options`` and must match the encoded
+body. The middleware permits reuse on retries of the same request unless you explicitly set this option to ``False``.
 
-When verification is enabled, ``session_kwargs`` disables aiohttp's early decompression. The middleware verifies the
-encoded body, then decodes it for normal ``read()``, ``text()``, ``json()``, and ``content.iter_chunked()`` access.
-``VerifyResult.body`` contains the verified bytes before decoding. Buffering removes the original HTTP chunk boundaries
-and retains both encoded and decoded content in memory. The adapter uses aiohttp's internal payload parser and stream
-construction APIs for this step. Signing-only mode leaves response handling to aiohttp.
+Verification checks the encoded response before decoding it for ``read()``, ``text()``, ``json()``, and ``content``.
+``VerifyResult.body`` contains the encoded bytes. Client buffering has no size limit, retains encoded and decoded
+content in memory, and discards HTTP chunk boundaries. Streaming readers do not bound this memory use. Decoded replay
+uses aiohttp's internal payload parser and stream APIs. Signing-only mode leaves response handling to aiohttp.
 
-Place this middleware last in a session's middleware sequence: earlier middleware can modify requests before signing
-and consume responses after verification. Retain the ``auto_decompress=False`` setting from ``session_kwargs`` and
-include the signature middleware if you override the per-request middleware list. Do not set per-request
-``auto_decompress=True``: aiohttp can decode content before the middleware detects and rejects that override.
+Place the signature middleware last, so other middleware can change requests before signing and read responses after
+verification. Keep ``auto_decompress=False`` from ``session_kwargs`` and retain the signature middleware when overriding
+the per-request middleware list. Setting ``auto_decompress=True`` can expose unverified content to aiohttp's decoder
+before the middleware rejects it.
 
-aiohttp updates its cookie jar after this middleware returns, so failed verification prevents that response's cookie
-updates. To authenticate cookies, also require ``'"set-cookie";bs'`` coverage; a valid body signature alone does not
-authenticate Set-Cookie fields.
+Requests and redirects must match each enabled operation's configured origin. Keep ``allow_redirects=False`` unless
+your verification policy requires signed Location on redirect responses: an origin check does not authenticate paths
+within that origin. Require coverage of other fields the application trusts, including Content-Type and Content-Encoding.
+Failed verification prevents cookie-jar updates; authenticating cookies also requires ``'"set-cookie";bs'`` coverage.
 
 aiohttp servers
 ^^^^^^^^^^^^^^^
 
-``http_message_signatures.aiohttp.ServerSignatureMiddleware`` verifies incoming requests and signs outgoing responses
-with the standard ``aiohttp.web.Application`` API. Its separate ``ServerVerificationOptions`` and
-``ServerSigningOptions`` dictionaries accept custom key resolvers and independent algorithms. They do not require
-an ``origin``. The application controls accepted hosts, trusted proxies, and authorization.
+``http_message_signatures.aiohttp.ServerSignatureMiddleware`` verifies requests and signs responses through
+``aiohttp.web.Application``. ``ServerVerificationOptions`` and ``ServerSigningOptions`` accept independent algorithms
+and key resolvers, without an ``origin``. Applications control accepted hosts, trusted proxies, and authorization.
 
 This example uses the client and server key resolvers defined earlier::
 
@@ -321,31 +316,27 @@ This example uses the client and server key resolvers defined earlier::
     app.on_response_prepare.append(signatures.on_response_prepare)
     web.run_app(app)
 
-The first constructor argument selects ``ServerSignatureMiddlewareMode.VERIFY_REQUEST``, ``SIGN_RESPONSE``, or
-``VERIFY_REQUEST_SIGN_RESPONSE`` (the default). Supply ``verify_options`` for request verification and ``sign_options``
-for response signing. Verification-only mode does not need the preparation callback; signing-only mode leaves
-request body handling to the application. Supplied options pass through to the base signer and verifier, which
-provide their defaults. Configure ``covered_component_ids`` for response signing: the base signer's default
-components describe requests. The middleware adds Content-Digest coverage automatically.
+The first argument selects ``ServerSignatureMiddlewareMode.VERIFY_REQUEST``, ``SIGN_RESPONSE``, or
+``VERIFY_REQUEST_SIGN_RESPONSE`` (the default). Supply options for the enabled operations. Verification-only mode needs
+no preparation callback; signing-only mode leaves request bodies to the handler. The base signer and verifier supply
+omitted defaults. Configure response ``covered_component_ids`` explicitly because the base defaults cover requests;
+the middleware adds Content-Digest coverage.
 
-``application_kwargs`` installs the middleware and disables early request decompression when verification is enabled.
-Retain its ``handler_args={"auto_decompress": False}`` setting when adding other application options. The middleware
-verifies signature headers and encoded content before decoding or invoking the handler. It buffers both encoded and
-decoded request content, applying ``request.client_max_size`` to each; zero retains aiohttp's unlimited setting.
-Handlers can then use ``read()``, ``text()``, ``json()``, ``post()``, ``multipart()``, and ``content`` normally.
+``application_kwargs`` installs the middleware and, when verifying, sets ``handler_args={"auto_decompress": False}``.
+Keep that setting when adding other options. The middleware verifies headers and encoded content before decoding or
+invoking the handler. Both encoded and decoded buffers respect ``request.client_max_size``; zero disables the limit.
+Handlers can use ``read()``, ``text()``, ``json()``, ``post()``, ``multipart()``, and ``content`` normally.
 ``verification_results(request)`` returns successful results with encoded content in ``VerifyResult.body``.
 
-Place trusted proxy middleware before signature verification and body consumers after it. The middleware captures
-the effective request URL and header lines for response components qualified with ``;req``. It does not trust
-Forwarded headers automatically. Applications choose how to handle ``InvalidSignature``; the example uses 403.
-Valid signatures do not establish application authorization or prevent replay. Require coverage of other fields
-your application trusts, such as Content-Type, Cookie, Set-Cookie, or Location.
+Place trusted proxy middleware before signature verification and body consumers after it. The middleware captures the
+effective request URL and headers for ``;req`` response components; it does not trust Forwarded headers automatically.
+Applications handle ``InvalidSignature`` (403 in this example), authorization, and replay prevention. Require coverage
+of fields the application trusts, such as Content-Type, Content-Encoding, Cookie, Set-Cookie, or Location.
 
-For signing, return a ``web.Response`` containing bytes, text, JSON, or a finite Payload. The middleware buffers and
-closes Payloads before preparation, preserving response headers. aiohttp performs normal response compression when
-``enable_compression()`` is enabled. The preparation callback signs the encoded bytes after aiohttp finalizes cookies
-and default headers. HEAD, 204, and 304 responses have empty content digests. Existing digests require
-``"use_existing_digest": True`` in ``sign_options`` and must match the transmitted content.
+For signing, return a ``web.Response`` with bytes, text, JSON, or a finite Payload. The middleware buffers and closes
+Payloads before preparation. aiohttp applies ``enable_compression()`` normally; the preparation callback signs encoded
+content and finalized headers, including cookies. HEAD, 204, and 304 responses have empty content digests. Existing
+digests require ``"use_existing_digest": True`` in ``sign_options`` and must match the transmitted content.
 
 Register ``on_response_prepare`` last, after callbacks that modify headers. For subapplications, the callback must
 run after child callbacks too; register it once for each route's application chain, on the relevant leaf application.

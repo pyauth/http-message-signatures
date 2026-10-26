@@ -130,6 +130,13 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                     else:
                         self.assertEqual(middleware.verification_results(response)[0].body, PLAIN)
 
+    async def test_session_options_can_be_customized_without_changing_defaults(self):
+        signatures = self.middleware()
+        options = signatures.session_kwargs
+        options["middlewares"] = ()
+        options["auto_decompress"] = True
+        self.assertEqual(signatures.session_kwargs, {"middlewares": (signatures,), "auto_decompress": False})
+
     async def test_verification_precedes_decoding_and_trace_consumers(self):
         encoded = gzip.compress(PLAIN)
 
@@ -191,6 +198,41 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await client.get(self.origin)
             self.assertFalse(client.cookie_jar)
+
+    async def test_consumed_response_cannot_verify_only_remaining_bytes(self):
+        prefix = b"unsigned content"
+        for consumption in ("cached", "stream", "prefix"):
+            with self.subTest(consumption=consumption):
+                signed_body = PLAIN if consumption == "prefix" else b""
+                responses = []
+
+                async def endpoint(request, signed_body=signed_body):
+                    response = await self.signed_response(request, signed_body)
+                    response.body = prefix + signed_body
+                    response.set_cookie("unverified", "value")
+                    return response
+
+                async def consume(request, handler, consumption=consumption, responses=responses):
+                    response = await handler(request)
+                    responses.append(response)
+                    if consumption == "cached":
+                        await response.read()
+                    elif consumption == "stream":
+                        await response.content.read()
+                    else:
+                        self.assertEqual(await response.content.read(len(prefix)), prefix)
+                    return response
+
+                self.endpoint = endpoint
+                signatures = self.middleware(SignatureMiddlewareMode.VERIFY_RESPONSE)
+                options = {**signatures.session_kwargs, "middlewares": (signatures, consume)}
+                async with aiohttp.ClientSession(**options, cookie_jar=aiohttp.CookieJar(unsafe=True)) as client:
+                    with self.assertRaisesRegex(InvalidSignature, "consumed before verification"):
+                        await client.get(self.origin)
+                    self.assertFalse(client.cookie_jar)
+                self.assertTrue(responses[0].closed)
+                with self.assertRaises(InvalidSignature):
+                    signatures.verification_results(responses[0])
 
     async def test_repeated_content_encoding_matches_native_aiohttp(self):
         encoded = gzip.compress(PLAIN)
@@ -524,15 +566,36 @@ class AiohttpTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(await response.read(), PLAIN)
 
     async def test_cross_origin_redirect_is_blocked(self):
-        async def endpoint(request):
-            return await self.signed_response(request, status=307, headers={"Location": "http://example.invalid/"})
+        received = []
 
-        self.endpoint = endpoint
-        middleware = self.middleware()
-        async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
-            with self.assertRaisesRegex(HTTPMessageSignaturesException, "origin"):
-                await client.get(self.origin)
-        self.assertEqual(len(self.requests), 1)
+        async def destination(request):
+            received.append(request.headers)
+            return web.Response()
+
+        app = web.Application()
+        app.router.add_post("/", destination)
+        async with TestServer(app) as server:
+
+            async def endpoint(request):
+                return await self.signed_response(request, status=307, headers={"Location": str(server.make_url("/"))})
+
+            self.endpoint = endpoint
+            credentials = {"Cookie": "session=private", "Authorization": "Bearer private"}
+            for mode in SignatureMiddlewareMode:
+                middleware = self.middleware(mode)
+                async with aiohttp.ClientSession(**middleware.session_kwargs) as client:
+                    for compression in (None, "gzip"):
+                        for in_payload in (False, True):
+                            with self.subTest(mode=mode, compression=compression, in_payload=in_payload):
+                                payload = aiohttp.BytesPayload(PLAIN, headers=credentials if in_payload else {})
+                                with self.assertRaisesRegex(HTTPMessageSignaturesException, "origin"):
+                                    await client.post(
+                                        self.origin,
+                                        data=payload,
+                                        compress=compression,
+                                        headers={} if in_payload else credentials,
+                                    )
+            self.assertFalse(received)
 
     async def test_middleware_order_authenticates_mutations_before_consumers(self):
         middleware = self.middleware(sign_options={"covered_component_ids": ("@method", "x-added")})

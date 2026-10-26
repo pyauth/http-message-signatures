@@ -81,7 +81,9 @@ def aiohttp_server_example(keys: HTTPSignatureKeyResolver) -> web.Application:
         assert_type(signatures.verification_results(request), list[VerifyResult])
         return web.Response(body=await request.read())
 
-    app = web.Application(**signatures.application_kwargs)
+    options = signatures.application_kwargs
+    options["handler_args"]["keepalive_timeout"] = 30.0
+    app = web.Application(**options)
     app.router.add_post("/", handler)
     app.on_response_prepare.append(signatures.on_response_prepare)
     return app

@@ -4,9 +4,8 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property
 from io import BytesIO
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from weakref import WeakKeyDictionary, WeakSet
 
 import aiohttp
@@ -136,9 +135,8 @@ async def _buffer_request(request: aiohttp.ClientRequest) -> bytes:
 
 
 class _BufferedProtocol(BaseProtocol):
-    # aiohttp.StreamReader uses these methods for connection flow control.
-    # This protocol serves a body buffered in memory. The methods do nothing
-    # because aiohttp may have reused the original connection.
+    # Replaying buffered content must not pause or resume the original connection,
+    # which aiohttp may already have returned to the pool.
     def pause_reading(self) -> None:
         pass
 
@@ -221,38 +219,25 @@ class SignatureMiddleware(_SignatureAdapter):
     :cvar signer_class: Subclasses may override the HTTPMessageSigner class used by the middleware.
     :cvar verifier_class: Subclasses may override the HTTPMessageVerifier class used by the middleware.
 
-    Pass ``**middleware.session_kwargs`` to ``aiohttp.ClientSession``. When
-    verification is enabled, these options disable aiohttp's early decompression.
-    The middleware verifies encoded content first, then restores decoded content
-    for normal ``read()``, ``text()``, ``json()``, and ``content`` access.
-    Do not override ``auto_decompress`` or replace the configured middleware.
-    A per-request override can trigger decoding before the middleware rejects it.
+    Pass ``**middleware.session_kwargs`` to ``aiohttp.ClientSession``. Place this
+    middleware last: it signs outgoing changes and verifies responses before
+    other middleware reads them. Keep ``auto_decompress=False`` when verifying;
+    aiohttp must leave content encoded until verification succeeds.
 
-    Place this middleware last, after middleware that changes outgoing requests,
-    so it signs those changes and verifies responses before other middleware reads
-    them. The middleware buffers complete bodies, including streaming uploads and
-    downloads; HTTP chunk boundaries are not retained in the verified response.
-    When you pass ``compress=`` to aiohttp, the middleware compresses the upload
-    while buffering it, then signs the compressed bytes that aiohttp sends. Retries
-    and redirects that preserve the body reuse those bytes without recompression. You can also
-    supply encoded bytes and a Content-Encoding header without ``compress=``.
+    The middleware buffers complete bodies without a size limit. It supports
+    aiohttp's ``compress=`` request option and restores decoded response content
+    for the usual aiohttp readers. Replay uses aiohttp's internal payload parser
+    and discards HTTP chunk boundaries.
 
-    Each operation uses its own origin, algorithm, and key resolver. The middleware
-    forwards signing options to ``HTTPMessageSigner.sign()`` and verification options
-    to ``HTTPMessageVerifier.verify()``. These methods supply defaults for omitted
-    options and reject unknown keywords. Use ``use_existing_digest=True`` to
-    accept a supplied digest. The middleware also permits digest reuse when the
-    same instance signs the same request again, unless you set the option to False.
-    ``HTTPMessageSigner.sign()`` checks reused digests against the buffered content.
+    Each enabled operation restricts requests and redirects to its configured
+    origin. The base signer and verifier supply omitted signature defaults.
+    Existing digests require ``use_existing_digest=True`` and must match the body.
+    The middleware permits reuse on retries of the same request unless explicitly
+    disabled. Use ``require_components`` for coverage beyond the body digest.
 
-    HTTPMessageVerifier requires a signed digest for nonempty responses or responses with
-    Content-Digest. Use ``require_components`` for other coverage requirements.
-    Call ``verification_results(response)`` to retrieve successful verification results.
-    Failed verification closes the response before aiohttp updates its cookie jar.
-    To authenticate cookie fields, require ``'"set-cookie";bs'`` coverage as well.
-
-    Restoring decoded response streams uses aiohttp's internal payload parser and stream
-    construction APIs.
+    Failed verification closes the response before cookie-jar updates. Authenticating
+    cookies also requires ``'"set-cookie";bs'`` coverage. Successful results are
+    available through ``verification_results(response)``.
     """
 
     def __init__(
@@ -300,9 +285,9 @@ class SignatureMiddleware(_SignatureAdapter):
         if (url.scheme, url.host, url.port) != origin:
             raise HTTPMessageSignaturesException("Request origin is not authorized for these signature keys")
 
-    @cached_property
+    @property
     def session_kwargs(self) -> _SessionOptions:
-        """Options that install this middleware and defer decoding until after verification."""
+        """Return fresh ClientSession options that install middleware and defer decoding."""
         options: _SessionOptions = {"middlewares": (self,)}
         if self.verifier is not None:
             options["auto_decompress"] = False
@@ -338,6 +323,10 @@ class SignatureMiddleware(_SignatureAdapter):
                 if not empty and response.content.total_compressed_bytes is not None:
                     raise ValueError("Do not override auto_decompress=True when using signature verification")
                 body = await response.content.read()
+                if not empty and len(body) != response.content.total_bytes:
+                    raise InvalidSignature(
+                        "Response body was consumed before verification; install signature middleware last"
+                    )
                 results = self.verifier.verify_body(message, results, body)
                 if not empty:
                     response.content = _decoded_content(response, body)
@@ -357,7 +346,7 @@ class SignatureMiddleware(_SignatureAdapter):
             raise
 
     def verification_results(self, response: aiohttp.ClientResponse) -> list[VerifyResult]:
-        """This method returns results for a response verified by this middleware instance."""
+        """Return successful response verification results from this instance."""
         try:
             return self._results[response]
         except KeyError:
@@ -393,7 +382,7 @@ class ServerSignatureMiddlewareMode(Enum):
 
 class _ApplicationOptions(TypedDict, total=False):
     middlewares: tuple[Middleware, ...]
-    handler_args: dict[str, bool]
+    handler_args: dict[str, Any]
 
 
 @dataclass
@@ -419,33 +408,25 @@ class ServerSignatureMiddleware(_SignatureConfiguration):
     :cvar signer_class: Subclasses may override the HTTPMessageSigner class.
     :cvar verifier_class: Subclasses may override the HTTPMessageVerifier class.
 
-    Pass ``**middleware.application_kwargs`` to ``web.Application``. When
-    signing is enabled, append ``middleware.on_response_prepare`` as the final
-    response preparation callback. The middleware checks callback ordering for
-    each route, including subapplications, before invoking the handler.
+    Pass ``**middleware.application_kwargs`` to ``web.Application``. For signing,
+    register ``middleware.on_response_prepare`` last, after all header changes.
+    Place trusted proxy middleware before this middleware and body consumers after it.
 
-    Verification buffers encoded request content, verifies it, and restores a
-    decoded stream for aiohttp's normal request readers. Both buffers respect
-    ``request.client_max_size``; zero disables the limit. Keep the supplied
-    ``auto_decompress=False`` handler setting. Place trusted proxy middleware
-    before verification, and body consumers after it. InvalidSignature propagates
-    to application error middleware; the application chooses the error response.
+    Verification buffers encoded requests, validates their digests, and restores
+    decoded content for aiohttp readers. Both buffers respect ``request.client_max_size``;
+    zero disables the limit. Keep the supplied ``auto_decompress=False`` setting.
+    Applications handle InvalidSignature and retrieve successful results with
+    ``verification_results(request)``.
 
-    Signing supports buffered ``web.Response`` bodies, including finite Payloads
-    returned by handlers. aiohttp compresses buffered responses normally, and the
-    preparation callback signs the resulting bytes and finalized headers. Return
-    Payload responses without preparing them yourself. Streaming responses,
-    FileResponse, and chunked responses with compression are unsupported.
-    Signing failures close the connection before response headers are sent.
+    Signing supports buffered ``web.Response`` bodies and native compression.
+    Return finite Payloads without preparing them; the middleware buffers and
+    closes them. Streaming, FileResponse, and chunked compression are unsupported.
+    Signing failures close the connection before headers are sent.
 
-    Signature options retain base defaults. In particular, configure response
-    ``covered_component_ids`` explicitly. Existing digests require
-    ``use_existing_digest=True`` and must match the content sent. Verification
-    results contain encoded bytes and are available through ``verification_results``.
-
-    Body replay replaces aiohttp's private request payload/cache, and response
-    signing reads its private compressed-body cache. Header and content changes
-    after signing invalidate the signature.
+    The base signer and verifier supply omitted defaults. Configure response
+    ``covered_component_ids`` explicitly: the base defaults cover requests.
+    Existing digests require ``use_existing_digest=True`` and must match the body.
+    Request replay and compressed response access use aiohttp's private caches.
     """
 
     def __init__(
@@ -476,9 +457,9 @@ class ServerSignatureMiddleware(_SignatureConfiguration):
         # response can still receive the original request with its older mapping.
         self._request_state: ContextVar[_ServerState | None] = ContextVar("http_message_signatures", default=None)
 
-    @cached_property
+    @property
     def application_kwargs(self) -> _ApplicationOptions:
-        """Application options that install middleware and defer request decoding."""
+        """Return fresh Application options that install middleware and defer decoding."""
         options: _ApplicationOptions = {"middlewares": (self._middleware,)}
         if self.verifier is not None:
             options["handler_args"] = {"auto_decompress": False}
