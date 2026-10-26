@@ -2,6 +2,7 @@
 
 import aiohttp
 import httpx2
+from aiohttp import web
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from typing_extensions import assert_type
 
@@ -21,7 +22,14 @@ from http_message_signatures import (
     VerifyResult,
     algorithms,
 )
-from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
+from http_message_signatures.aiohttp import (
+    ServerSignatureMiddleware,
+    ServerSignatureMiddlewareMode,
+    ServerSigningOptions,
+    ServerVerificationOptions,
+    SignatureMiddleware,
+    SignatureMiddlewareMode,
+)
 from http_message_signatures.aiohttp import SigningOptions as AiohttpSigningOptions
 from http_message_signatures.aiohttp import VerificationOptions as AiohttpVerificationOptions
 from http_message_signatures.algorithms import (
@@ -54,6 +62,29 @@ async def aiohttp_example(keys: HTTPSignatureKeyResolver) -> list[VerifyResult]:
         assert_type(await response.read(), bytes)
         assert_type(signatures.mode, SignatureMiddlewareMode)
         return signatures.verification_results(response)
+
+
+def aiohttp_server_example(keys: HTTPSignatureKeyResolver) -> web.Application:
+    signatures = ServerSignatureMiddleware(
+        ServerSignatureMiddlewareMode.VERIFY_REQUEST_SIGN_RESPONSE,
+        sign_options=ServerSigningOptions(
+            signature_algorithm=HMAC_SHA256,
+            key_id="server",
+            key_resolver=keys,
+            covered_component_ids=("@status",),
+        ),
+        verify_options=ServerVerificationOptions(signature_algorithm=HMAC_SHA256, key_resolver=keys),
+    )
+    assert_type(signatures.mode, ServerSignatureMiddlewareMode)
+
+    async def handler(request: web.Request) -> web.Response:
+        assert_type(signatures.verification_results(request), list[VerifyResult])
+        return web.Response(body=await request.read())
+
+    app = web.Application(**signatures.application_kwargs)
+    app.router.add_post("/", handler)
+    app.on_response_prepare.append(signatures.on_response_prepare)
+    return app
 
 
 def make_handlers(keys: HTTPSignatureKeyResolver) -> tuple[HTTPMessageSigner, HTTPMessageVerifier]:

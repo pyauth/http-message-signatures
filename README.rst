@@ -271,6 +271,96 @@ aiohttp updates its cookie jar after this middleware returns, so failed verifica
 updates. To authenticate cookies, also require ``'"set-cookie";bs'`` coverage; a valid body signature alone does not
 authenticate Set-Cookie fields.
 
+aiohttp servers
+^^^^^^^^^^^^^^^
+
+``http_message_signatures.aiohttp.ServerSignatureMiddleware`` verifies incoming requests and signs outgoing responses
+with the standard ``aiohttp.web.Application`` API. Its separate ``ServerVerificationOptions`` and
+``ServerSigningOptions`` dictionaries accept custom key resolvers and independent algorithms. They do not require
+an ``origin``. The application controls accepted hosts, trusted proxies, and authorization.
+
+This example uses the client and server key resolvers defined earlier::
+
+    from aiohttp import web
+    from http_message_signatures import InvalidSignature, algorithms
+    from http_message_signatures.aiohttp import ServerSignatureMiddleware
+
+    signatures = ServerSignatureMiddleware(
+        verify_options={
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": client_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@method", "@target-uri"),
+        },
+        sign_options={
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "server-1",
+            "key_resolver": server_key_resolver,
+            "tag": "example-api",
+            "covered_component_ids": (
+                "@status", "content-type", '"@method";req', '"@target-uri";req',
+            ),
+        },
+    )
+
+    @web.middleware
+    async def signature_errors(request, handler):
+        try:
+            return await handler(request)
+        except InvalidSignature:
+            raise web.HTTPForbidden(text="Invalid request signature") from None
+
+    async def echo(request):
+        results = signatures.verification_results(request)
+        # Apply your application's authorization policy using these verified results.
+        return web.json_response(await request.json())
+
+    app = web.Application(**signatures.application_kwargs)
+    app.middlewares.insert(0, signature_errors)
+    app.router.add_post("/items", echo)
+    app.on_response_prepare.append(signatures.on_response_prepare)
+    web.run_app(app)
+
+The first constructor argument selects ``ServerSignatureMiddlewareMode.VERIFY_REQUEST``, ``SIGN_RESPONSE``, or
+``VERIFY_REQUEST_SIGN_RESPONSE`` (the default). Supply ``verify_options`` for request verification and ``sign_options``
+for response signing. Verification-only mode does not need the preparation callback; signing-only mode leaves
+request body handling to the application. Supplied options pass through to the base signer and verifier, which
+provide their defaults. Configure ``covered_component_ids`` for response signing: the base signer's default
+components describe requests. The middleware adds Content-Digest coverage automatically.
+
+``application_kwargs`` installs the middleware and disables early request decompression when verification is enabled.
+Retain its ``handler_args={"auto_decompress": False}`` setting when adding other application options. The middleware
+verifies signature headers and encoded content before decoding or invoking the handler. It buffers both encoded and
+decoded request content, applying ``request.client_max_size`` to each; zero retains aiohttp's unlimited setting.
+Handlers can then use ``read()``, ``text()``, ``json()``, ``post()``, ``multipart()``, and ``content`` normally.
+``verification_results(request)`` returns successful results with encoded content in ``VerifyResult.body``.
+
+Place trusted proxy middleware before signature verification and body consumers after it. The middleware captures
+the effective request URL and header lines for response components qualified with ``;req``. It does not trust
+Forwarded headers automatically. Applications choose how to handle ``InvalidSignature``; the example uses 403.
+Valid signatures do not establish application authorization or prevent replay. Require coverage of other fields
+your application trusts, such as Content-Type, Cookie, Set-Cookie, or Location.
+
+For signing, return a ``web.Response`` containing bytes, text, JSON, or a finite Payload. The middleware buffers and
+closes Payloads before preparation, preserving response headers. aiohttp performs normal response compression when
+``enable_compression()`` is enabled. The preparation callback signs the encoded bytes after aiohttp finalizes cookies
+and default headers. HEAD, 204, and 304 responses have empty content digests. Existing digests require
+``"use_existing_digest": True`` in ``sign_options`` and must match the transmitted content.
+
+Register ``on_response_prepare`` last, after callbacks that modify headers. For subapplications, the callback must
+run after child callbacks too; register it once for each route's application chain, on the relevant leaf application.
+The middleware checks this order before invoking the handler. Place the signature middleware outside middleware
+that changes response bodies, and do not change bodies or covered headers after preparation. Application error
+responses also pass through the signing callback; a response signature does not imply that its request was verified.
+If signing fails, the adapter closes the connection before sending response headers.
+
+Bytes-backed responses support explicit ``prepare()`` calls. Return Payload responses without preparing them yourself
+so the middleware can buffer them. Automatic signing does not support ``StreamResponse``, SSE, ``FileResponse``,
+WebSockets, or chunked responses with compression; use a buffered ``web.Response`` instead. An explicit Content-Length
+must match the final bytes body. When buffering a Payload, the middleware honors its declared Content-Length limit.
+Response buffering has no size limit; supply finite bodies that fit in memory. Request replay uses aiohttp's private
+payload and read-cache attributes, and response signing reads its private compressed-body cache.
+
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
