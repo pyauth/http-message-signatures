@@ -39,8 +39,9 @@ class HTTPSignatureComponentResolver:
     be inferred from ``url``, such as an absolute-form proxy target or ``*``.
     The supplied target and URL must describe the same request.
 
-    Whole-field ``sf`` serialization uses the field type registered in
-    ``http_sf``. Unknown types and malformed values raise
+    Whole-field ``sf`` serialization treats Content-Digest as a Dictionary and
+    uses the field type registered in ``http_sf`` for other fields. Unknown
+    types and malformed values raise
     :class:`~http_message_signatures.HTTPMessageSignaturesException`.
     """
 
@@ -132,7 +133,11 @@ class HTTPSignatureComponentResolver:
             if cache_key in self._serialized_structured_fields:
                 return self._serialized_structured_fields[cache_key]
             try:
-                parsed = http_sf.parse(field_value.encode(), name=component_id)
+                parsed = http_sf.parse(
+                    field_value.encode(),
+                    name=component_id,
+                    tltype="dictionary" if component_id == "content-digest" else None,
+                )
                 serialized = http_sf.ser(parsed)
             except KeyError as e:
                 raise HTTPMessageSignaturesException(
