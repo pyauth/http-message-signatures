@@ -2319,7 +2319,15 @@ class TestHTTPMessageSignatures(unittest.TestCase):
     def test_whole_structured_field_signature_fixtures(self):
         signer = HTTPMessageSigner(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
         verifier = HTTPMessageVerifier(signature_algorithm=HMAC_SHA256, key_resolver=self.key_resolver)
+        sha256 = base64.b64encode(hashlib.sha256(b"hello").digest()).decode()
+        sha512 = base64.b64encode(hashlib.sha512(b"hello").digest()).decode()
         cases = (
+            (
+                "Content-Digest",
+                f"sha-256=:{sha256}:,   sha-512=:{sha512}:",
+                f"sha-256=:{sha256}:, sha-512=:{sha512}:",
+                f"sha-256=:{sha256}:",
+            ),
             ("Priority", "u=03,   i=?1", "u=3, i", "u=4, i"),
             ("Accept-CH", "Sec-CH-UA,   Sec-CH-UA-Platform", "Sec-CH-UA, Sec-CH-UA-Platform", "Sec-CH-UA"),
             ("Content-Type", 'text/html; charset="utf-8"', 'text/html;charset="utf-8"', "text/plain"),
