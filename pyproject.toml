@@ -30,7 +30,9 @@ dependencies = [
 Homepage = "https://github.com/pyauth/http-message-signatures"
 
 [project.optional-dependencies]
-docs = ["sphinx >= 7", "furo", "sphinx-copybutton"]
+httpx2 = ["httpx2"]
+aiohttp = ["aiohttp >= 3.14"]
+docs = ["sphinx >= 7", "furo", "sphinx-copybutton", "httpx2", "aiohttp >= 3.14"]
 tests = [
     "coverage",
     "build",
@@ -38,6 +40,8 @@ tests = [
     "mypy",
     "typing_extensions",
     "requests",
+    "httpx2",
+    "aiohttp >= 3.14",
     "ruff",
 ]
 
@@ -47,6 +51,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/AGENTS.md"]
 
 [tool.isort]
 profile = "black"

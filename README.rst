@@ -22,10 +22,7 @@ Synopsis
 
 .. code-block:: python
 
-    import hashlib
-
     import requests
-    from http_sf.compat import Dictionary
     from http_message_signatures import HTTPMessageSigner, HTTPMessageVerifier, HTTPSignatureKeyResolver, algorithms
 
     class MyHTTPSignatureKeyResolver(HTTPSignatureKeyResolver):
@@ -39,17 +36,25 @@ Synopsis
 
     request = requests.Request('POST', 'https://example.com/foo?param=Value&Pet=dog', json={"hello": "world"})
     request = request.prepare()
-    request.headers["Content-Digest"] = str(Dictionary({"sha-256": hashlib.sha256(request.body).digest()}))
 
     signer = HTTPMessageSigner(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    signer.sign(request, key_id="my-key", covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"))
+    signer.sign(request, key_id="my-key", body=request.body)
 
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
-    verifier.verify(request)
+    verifier.verify(request, body=request.body)
 
-Note that verifying the body content-digest is outside the scope of this package's functionality, so it remains the
-caller's responsibility. The `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ library
-builds upon this package to provide integrated signing and validation of the request body.
+Signing Content-Digest and checking it against the body protects the body against tampering.
+Supply content bytes before decoding as ``body=``. With this argument, ``sign()`` generates Content-Digest if absent
+and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
+When signing, components covered by the signature can be customized using ``covered_component_ids``, for example
+``covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest")``.
+
+Signing a message with an existing Content-Digest requires ``use_existing_digest=True`` on ``sign()`` or
+``prepare()``. With ``body=`` supplied, these methods validate the existing digest against those bytes and add digest
+coverage to the signature. Without ``body=``, they check only the digest's format and algorithms; you must ensure
+the digest matches the content and include it in ``covered_component_ids`` to sign it. Both methods preserve existing
+digest field lines and raise an error if the digest is malformed or does not match supplied content.
+They also raise an error if you supply ``use_existing_digest=True`` with neither a digest nor body bytes.
 
 .. admonition:: See what is signed
 
@@ -62,7 +67,7 @@ builds upon this package to provide integrated signing and validation of the req
  In http-message-signatures, you can ensure that the information signed is what you expect to be signed by only trusting the
  data returned by the ``verify()`` method::
 
-   verify_results = verifier.verify(request)
+   verify_results = verifier.verify(request, body=request.body)
 
  This returns a list of ``VerifyResult`` s, which are ``namedtuple`` s with the following attributes:
 
@@ -70,20 +75,307 @@ builds upon this package to provide integrated signing and validation of the req
  * algorithm: (same as signature_algorithm above)
  * covered_components: A mapping of component names to their values, as covered by the signature
  * parameters: A mapping of signature parameters to their values, as covered by the signature
- * body: Always ``None`` (the `requests-http-signature <https://github.com/pyauth/requests-http-signature>`_ package
-   implements returning the body upon successful digest validation).
+ * body: Content bytes that the verifier validated against a signed digest, before decoding; otherwise ``None``.
+
+Integrations
+------------
+
+Three integrations are available: `Requests <https://github.com/pyauth/requests-http-signature>`_, HTTPX2, and aiohttp.
+
+Requests
+~~~~~~~~
+
+See https://github.com/pyauth/requests-http-signature.
+
+HTTPX2 integration
+~~~~~~~~~~~~~~~~~~
+
+Install the optional dependency::
+
+    pip install 'http-message-signatures[httpx2]'
+
+``http_message_signatures.httpx2.SignatureHooks`` can sign prepared requests, verify responses, or do both through HTTPX2
+event hooks. The default mode enables both operations. Configure each operation independently in ``sign_options`` and
+``verify_options``, including its origin, algorithm, and ``HTTPSignatureKeyResolver`` instance.
+The hooks pass each resolver directly to the base signer
+or verifier, which calls it to look up keys when processing a message. Signing and verification can use different algorithms and
+resolvers, or share one resolver. For example, these custom resolvers load keys on demand from application key stores::
+
+    import httpx2
+    from http_message_signatures import HTTPSignatureKeyResolver, algorithms
+    from http_message_signatures.httpx2 import SignatureHooks, SignatureHooksMode
+
+    class ClientKeyResolver(HTTPSignatureKeyResolver):
+        def resolve_private_key(self, key_id):
+            return signing_key_store.load_private_key(key_id)
+
+    class ServerKeyResolver(HTTPSignatureKeyResolver):
+        def resolve_public_key(self, key_id):
+            return trusted_key_store.load_public_key(key_id)
+
+    client_key_resolver = ClientKeyResolver()
+    server_key_resolver = ServerKeyResolver()
+
+    signatures = SignatureHooks(
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "key_resolver": client_key_resolver,
+            "tag": "example-api",
+        },
+        verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": server_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@status", '"@method";req', '"@target-uri";req'),
+        },
+    )
+
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.post("https://api.example.com/items", json={"hello": "world"})
+        response.raise_for_status()
+        data = response.json()
+        results = response.extensions["http_message_signatures"]
+
+If you just want to supply the keys directly, use ``http_message_signatures.MappingKeyResolver`` with ``private_keys``
+and ``public_keys`` dictionaries keyed by key ID.
+
+The server must return a signature whose key ID is trusted by the verification resolver, using the configured algorithm
+and application tag. This example configures the verifier to require status and request method/URL coverage. The hooks
+also require a signed digest of the response's content if the response is nonempty or carries Content-Digest.
+A digest of request content selected using ``;req`` does not satisfy this requirement. The verifier raises
+``InvalidSignature`` for missing signatures, untrusted keys, insufficient configured coverage, or body mismatches before
+later response hooks or your code receive the response. The hooks verify signed error responses too; your application
+decides how to handle HTTP status codes.
+
+Use the async hook collection with ``AsyncClient``::
+
+    async with httpx2.AsyncClient(event_hooks=signatures.async_event_hooks) as client:
+        response = await client.post("https://api.example.com/items", json={"hello": "world"})
+        data = response.json()
+
+Signing only or verification only
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The first argument, ``mode``, selects which hooks ``SignatureHooks`` includes in its hook lists. All other arguments are keyword-only:
+
+* ``SignatureHooksMode.SIGN_REQUEST_VERIFY_RESPONSE`` (the default) requires both ``sign_options`` and ``verify_options``.
+* ``SignatureHooksMode.SIGN_REQUEST`` requires only ``sign_options``. Responses use normal HTTPX2 handling.
+* ``SignatureHooksMode.VERIFY_RESPONSE`` requires only ``verify_options``. Requests are sent without signing.
+
+For signing only::
+
+    signatures = SignatureHooks(
+        SignatureHooksMode.SIGN_REQUEST,
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "key_resolver": client_key_resolver,
+            "tag": "example-api",
+        },
+    )
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.post("https://api.example.com/items", json={"hello": "world"})
+
+For verification only::
+
+    signatures = SignatureHooks(
+        SignatureHooksMode.VERIFY_RESPONSE,
+        verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": server_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@status",),
+        },
+    )
+    with httpx2.Client(event_hooks=signatures.event_hooks) as client:
+        response = client.get("https://api.example.com/items")
+        results = response.extensions["http_message_signatures"]
+
+The same modes work with ``AsyncClient(event_hooks=signatures.async_event_hooks)``. Supply a ``sign_options`` dictionary
+when signing requests and a ``verify_options`` dictionary when verifying responses. Omit the dictionary for any disabled
+operation.
+
+To accept a supplied request digest, set ``"use_existing_digest": True`` in ``sign_options``. The hooks always
+validate it against the buffered request body. When retrying a request previously signed by the same hooks, the
+hooks inject this option automatically unless you explicitly set it to ``False``. The hooks also allow digest reuse on
+redirects that retain the body. If you change the body, remove or replace its existing digest before signing again.
+
+.. warning::
+
+ When response verification is enabled, HTTPX2 updates its client cookie jar before running the verification hook.
+ Verification failure does not undo cookie changes,
+ even when Set-Cookie coverage is required. These hooks therefore do not provide authenticated automatic cookie
+ persistence. Applications relying on signature-authenticated cookies need verification earlier in the HTTPX2 response
+ lifecycle, such as an HTTPX2 transport wrapper. Restoring a cookie-jar snapshot is unsafe with concurrent requests.
+
+aiohttp integration
+~~~~~~~~~~~~~~~~~~~
+
+Install the optional dependency (aiohttp 3.14 or later)::
+
+    pip install 'http-message-signatures[aiohttp]'
+
+``http_message_signatures.aiohttp.SignatureMiddleware`` signs requests and verifies responses through
+``aiohttp.ClientSession``. Its ``sign_options`` and ``verify_options`` dictionaries accept custom key resolvers and
+independent algorithms. Pass ``session_kwargs`` to the session constructor::
+
+    import aiohttp
+    from http_message_signatures.aiohttp import SignatureMiddleware, SignatureMiddlewareMode
+
+    signatures = SignatureMiddleware(
+        sign_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "client-1",
+            "key_resolver": client_key_resolver,
+            "tag": "example-api",
+        },
+        verify_options={
+            "origin": "https://api.example.com",
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": server_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@status", '"@method";req', '"@target-uri";req'),
+        },
+    )
+    async with aiohttp.ClientSession(**signatures.session_kwargs) as client:
+        async with client.post("https://api.example.com/items", json={"hello": "world"}, allow_redirects=False) as response:
+            response.raise_for_status()
+            data = await response.json()
+            results = signatures.verification_results(response)
+
+The first constructor argument selects the mode. ``SignatureMiddlewareMode.SIGN_REQUEST`` needs only ``sign_options``;
+``SignatureMiddlewareMode.VERIFY_RESPONSE`` needs only ``verify_options``. The default,
+``SignatureMiddlewareMode.SIGN_REQUEST_VERIFY_RESPONSE``, needs both dictionaries. The middleware forwards supplied
+signature options to the base signer and verifier; those methods provide defaults for omitted options.
+
+Signing buffers the upload, generates Content-Digest, and signs the prepared request. aiohttp's ``compress=True`` and
+``compress="gzip"`` options work: the middleware uses aiohttp's compressor before signing. Retries and redirects reuse
+buffered content without recompressing it. To supply precompressed content yourself, send encoded bytes with
+Content-Encoding. Existing digests require ``"use_existing_digest": True`` in ``sign_options`` and must match the encoded
+body. The middleware permits reuse on retries of the same request unless you explicitly set this option to ``False``.
+
+Verification checks the encoded response before decoding it for ``read()``, ``text()``, ``json()``, and ``content``.
+``VerifyResult.body`` contains the encoded bytes. Client buffering has no size limit, retains encoded and decoded
+content in memory, and discards HTTP chunk boundaries. Streaming readers do not bound this memory use. Decoded replay
+uses aiohttp's internal payload parser and stream APIs. Signing-only mode leaves response handling to aiohttp.
+
+Place the signature middleware last, so other middleware can change requests before signing and read responses after
+verification. Keep ``auto_decompress=False`` from ``session_kwargs`` and retain the signature middleware when overriding
+the per-request middleware list. Setting ``auto_decompress=True`` can expose unverified content to aiohttp's decoder
+before the middleware rejects it.
+
+Requests and redirects must match each enabled operation's configured origin. Keep ``allow_redirects=False`` unless
+your verification policy requires signed Location on redirect responses: an origin check does not authenticate paths
+within that origin. Require coverage of other fields the application trusts, including Content-Type and Content-Encoding.
+Failed verification prevents cookie-jar updates; authenticating cookies also requires ``'"set-cookie";bs'`` coverage.
+
+aiohttp servers
+^^^^^^^^^^^^^^^
+
+``http_message_signatures.aiohttp.ServerSignatureMiddleware`` verifies requests and signs responses through
+``aiohttp.web.Application``. ``ServerVerificationOptions`` and ``ServerSigningOptions`` accept independent algorithms
+and key resolvers, without an ``origin``. Applications control accepted hosts, trusted proxies, and authorization.
+
+This example uses the client and server key resolvers defined earlier::
+
+    from aiohttp import web
+    from http_message_signatures import InvalidSignature, algorithms
+    from http_message_signatures.aiohttp import ServerSignatureMiddleware
+
+    signatures = ServerSignatureMiddleware(
+        verify_options={
+            "signature_algorithm": algorithms.ED25519,
+            "key_resolver": client_key_resolver,
+            "expect_tag": "example-api",
+            "require_components": ("@method", "@target-uri"),
+        },
+        sign_options={
+            "signature_algorithm": algorithms.ED25519,
+            "key_id": "server-1",
+            "key_resolver": server_key_resolver,
+            "tag": "example-api",
+            "covered_component_ids": (
+                "@status", "content-type", '"@method";req', '"@target-uri";req',
+            ),
+        },
+    )
+
+    @web.middleware
+    async def signature_errors(request, handler):
+        try:
+            return await handler(request)
+        except InvalidSignature:
+            raise web.HTTPForbidden(text="Invalid request signature") from None
+
+    async def echo(request):
+        results = signatures.verification_results(request)
+        # Apply your application's authorization policy using these verified results.
+        return web.json_response(await request.json())
+
+    app = web.Application(**signatures.application_kwargs)
+    app.middlewares.insert(0, signature_errors)
+    app.router.add_post("/items", echo)
+    app.on_response_prepare.append(signatures.on_response_prepare)
+    web.run_app(app)
+
+The first argument selects ``ServerSignatureMiddlewareMode.VERIFY_REQUEST``, ``SIGN_RESPONSE``, or
+``VERIFY_REQUEST_SIGN_RESPONSE`` (the default). Supply options for the enabled operations. Verification-only mode needs
+no preparation callback; signing-only mode leaves request bodies to the handler. The base signer and verifier supply
+omitted defaults. Configure response ``covered_component_ids`` explicitly because the base defaults cover requests;
+the middleware adds Content-Digest coverage.
+
+``application_kwargs`` installs the middleware and, when verifying, sets ``handler_args={"auto_decompress": False}``.
+Keep that setting when adding other options. The middleware verifies headers and encoded content before decoding or
+invoking the handler. Both encoded and decoded buffers respect ``request.client_max_size``; zero disables the limit.
+Handlers can use ``read()``, ``text()``, ``json()``, ``post()``, ``multipart()``, and ``content`` normally.
+``verification_results(request)`` returns successful results with encoded content in ``VerifyResult.body``.
+
+Place trusted proxy middleware before signature verification and body consumers after it. The middleware captures the
+effective request URL and headers for ``;req`` response components; it does not trust Forwarded headers automatically.
+Applications handle ``InvalidSignature`` (403 in this example), authorization, and replay prevention. Require coverage
+of fields the application trusts, such as Content-Type, Content-Encoding, Cookie, Set-Cookie, or Location.
+
+For signing, return a ``web.Response`` with bytes, text, JSON, or a finite Payload. The middleware buffers and closes
+Payloads before preparation. aiohttp applies ``enable_compression()`` normally; the preparation callback signs encoded
+content and finalized headers, including cookies. HEAD, 204, and 304 responses have empty content digests. Existing
+digests require ``"use_existing_digest": True`` in ``sign_options`` and must match the transmitted content.
+
+Register ``on_response_prepare`` last, after callbacks that modify headers. For subapplications, the callback must
+run after child callbacks too; register it once for each route's application chain, on the relevant leaf application.
+The middleware checks this order before invoking the handler. Place the signature middleware outside middleware
+that changes response bodies, and do not change bodies or covered headers after preparation. Application error
+responses also pass through the signing callback; a response signature does not imply that its request was verified.
+If signing fails, the adapter closes the connection before sending response headers.
+
+Bytes-backed responses support explicit ``prepare()`` calls. Return Payload responses without preparing them yourself
+so the middleware can buffer them. Automatic signing does not support ``StreamResponse``, SSE, ``FileResponse``,
+WebSockets, or chunked responses with compression; use a buffered ``web.Response`` instead. An explicit Content-Length
+must match the final bytes body. When buffering a Payload, the middleware honors its declared Content-Length limit.
+Response buffering has no size limit; supply finite bodies that fit in memory. Request replay uses aiohttp's private
+payload and read-cache attributes, and response signing reads its private compressed-body cache.
 
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
-``prepare()`` builds the RFC 9421 signature base without reading a private key or modifying the message.
+``prepare()`` builds the RFC 9421 signature base without reading a private key. When you supply ``body=``, it generates
+Content-Digest if absent and adds digest coverage to the signature.
 It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
 nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
 ``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
 
-This example expects an asynchronous ``sign_base`` function that signs the supplied bytes with Ed25519 and
-returns the raw 64-byte signature. The client must use the private key identified by ``key_id``::
+In this example, ``request`` is a prepared Requests request whose ``body`` contains encoded content bytes and whose
+headers do not yet contain Content-Digest. Passing ``body=request.body`` makes ``prepare()`` generate the digest
+and add it to the covered components before building the signing input.
+
+The asynchronous ``sign_base`` function signs the supplied bytes with Ed25519 and returns the raw 64-byte signature.
+The external signer must use the private key identified by ``key_id``::
 
     from collections.abc import Awaitable, Callable
 
@@ -94,13 +386,12 @@ returns the raw 64-byte signature. The client must use the private key identifie
         prepared = signer.prepare(
             request,
             key_id=key_id,
+            body=request.body,
             label="sig1",
-            covered_component_ids=("@method", "@authority", "@target-uri", "content-digest"),
         )
         signature = await sign_base(prepared.signature_base)
         signer.apply(request, prepared, signature)
 
-Populate ``Content-Digest`` from the request body before this example runs, as in the synopsis above.
 The same two calls work with a synchronous signer or a signing job completed in another process.
 No local ``key_resolver`` is needed. The existing ``sign()`` method still resolves a local key and performs all three
 steps synchronously.

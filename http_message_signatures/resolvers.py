@@ -1,14 +1,18 @@
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cached_property
-from typing import ClassVar
+from typing import ClassVar, TypeAlias
 
 import http_sf
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from http_sf.compat import Dictionary, Item, List
 
 from ._url import parse_url
 from .exceptions import HTTPMessageSignaturesException
 from .structures import CaseInsensitiveDict, get_header_field_lines
+
+SigningKey: TypeAlias = bytes | rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey | ed25519.Ed25519PrivateKey
+VerificationKey: TypeAlias = bytes | rsa.RSAPublicKey | ec.EllipticCurvePublicKey | ed25519.Ed25519PublicKey
 
 
 class HTTPSignatureComponentResolver:
@@ -35,8 +39,9 @@ class HTTPSignatureComponentResolver:
     be inferred from ``url``, such as an absolute-form proxy target or ``*``.
     The supplied target and URL must describe the same request.
 
-    Whole-field ``sf`` serialization uses the field type registered in
-    ``http_sf``. Unknown types and malformed values raise
+    Whole-field ``sf`` serialization treats Content-Digest as a Dictionary and
+    uses the field type registered in ``http_sf`` for other fields. Unknown
+    types and malformed values raise
     :class:`~http_message_signatures.HTTPMessageSignaturesException`.
     """
 
@@ -128,7 +133,11 @@ class HTTPSignatureComponentResolver:
             if cache_key in self._serialized_structured_fields:
                 return self._serialized_structured_fields[cache_key]
             try:
-                parsed = http_sf.parse(field_value.encode(), name=component_id)
+                parsed = http_sf.parse(
+                    field_value.encode(),
+                    name=component_id,
+                    tltype="dictionary" if component_id == "content-digest" else None,
+                )
                 serialized = http_sf.ser(parsed)
             except KeyError as e:
                 raise HTTPMessageSignaturesException(
@@ -244,6 +253,9 @@ class HTTPSignatureKeyResolver:
 
     Return PEM bytes or the appropriate cryptography key object for asymmetric
     algorithms. For HMAC, return the same secret bytes from both methods.
+    The public type aliases ``http_message_signatures.SigningKey`` and
+    ``http_message_signatures.VerificationKey`` describe the accepted signing
+    and verification key types, respectively.
     """
 
     def resolve_public_key(self, key_id: str):
@@ -253,3 +265,25 @@ class HTTPSignatureKeyResolver:
     def resolve_private_key(self, key_id: str):
         """Return the signing key for ``key_id`` or raise if it is unavailable."""
         raise NotImplementedError("This method must be implemented by a subclass.")
+
+
+class MappingKeyResolver(HTTPSignatureKeyResolver):
+    """Resolve locally configured keys without a custom resolver subclass.
+
+    Public and private mappings are separate, including for HMAC. For unknown key IDs,
+    ``resolve_public_key()`` returns ``None`` and ``resolve_private_key()`` raises
+    ``KeyError``. Keys may be PEM
+    bytes, cryptography key objects, or shared secret bytes, as for the base resolver.
+    The constructor copies the mappings, so changes to the supplied mappings do not
+    affect which keys this resolver trusts.
+    """
+
+    def __init__(self, *, public_keys: Mapping[str, VerificationKey], private_keys: Mapping[str, SigningKey]) -> None:
+        self.public_keys = dict(public_keys)
+        self.private_keys = dict(private_keys)
+
+    def resolve_public_key(self, key_id: str) -> VerificationKey | None:
+        return self.public_keys.get(key_id)
+
+    def resolve_private_key(self, key_id: str) -> SigningKey:
+        return self.private_keys[key_id]

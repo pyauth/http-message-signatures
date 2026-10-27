@@ -5,8 +5,7 @@ lint:
 	mypy --check-untyped-defs http_message_signatures
 
 test: lint
-	python ./test/test.py -v
-	python ./test/test_mldsa.py -v
+	python -m unittest discover -s test -p 'test*.py' -v
 
 init_docs:
 	cd docs; sphinx-quickstart

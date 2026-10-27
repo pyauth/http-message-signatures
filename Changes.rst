@@ -1,3 +1,12 @@
+Changes for v3.0.0 (2026-10-25)
+===============================
+
+-  Add ECDSA P-384/SHA-384 support (#51)
+
+-  Add aiohttp client and server signature middleware (#45)
+
+-  Add HTTPX2 signature hooks and shared digest helpers (#44)
+
 Changes for v2.2.0 (2026-10-22)
 ===============================
 

@@ -9,10 +9,17 @@ from warnings import warn
 import http_sf
 from http_sf.compat import Dictionary, InnerList, Item
 
+from ._components import _component_identity, _parse_component_ids
 from .algorithms import HTTPSignatureAlgorithm
+from .digests import ContentDigest, _is_content_digest
 from .exceptions import HTTPMessageSignaturesException, InvalidSignature
 from .resolvers import HTTPSignatureComponentResolver, HTTPSignatureKeyResolver
-from .structures import PreparedSignature, VerifyResult, get_header_field_lines, get_header_fields
+from .structures import (
+    PreparedSignature,
+    VerifyResult,
+    get_header_field_lines,
+    get_header_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +30,8 @@ class SignatureVerifyWarning(UserWarning):
 
 class HTTPSignatureHandler:
     signature_metadata_parameters: ClassVar[set[str]] = {"alg", "created", "expires", "keyid", "nonce", "tag"}
+    #: Shared digest implementation for opt-in body signing and verification.
+    content_digest_class: type[ContentDigest] = ContentDigest
 
     def __init__(
         self,
@@ -89,12 +98,12 @@ class HTTPSignatureHandler:
             component_key = str(component_id)
             # Reject repeated identities before resolving potentially large values.
             # Component identity ignores parameter order (RFC 9421 section 2).
-            component_identity = (component_id.value, frozenset(component_id.params.items()))
-            if component_identity in seen_components:
+            identity = _component_identity(component_id)
+            if identity in seen_components:
                 raise HTTPMessageSignaturesException(
                     f'Component ID "{component_key}" appeared multiple times in signature input'
                 )
-            seen_components.add(component_identity)
+            seen_components.add(identity)
             component_value = component_resolver.resolve(component_id)
             if not isinstance(component_value, str):
                 raise HTTPMessageSignaturesException(f'Component value for "{component_key}" must be a string')
@@ -174,19 +183,7 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         )
 
     def _parse_covered_component_ids(self, covered_component_ids):
-        if isinstance(covered_component_ids, (str, bytes, bytearray)):
-            raise HTTPMessageSignaturesException(
-                'covered_component_ids must be a sequence of component strings, such as ("date",)'
-            )
-        covered_component_nodes = []
-        for component_id in covered_component_ids:
-            component_name_node = Item()
-            if component_id.startswith('"'):
-                component_name_node.parse(component_id.encode())
-            else:
-                component_name_node.value = component_id
-            covered_component_nodes.append(component_name_node)
-        return covered_component_nodes
+        return _parse_component_ids(covered_component_ids)
 
     def _armor_set_cookie(self, message, covered_component_nodes):
         field_lines = {}
@@ -213,6 +210,8 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
         append_if_signature_exists: bool = False,
+        body: bytes | None = None,
+        use_existing_digest: bool = False,
     ):
         """Sign a message in place; return ``None``.
 
@@ -237,11 +236,21 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             automatically receive ``bs``; explicit invalid flags are rejected.
         :param append_if_signature_exists: Preserve existing signatures and add a
             new label. Otherwise replace existing signature headers.
+        :param body: Optional content bytes before decoding. When supplied,
+            ``sign()`` generates Content-Digest if absent and adds digest coverage
+            to the signature, including when ``body=b""``.
+        :param use_existing_digest: Whether ``sign()`` may reuse an existing
+            Content-Digest. When true, ``sign()`` preserves the field and validates
+            it against ``body`` if supplied. Without ``body``, ``sign()`` checks
+            only the digest's format and algorithms; you must ensure it matches
+            the content and include it in ``covered_component_ids`` to sign it.
+            If this option is true but neither a digest nor ``body`` is available,
+            ``sign()`` raises an error.
         :raises HTTPMessageSignaturesException: A component or signature parameter
             is invalid or an existing signature cannot be appended to.
 
         Key resolver and algorithm errors can also propagate. Signing does not
-        calculate a body digest; supply and cover a digest header when needed.
+        calculate a body digest unless ``body`` is supplied.
         """
         if self.key_resolver is None:
             raise HTTPMessageSignaturesException("A key_resolver is required for local signing")
@@ -255,6 +264,8 @@ class HTTPMessageSigner(HTTPSignatureHandler):
             tag=tag,
             include_alg=include_alg,
             covered_component_ids=covered_component_ids,
+            body=body,
+            use_existing_digest=use_existing_digest,
         )
         key = self.key_resolver.resolve_private_key(key_id)
         signer = self.signature_algorithm(private_key=key)
@@ -273,12 +284,18 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         tag: str | None = None,
         include_alg: bool = True,
         covered_component_ids: Sequence[str] = ("@method", "@authority", "@target-uri"),
+        body: bytes | None = None,
+        use_existing_digest: bool = False,
     ) -> PreparedSignature:
-        """Build the signing input without resolving a key or changing the message.
+        """Build the signing input without resolving a key.
 
         Arguments have the same meaning and defaults as in ``sign()``. Creation
         time is captured here, before any remote signing delay. Header append or
         replacement policy is selected later in ``apply()``.
+        ``prepare()`` handles ``body`` and ``use_existing_digest`` as documented
+        for ``sign()``. It changes the message only when it generates a digest.
+        Supply bytes that match the message's content; ``prepare()`` does not read
+        the message's body to check that you supplied the correct bytes.
 
         :returns: Immutable signing input for a synchronous or asynchronous signer.
             Sign ``signature_base`` with the configured algorithm and the key
@@ -302,6 +319,9 @@ class HTTPMessageSigner(HTTPSignatureHandler):
         if tag is not None:
             signature_params["tag"] = tag
         covered_component_nodes = self._parse_covered_component_ids(covered_component_ids)
+        self.content_digest_class.prepare(message.headers, body, use_existing_digest=use_existing_digest)
+        if body is not None and not any(_is_content_digest(node) for node in covered_component_nodes):
+            covered_component_nodes.append(Item("content-digest"))
         self._armor_set_cookie(message, covered_component_nodes)
         sig_base, sig_params_node, _ = self._build_signature_base(
             message, covered_component_ids=covered_component_nodes, signature_params=signature_params
@@ -528,6 +548,8 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
         max_age: datetime.timedelta | None = datetime.timedelta(days=1),
         expect_tag: str | None = None,
         expect_label: str | None = None,
+        require_components: Sequence[str] = (),
+        body: bytes | None = None,
     ) -> list[VerifyResult]:
         """Return verified signatures matching the requested selection.
 
@@ -539,15 +561,24 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
             selecting among multiple signatures unless label-only selection is enabled.
         :param expect_label: Also select this signature dictionary label. Labels
             are not signed; normally ``expect_tag`` must be supplied with this option.
+        :param require_components: Components that ``verify()`` requires every
+            selected signature to cover. Use the same component syntax as for
+            signing. ``verify()`` ignores parameter order when comparing components
+            and adds no coverage requirements for this option when it is omitted.
+        :param body: Optional content bytes before decoding. When supplied,
+            ``verify()`` validates the signed Content-Digest against these bytes
+            and returns them in each result's ``body`` field. It requires every
+            selected signature to cover the digest unless the content is empty
+            and Content-Digest is absent; in that case, each result's ``body`` is ``None``.
         :returns: A list of :class:`~http_message_signatures.VerifyResult` objects.
             Every selected signature must verify; no partial result is returned.
         :raises InvalidSignature: A signature is missing, malformed, expired,
             uses an unexpected algorithm, or fails cryptographic verification.
         :raises HTTPMessageSignaturesException: The selection policy is invalid.
 
-        Check the returned coverage before trusting message data. Body digest
-        validation, authorization, and nonce replay detection remain the caller's
-        responsibility. A valid signature alone does not establish those properties.
+        Check returned coverage, or specify ``require_components``, before trusting
+        message data. Without ``body``, digest validation remains the caller's
+        responsibility. Authorization and replay detection are always caller policy.
         """
         if expect_tag is None and expect_label is not None:
             if self.allow_label_only_selection:
@@ -558,6 +589,10 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 )
             else:
                 raise HTTPMessageSignaturesException("expect_tag must be set if expect_label is set")
+
+        required = _parse_component_ids(require_components)
+        if len({_component_identity(node) for node in required}) != len(required):
+            raise HTTPMessageSignaturesException("Duplicate required component identifier")
 
         # Share parsed message data across selected signatures, but never across
         # verify() calls: callers may mutate or reuse a message between calls.
@@ -577,5 +612,26 @@ class HTTPMessageVerifier(HTTPSignatureHandler):
                 max_age=max_age,
                 component_resolver_factory=component_resolver_factory,
             )
+            if required:
+                covered = {
+                    _component_identity(node) for node in _parse_component_ids(tuple(verify_result.covered_components))
+                }
+                for component in required:
+                    if _component_identity(component) not in covered:
+                        raise InvalidSignature(f"Required component {component} was not covered by the signature")
             verify_results.append(verify_result)
+        if body is not None:
+            return self.verify_body(message, verify_results, body)
         return verify_results
+
+    def verify_body(self, message, results: Sequence[VerifyResult], body: bytes) -> list[VerifyResult]:
+        """This method validates body digests after ``verify()`` has authenticated headers."""
+        self.content_digest_class._check_body(body)
+        needs_digest = bool(body) or "content-digest" in get_header_fields(message.headers)
+        verified = []
+        for result in results:
+            digest_verified = self.content_digest_class.verify_components(result.covered_components, body)
+            if needs_digest and not digest_verified:
+                raise InvalidSignature("The message body requires a signed Content-Digest")
+            verified.append(result._replace(body=body) if digest_verified else result)
+        return verified
