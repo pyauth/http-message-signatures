@@ -6,6 +6,7 @@ lint:
 
 test: lint
 	python ./test/test.py -v
+	python ./test/test_mldsa.py -v
 
 init_docs:
 	cd docs; sphinx-quickstart
