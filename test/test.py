@@ -49,9 +49,9 @@ from http_message_signatures.algorithms import (
     ECDSA_P256_SHA256,
     ED25519,
     HMAC_SHA256,
-    MLDSA44,
-    MLDSA65,
-    MLDSA87,
+    ML_DSA_44,
+    ML_DSA_65,
+    ML_DSA_87,
     RSA_PSS_SHA512,
     RSA_V1_5_SHA256,
 )
@@ -310,9 +310,9 @@ class TestHTTPMessageSignatures(unittest.TestCase):
             (ED25519, "test-key-ed25519"),
             (RSA_PSS_SHA512, "test-key-rsa-pss"),
             (RSA_V1_5_SHA256, "test-key-rsa"),
-            (MLDSA44, "test-key-mldsa44"),
-            (MLDSA65, "test-key-mldsa65"),
-            (MLDSA87, "test-key-mldsa87"),
+            (ML_DSA_44, "test-key-mldsa44"),
+            (ML_DSA_65, "test-key-mldsa65"),
+            (ML_DSA_87, "test-key-mldsa87"),
         ):
             with self.subTest(algorithm=algorithm.algorithm_id):
                 message = copy.deepcopy(self.test_request)

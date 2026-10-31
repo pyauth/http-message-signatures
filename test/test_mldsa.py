@@ -26,12 +26,12 @@ from http_message_signatures import (
     HTTPSignatureKeyResolver,
     InvalidSignature,
 )
-from http_message_signatures.algorithms import MLDSA44, MLDSA65, MLDSA87
+from http_message_signatures.algorithms import ML_DSA_44, ML_DSA_65, ML_DSA_87
 
 ALGORITHMS = {
-    "ml-dsa-44": (MLDSA44, MLDSA44PrivateKey),
-    "ml-dsa-65": (MLDSA65, MLDSA65PrivateKey),
-    "ml-dsa-87": (MLDSA87, MLDSA87PrivateKey),
+    "ml-dsa-44": (ML_DSA_44, MLDSA44PrivateKey),
+    "ml-dsa-65": (ML_DSA_65, MLDSA65PrivateKey),
+    "ml-dsa-87": (ML_DSA_87, MLDSA87PrivateKey),
 }
 
 PUBLIC_KEY_CLASSES = {
@@ -130,13 +130,13 @@ class TestMLDSAConformanceVectors(unittest.TestCase):
 
 class TestMLDSAKeyMaterial(unittest.TestCase):
     def test_seed_private_key_accepted(self):
-        MLDSA44(private_key=(TEST_DIR / "test-key-mldsa44.key").read_bytes())
+        ML_DSA_44(private_key=(TEST_DIR / "test-key-mldsa44.key").read_bytes())
 
     def test_expanded_private_key_rejected(self):
         # PKCS#8 (RFC 9881) carrying only the 2560-octet skEncode of test-key-mldsa44, without the seed.
         # httpsig-pq requires the 32-octet seed and forbids accepting the expanded form in its place.
         with self.assertRaises(ValueError):
-            MLDSA44(private_key=(TEST_DIR / "test-key-mldsa44-expanded.key").read_bytes())
+            ML_DSA_44(private_key=(TEST_DIR / "test-key-mldsa44-expanded.key").read_bytes())
 
     def test_seed_length(self):
         for algorithm_id, (_, private_key_class) in ALGORITHMS.items():

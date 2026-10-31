@@ -213,8 +213,8 @@ class ED25519(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.public_key.verify(signature=signature, data=message)
 
 
-class MLDSA44(HTTPSignatureAlgorithm, PEMKeyLoader):
-    """ML-DSA-44 using PEM bytes or cryptography MLDSA44 key objects.
+class ML_DSA_44(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-44 using PEM bytes or cryptography ML-DSA-44 key objects.
 
     ``password`` decrypts an encrypted PEM private key when provided.
     """
@@ -235,8 +235,8 @@ class MLDSA44(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.public_key.verify(signature=signature, data=message)
 
 
-class MLDSA65(HTTPSignatureAlgorithm, PEMKeyLoader):
-    """ML-DSA-65 using PEM bytes or cryptography MLDSA65 key objects.
+class ML_DSA_65(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-65 using PEM bytes or cryptography ML-DSA-65 key objects.
 
     ``password`` decrypts an encrypted PEM private key when provided.
     """
@@ -257,8 +257,8 @@ class MLDSA65(HTTPSignatureAlgorithm, PEMKeyLoader):
         self.public_key.verify(signature=signature, data=message)
 
 
-class MLDSA87(HTTPSignatureAlgorithm, PEMKeyLoader):
-    """ML-DSA-87 using PEM bytes or cryptography MLDSA87 key objects.
+class ML_DSA_87(HTTPSignatureAlgorithm, PEMKeyLoader):
+    """ML-DSA-87 using PEM bytes or cryptography ML-DSA-87 key objects.
 
     ``password`` decrypts an encrypted PEM private key when provided.
     """
