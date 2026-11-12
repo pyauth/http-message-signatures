@@ -349,6 +349,36 @@ when choosing expiration times; an expired result will still be rejected by a ve
 existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
 signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
 
+For example, an application with an authenticated Boto3 AWS KMS client and an RSA key with ``SIGN_VERIFY`` usage
+and permission to call ``kms:Sign`` can use the
+`KMS Sign API <https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html>`_ in digest mode:
+
+.. code-block:: python
+
+    import hashlib
+
+    import requests
+    from http_message_signatures import HTTPMessageSigner, algorithms
+
+    # kms_client and key_id are supplied by the application.
+    request = requests.Request("POST", "https://example.com/", json={"hello": "world"}).prepare()
+    signer = HTTPMessageSigner(signature_algorithm=algorithms.RSA_V1_5_SHA256)
+    prepared = signer.prepare(request, key_id=key_id, body=request.body)
+    kms_response = kms_client.sign(
+        KeyId=key_id,
+        Message=hashlib.sha256(prepared.signature_base).digest(),
+        MessageType="DIGEST",
+        SigningAlgorithm="RSASSA_PKCS1_V1_5_SHA_256",
+    )
+    signer.apply(request, prepared, kms_response["Signature"])
+
+Passing ``body=request.body`` generates Content-Digest and includes it in the signature's coverage.
+Hash ``prepared.signature_base``, which includes the covered components and signature parameters, rather than the
+request body or its Content-Digest. ``MessageType="DIGEST"`` prevents KMS from hashing this SHA-256 digest again.
+The KMS algorithm must match ``algorithms.RSA_V1_5_SHA256``. Boto3 returns raw signature bytes; pass them directly to
+``apply()`` without base64 encoding or decoding. The receiving application must associate ``key_id`` with the
+corresponding public key to verify the HTTP message signature.
+
 Structured Field serialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
