@@ -1,5 +1,13 @@
 .. include:: ../README.rst
 
+Guides
+======
+
+.. toctree::
+   :maxdepth: 1
+
+   remote-signing
+
 API documentation
 =================
 
