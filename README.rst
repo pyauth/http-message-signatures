@@ -43,10 +43,18 @@ Synopsis
     verifier = HTTPMessageVerifier(signature_algorithm=algorithms.HMAC_SHA256, key_resolver=MyHTTPSignatureKeyResolver())
     verifier.verify(request, body=request.body)
 
-Pass content bytes before decoding as ``body=`` to sign and verify the body's Content-Digest.
-To reuse an existing digest when signing, also set ``use_existing_digest=True``.
-Customize signed components with ``covered_component_ids``, for example
-``covered_component_ids=("@method", "@target-uri", "content-type")``.
+Signing Content-Digest and checking it against the body protects the body against tampering.
+Supply content bytes before decoding as ``body=``. With this argument, ``sign()`` generates Content-Digest if absent
+and adds digest coverage to the signature, while ``verify()`` checks the signed digest against those bytes.
+When signing, components covered by the signature can be customized using ``covered_component_ids``, for example
+``covered_component_ids=("@method", "@authority", "@target-uri", "content-type", "content-digest")``.
+
+Signing a message with an existing Content-Digest requires ``use_existing_digest=True`` on ``sign()`` or
+``prepare()``. With ``body=`` supplied, these methods validate the existing digest against those bytes and add digest
+coverage to the signature. Without ``body=``, they check only the digest's format and algorithms; you must ensure
+the digest matches the content and include it in ``covered_component_ids`` to sign it. Both methods preserve existing
+digest field lines and raise an error if the digest is malformed or does not match supplied content.
+They also raise an error if you supply ``use_existing_digest=True`` with neither a digest nor body bytes.
 
 .. admonition:: See what is signed
 
@@ -71,6 +79,8 @@ Customize signed components with ``covered_component_ids``, for example
 
 Integrations
 ------------
+
+Three integrations are available: `Requests <https://github.com/pyauth/requests-http-signature>`_, HTTPX2, and aiohttp.
 
 Requests
 ~~~~~~~~
