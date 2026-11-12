@@ -271,12 +271,19 @@ request was verified.
 Remote and asynchronous signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Use ``prepare()`` and ``apply()`` when a remote service or asynchronous signer holds the key.
-``prepare()`` builds the signing input; sign ``prepared.signature_base`` with the configured algorithm and key,
-then pass the raw signature bytes to ``apply()``.
+Use ``prepare()`` and ``apply()`` when a KMS, HSM, SSH agent, or asynchronous client holds the signing key.
+``prepare()`` builds the RFC 9421 signature base without reading a private key. When you supply ``body=``, it generates
+Content-Digest if absent and adds digest coverage to the signature.
+It accepts the signing options used by ``sign()``, including covered components, creation and expiration times,
+nonce, tag, label, and ``include_alg``. The returned ``PreparedSignature`` contains immutable bytes and strings.
+``apply()`` writes the Signature-Input and Signature headers after the external signer returns.
 
-Here, ``request`` is a prepared Requests request. ``sign_base`` signs the supplied bytes with Ed25519 using
-the private key identified by ``key_id``::
+In this example, ``request`` is a prepared Requests request whose ``body`` contains encoded content bytes and whose
+headers do not yet contain Content-Digest. Passing ``body=request.body`` makes ``prepare()`` generate the digest
+and add it to the covered components before building the signing input.
+
+The asynchronous ``sign_base`` function signs the supplied bytes with Ed25519 and returns the raw 64-byte signature.
+The external signer must use the private key identified by ``key_id``::
 
     from collections.abc import Awaitable, Callable
 
@@ -293,10 +300,44 @@ the private key identified by ``key_id``::
         signature = await sign_base(prepared.signature_base)
         signer.apply(request, prepared, signature)
 
-``apply()`` rejects changes to covered values, but does not verify the returned signature or check the body against
-its digest. Use a trusted signer, protect the prepared input, and keep the message stable until it is sent.
-See the `remote signing reference <https://github.com/pyauth/http-message-signatures/blob/main/docs/remote-signing.rst>`_
-for service-specific hashing and signature formats.
+The same two calls work with a synchronous signer or a signing job completed in another process.
+No local ``key_resolver`` is needed. The existing ``sign()`` method still resolves a local key and performs all three
+steps synchronously.
+
+Pass ``prepared.signature_base`` to the signing algorithm as bytes, without base64 encoding or a trailing newline.
+``prepared.signature_params`` is the serialized ``@signature-params`` value; it is useful for inspecting the covered
+component list and signed metadata. Do not rebuild either value yourself. The selected algorithm applies to the remote
+signer even when ``include_alg=False``; omitting the parameter does not negotiate an algorithm.
+
+External signing services differ in their accepted input and output formats. When calling a signing service, configure
+its signing operation according to
+`RFC 9421 section 3.3 <https://www.rfc-editor.org/rfc/rfc9421.html#section-3.3>`_. Ed25519 signs the base without prehashing.
+For RSA and ECDSA, an API that accepts raw messages must perform the specified hashing. If the API accepts a digest,
+hash the signature base before calling it and select a mode that does not hash the digest again. The RSA-PSS profile
+uses SHA-512, MGF1 with SHA-512, and a 64-byte salt.
+
+``apply()`` expects raw signature bytes and performs the Structured Field base64 encoding. Decode base64 responses
+from a service before calling it. ECDSA P-256 clients often return DER, while RFC 9421 requires a 64-byte concatenation
+of ``r`` and ``s``, each padded to 32 bytes. Convert DER output using the algorithm's helper::
+
+    signer = HTTPMessageSigner(signature_algorithm=algorithms.ECDSA_P256_SHA256)
+    prepared = signer.prepare(request, key_id="p256-key")
+    # der_signature is the client's ECDSA P-256/SHA-256 signature of prepared.signature_base.
+    signature = algorithms.ECDSA_P256_SHA256.signature_from_der(der_signature)
+    signer.apply(request, prepared, signature)
+
+Retain the prepared object and associate each remote result with its input. Use a trusted signing service and protect
+queued signing input against modification and disclosure: the base contains covered header and URL values.
+``apply()`` compares the message's current signature base with the prepared bytes and rejects changes before writing
+headers. For example, changing a covered method from ``POST`` to ``DELETE`` while awaiting the signature is rejected.
+Changes to uncovered values or values with the same RFC normalization are permitted. This check does not authenticate
+the prepared object, verify the returned signature, or check a body against its digest. Applications must handle those
+responsibilities and keep the message stable during ``apply()`` and until it is sent.
+
+Creation and expiration times are set during preparation and are not refreshed by ``apply()``. Allow for signing delays
+when choosing expiration times; an expired result will still be rejected by a verifier. To add the result alongside
+existing signatures, pass ``append_if_signature_exists=True`` to ``apply()``. Duplicate labels or malformed existing
+signature headers are rejected. By default it replaces existing signature headers, just like ``sign()``.
 
 Structured Field serialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
