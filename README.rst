@@ -584,3 +584,6 @@ Copyright 2022-2026, Andrey Kislyuk and http-message-signatures contributors. Li
 `Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0>`_. Distribution of attribution information,
 LICENSE and NOTICE files with source copies of this package and derivative works is **REQUIRED** as specified by the
 Apache License.
+
+Our interoperability tests use published fixtures from
+`Cloudflare's Web Bot Auth repository <https://github.com/cloudflare/web-bot-auth>`_.
